@@ -1,0 +1,154 @@
+"""Configuration settings for multi-agent market research application."""
+
+import os
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
+
+
+class Config:
+    """Application configuration."""
+
+    # API Keys
+    ALPHA_VANTAGE_API_KEY = os.getenv("ALPHA_VANTAGE_API_KEY", "")
+    NEWS_API_KEY = os.getenv("NEWS_API_KEY", "")
+    TWITTER_API_KEY = os.getenv("TWITTER_API_KEY", "")
+    TWITTER_API_SECRET = os.getenv("TWITTER_API_SECRET", "")
+    ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+    OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+
+    # LLM Configuration
+    LLM_PROVIDER = os.getenv("LLM_PROVIDER", "anthropic")  # 'anthropic' or 'openai'
+    LLM_MODEL = os.getenv("LLM_MODEL", "claude-3-5-sonnet-20241022")  # or 'gpt-4-turbo'
+    LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.3"))
+    LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "4096"))
+
+    # Agent Configuration
+    AGENT_TIMEOUT = int(os.getenv("AGENT_TIMEOUT", "30"))  # seconds
+    AGENT_MAX_RETRIES = int(os.getenv("AGENT_MAX_RETRIES", "2"))
+    PARALLEL_AGENTS = os.getenv("PARALLEL_AGENTS", "true").lower() == "true"
+
+    # Database Configuration
+    DATABASE_PATH = os.getenv("DATABASE_PATH", "market_research.db")
+
+    # API Endpoints
+    ALPHA_VANTAGE_BASE_URL = "https://www.alphavantage.co/query"
+    NEWS_API_BASE_URL = "https://newsapi.org/v2"
+    TWITTER_API_BASE_URL = "https://api.twitter.com/2"
+
+    # Data Sources Configuration
+    YFINANCE_TIMEOUT = int(os.getenv("YFINANCE_TIMEOUT", "10"))
+    NEWS_LOOKBACK_DAYS = int(os.getenv("NEWS_LOOKBACK_DAYS", "7"))
+    MAX_NEWS_ARTICLES = int(os.getenv("MAX_NEWS_ARTICLES", "20"))
+
+    # Technical Analysis Configuration
+    RSI_PERIOD = int(os.getenv("RSI_PERIOD", "14"))
+    MACD_FAST = int(os.getenv("MACD_FAST", "12"))
+    MACD_SLOW = int(os.getenv("MACD_SLOW", "26"))
+    MACD_SIGNAL = int(os.getenv("MACD_SIGNAL", "9"))
+    BB_PERIOD = int(os.getenv("BB_PERIOD", "20"))
+    BB_STD = int(os.getenv("BB_STD", "2"))
+
+    # Sentiment Analysis Configuration
+    SENTIMENT_FACTORS = {
+        "earnings": {
+            "weight": 0.30,
+            "description": "Earnings beats or misses"
+        },
+        "guidance": {
+            "weight": 0.40,
+            "description": "Forward guidance changes"
+        },
+        "stock_reactions": {
+            "weight": 0.20,
+            "description": "Stock price reactions to news"
+        },
+        "strategic_news": {
+            "weight": 0.10,
+            "description": "Strategic announcements and initiatives"
+        }
+    }
+
+    # Cache TTL (Time-To-Live) in seconds
+    CACHE_TTL_PRICE = int(os.getenv("CACHE_TTL_PRICE", "300"))  # 5 minutes
+    CACHE_TTL_NEWS = int(os.getenv("CACHE_TTL_NEWS", "3600"))  # 1 hour
+    CACHE_TTL_FUNDAMENTALS = int(os.getenv("CACHE_TTL_FUNDAMENTALS", "86400"))  # 1 day
+
+    # API Rate Limiting
+    RATE_LIMIT_REQUESTS = int(os.getenv("RATE_LIMIT_REQUESTS", "100"))
+    RATE_LIMIT_WINDOW = int(os.getenv("RATE_LIMIT_WINDOW", "3600"))  # 1 hour
+
+    # FastAPI Configuration
+    API_HOST = os.getenv("API_HOST", "0.0.0.0")
+    API_PORT = int(os.getenv("API_PORT", "8000"))
+    API_RELOAD = os.getenv("API_RELOAD", "true").lower() == "true"
+    CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:3000").split(",")
+
+    # WebSocket Configuration
+    WS_HEARTBEAT_INTERVAL = int(os.getenv("WS_HEARTBEAT_INTERVAL", "30"))
+
+    # Logging Configuration
+    LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+    LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+    @classmethod
+    def validate_config(cls) -> bool:
+        """
+        Validate that required configuration is present.
+
+        Returns:
+            True if configuration is valid, False otherwise
+        """
+        required_keys = []
+
+        # Check LLM API key based on provider
+        if cls.LLM_PROVIDER == "anthropic":
+            if not cls.ANTHROPIC_API_KEY:
+                required_keys.append("ANTHROPIC_API_KEY")
+        elif cls.LLM_PROVIDER == "openai":
+            if not cls.OPENAI_API_KEY:
+                required_keys.append("OPENAI_API_KEY")
+
+        # Warn about missing optional keys
+        optional_keys = []
+        if not cls.ALPHA_VANTAGE_API_KEY:
+            optional_keys.append("ALPHA_VANTAGE_API_KEY")
+        if not cls.NEWS_API_KEY:
+            optional_keys.append("NEWS_API_KEY")
+
+        if required_keys:
+            print(f"ERROR: Missing required configuration: {', '.join(required_keys)}")
+            return False
+
+        if optional_keys:
+            print(f"WARNING: Missing optional configuration: {', '.join(optional_keys)}")
+            print("Some features may be limited without these API keys.")
+
+        return True
+
+    @classmethod
+    def get_llm_config(cls) -> dict:
+        """
+        Get LLM configuration as a dictionary.
+
+        Returns:
+            Dict with LLM settings
+        """
+        return {
+            "provider": cls.LLM_PROVIDER,
+            "model": cls.LLM_MODEL,
+            "temperature": cls.LLM_TEMPERATURE,
+            "max_tokens": cls.LLM_MAX_TOKENS,
+            "api_key": cls.ANTHROPIC_API_KEY if cls.LLM_PROVIDER == "anthropic" else cls.OPENAI_API_KEY
+        }
+
+
+# User agent strings for web scraping (rotating for anti-detection)
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:122.0) Gecko/20100101 Firefox/122.0"
+]
