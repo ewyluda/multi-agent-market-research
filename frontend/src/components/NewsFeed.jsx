@@ -1,12 +1,20 @@
 /**
- * NewsFeed - Displays recent news articles
+ * NewsFeed - Displays recent news articles with source badges
  */
 
 import React from 'react';
+import { NewspaperIcon } from './Icons';
 
 const NewsFeed = ({ analysis }) => {
   if (!analysis || !analysis.agent_results?.news) {
-    return null;
+    return (
+      <div className="glass-card-elevated rounded-xl p-5">
+        <div className="flex items-center space-x-2 mb-4">
+          <NewspaperIcon className="w-4 h-4 text-gray-500" />
+          <span className="text-sm text-gray-500">No news data available</span>
+        </div>
+      </div>
+    );
   }
 
   const newsData = analysis.agent_results.news.data || {};
@@ -17,10 +25,10 @@ const NewsFeed = ({ analysis }) => {
 
   if (displayArticles.length === 0) {
     return (
-      <div className="bg-dark-card border border-dark-border rounded-lg p-6">
-        <h3 className="text-lg font-semibold mb-4">News</h3>
-        <div className="text-gray-500 text-center py-8">
-          No news articles found
+      <div className="glass-card-elevated rounded-xl p-5">
+        <div className="flex items-center space-x-2">
+          <NewspaperIcon className="w-4 h-4 text-gray-500" />
+          <span className="text-sm text-gray-500">No news articles found</span>
         </div>
       </div>
     );
@@ -30,11 +38,18 @@ const NewsFeed = ({ analysis }) => {
     if (!dateString) return '';
     try {
       const date = new Date(dateString);
+      const now = new Date();
+      const diffMs = now - date;
+      const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+      const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+      if (diffHours < 1) return 'Just now';
+      if (diffHours < 24) return `${diffHours}h ago`;
+      if (diffDays < 7) return `${diffDays}d ago`;
+
       return date.toLocaleDateString('en-US', {
         month: 'short',
         day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
       });
     } catch {
       return '';
@@ -42,44 +57,49 @@ const NewsFeed = ({ analysis }) => {
   };
 
   return (
-    <div className="bg-dark-card border border-dark-border rounded-lg p-6">
-      <h3 className="text-lg font-semibold mb-4">
-        News
-        <span className="text-sm text-gray-400 ml-2">
-          ({newsData.total_count || displayArticles.length} articles)
+    <div className="glass-card-elevated rounded-xl p-5">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider flex items-center space-x-2">
+          <NewspaperIcon className="w-4 h-4" />
+          <span>News</span>
+        </h3>
+        <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-accent-blue/15 text-accent-blue border border-accent-blue/20">
+          {newsData.total_count || displayArticles.length} articles
         </span>
-      </h3>
+      </div>
 
-      <div className="space-y-3 max-h-[600px] overflow-y-auto">
+      <div className="space-y-2 max-h-[500px] overflow-y-auto pr-1">
         {displayArticles.map((article, index) => (
           <div
             key={index}
-            className="p-4 bg-dark-bg rounded-md hover:bg-gray-800 transition-colors"
+            className="p-3 bg-dark-inset rounded-lg border-l-2 border-l-accent-blue/30 hover:border-l-accent-blue/60 hover:bg-dark-card-hover transition-all"
           >
-            <div className="flex justify-between items-start mb-2">
-              <h4 className="font-medium text-sm flex-1">
-                {article.url ? (
-                  <a
-                    href={article.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-accent-blue hover:underline"
-                  >
-                    {article.title}
-                  </a>
-                ) : (
-                  article.title
-                )}
-              </h4>
-            </div>
+            <h4 className="text-xs font-medium leading-relaxed mb-1.5">
+              {article.url ? (
+                <a
+                  href={article.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-gray-200 hover:text-accent-blue transition-colors"
+                >
+                  {article.title}
+                </a>
+              ) : (
+                <span className="text-gray-200">{article.title}</span>
+              )}
+            </h4>
 
-            <div className="flex items-center justify-between text-xs text-gray-400">
-              <span>{article.source || 'Unknown Source'}</span>
-              <span>{formatDate(article.published_at)}</span>
+            <div className="flex items-center space-x-2 text-[10px]">
+              {article.source && (
+                <span className="px-1.5 py-0.5 rounded bg-gray-700/50 text-gray-400 font-medium">
+                  {article.source}
+                </span>
+              )}
+              <span className="text-gray-500">{formatDate(article.published_at)}</span>
             </div>
 
             {article.description && (
-              <p className="mt-2 text-xs text-gray-300 line-clamp-2">
+              <p className="mt-1.5 text-[11px] text-gray-400 line-clamp-2 leading-relaxed">
                 {article.description}
               </p>
             )}
@@ -88,7 +108,7 @@ const NewsFeed = ({ analysis }) => {
       </div>
 
       {newsData.recent_count !== undefined && (
-        <div className="mt-4 pt-4 border-t border-dark-border text-xs text-gray-400">
+        <div className="mt-3 pt-3 border-t border-white/5 text-[10px] text-gray-500">
           {newsData.recent_count} articles in the last 24 hours
         </div>
       )}
