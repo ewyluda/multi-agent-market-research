@@ -159,14 +159,18 @@ class Orchestrator:
             sentiment_agent.set_context_data(news_articles, market_data)
 
             self._notify_progress("analyzing_sentiment", ticker, 70)
-            sentiment_result = await asyncio.wait_for(
-                sentiment_agent.execute(),
-                timeout=timeout
-            )
+            try:
+                sentiment_result = await asyncio.wait_for(
+                    sentiment_agent.execute(),
+                    timeout=timeout
+                )
+            except Exception as e:
+                self.logger.error(f"Sentiment agent failed: {e}")
+                sentiment_result = {"success": False, "error": str(e), "data": None, "agent_type": "sentiment", "duration_seconds": 0}
 
             return {
                 "news": news_result if isinstance(news_result, dict) else {"success": False, "error": str(news_result)},
-                "sentiment": sentiment_result,
+                "sentiment": sentiment_result if isinstance(sentiment_result, dict) else {"success": False, "error": str(sentiment_result)},
                 "fundamentals": fundamentals_result if isinstance(fundamentals_result, dict) else {"success": False, "error": str(fundamentals_result)},
                 "market": market_result if isinstance(market_result, dict) else {"success": False, "error": str(market_result)},
                 "technical": technical_result if isinstance(technical_result, dict) else {"success": False, "error": str(technical_result)}
@@ -244,34 +248,35 @@ class Orchestrator:
             ticker=ticker,
             recommendation=final_analysis.get("recommendation", "HOLD"),
             confidence_score=final_analysis.get("confidence", 0.0),
-            overall_sentiment_score=agent_results.get("sentiment", {}).get("data", {}).get("overall_sentiment", 0.0),
+            overall_sentiment_score=((agent_results.get("sentiment") or {}).get("data") or {}).get("overall_sentiment", 0.0),
             solution_agent_reasoning=final_analysis.get("reasoning", ""),
             duration_seconds=duration
         )
 
         # Insert agent results
         for agent_type, result in agent_results.items():
+            result = result or {}
             self.db_manager.insert_agent_result(
                 analysis_id=analysis_id,
                 agent_type=agent_type,
                 success=result.get("success", False),
-                data=result.get("data", {}),
+                data=result.get("data") or {},
                 error=result.get("error"),
                 duration_seconds=result.get("duration_seconds", 0.0)
             )
 
         # Insert sentiment scores
-        sentiment_data = agent_results.get("sentiment", {}).get("data", {})
+        sentiment_data = (agent_results.get("sentiment") or {}).get("data") or {}
         sentiment_factors = sentiment_data.get("factors", {})
         if sentiment_factors:
             self.db_manager.insert_sentiment_scores(analysis_id, sentiment_factors)
 
         # Cache price data
-        market_data = agent_results.get("market", {}).get("data", {})
+        market_data = (agent_results.get("market") or {}).get("data") or {}
         # Note: Would need to format price data properly from market agent
 
         # Cache news articles
-        news_data = agent_results.get("news", {}).get("data", {})
+        news_data = (agent_results.get("news") or {}).get("data") or {}
         news_articles = news_data.get("articles", [])
         if news_articles:
             self.db_manager.insert_news_articles(ticker, news_articles)

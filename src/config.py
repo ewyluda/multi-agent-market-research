@@ -17,10 +17,11 @@ class Config:
     TWITTER_API_SECRET = os.getenv("TWITTER_API_SECRET", "")
     ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+    GROK_API_KEY = os.getenv("GROK_API_KEY", "")
 
     # LLM Configuration
-    LLM_PROVIDER = os.getenv("LLM_PROVIDER", "anthropic")  # 'anthropic' or 'openai'
-    LLM_MODEL = os.getenv("LLM_MODEL", "claude-3-5-sonnet-20241022")  # or 'gpt-4-turbo'
+    LLM_PROVIDER = os.getenv("LLM_PROVIDER", "anthropic")  # 'anthropic', 'openai', or 'xai'
+    LLM_MODEL = os.getenv("LLM_MODEL", "claude-3-5-sonnet-20241022")  # or 'gpt-4-turbo' or 'grok-4-1-fast-reasoning'
     LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.3"))
     LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "4096"))
 
@@ -109,6 +110,9 @@ class Config:
         elif cls.LLM_PROVIDER == "openai":
             if not cls.OPENAI_API_KEY:
                 required_keys.append("OPENAI_API_KEY")
+        elif cls.LLM_PROVIDER == "xai":
+            if not cls.GROK_API_KEY:
+                required_keys.append("GROK_API_KEY")
 
         # Warn about missing optional keys
         optional_keys = []
@@ -135,13 +139,22 @@ class Config:
         Returns:
             Dict with LLM settings
         """
-        return {
+        config = {
             "provider": cls.LLM_PROVIDER,
             "model": cls.LLM_MODEL,
             "temperature": cls.LLM_TEMPERATURE,
             "max_tokens": cls.LLM_MAX_TOKENS,
-            "api_key": cls.ANTHROPIC_API_KEY if cls.LLM_PROVIDER == "anthropic" else cls.OPENAI_API_KEY
         }
+
+        if cls.LLM_PROVIDER == "anthropic":
+            config["api_key"] = cls.ANTHROPIC_API_KEY
+        elif cls.LLM_PROVIDER == "xai":
+            config["api_key"] = cls.GROK_API_KEY
+            config["base_url"] = "https://api.x.ai/v1"
+        else:
+            config["api_key"] = cls.OPENAI_API_KEY
+
+        return config
 
 
 # User agent strings for web scraping (rotating for anti-detection)
