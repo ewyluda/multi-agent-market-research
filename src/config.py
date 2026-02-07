@@ -28,10 +28,15 @@ class Config:
     # Agent Configuration
     AGENT_TIMEOUT = int(os.getenv("AGENT_TIMEOUT", "30"))  # seconds
     AGENT_MAX_RETRIES = int(os.getenv("AGENT_MAX_RETRIES", "2"))
+    FUNDAMENTALS_LLM_ENABLED = os.getenv("FUNDAMENTALS_LLM_ENABLED", "true").lower() == "true"
     PARALLEL_AGENTS = os.getenv("PARALLEL_AGENTS", "true").lower() == "true"
 
     # Database Configuration
     DATABASE_PATH = os.getenv("DATABASE_PATH", "market_research.db")
+
+    # SEC EDGAR Configuration
+    SEC_EDGAR_USER_AGENT = os.getenv("SEC_EDGAR_USER_AGENT", "MarketResearch/1.0 (research@example.com)")
+    SEC_EDGAR_BASE_URL = "https://data.sec.gov/api/xbrl"
 
     # API Endpoints
     ALPHA_VANTAGE_BASE_URL = "https://www.alphavantage.co/query"

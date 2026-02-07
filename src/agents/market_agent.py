@@ -1,5 +1,7 @@
 """Market agent for analyzing price data and market trends."""
 
+import asyncio
+import random
 import yfinance as yf
 import pandas as pd
 from typing import Dict, Any
@@ -10,43 +12,73 @@ from .base_agent import BaseAgent
 class MarketAgent(BaseAgent):
     """Agent for fetching and analyzing market price data."""
 
+    async def _retry_fetch(self, func, max_retries: int = None, label: str = ""):
+        """
+        Retry a synchronous function with exponential backoff.
+
+        Args:
+            func: Callable to execute
+            max_retries: Max retry attempts (defaults to config AGENT_MAX_RETRIES)
+            label: Label for logging
+
+        Returns:
+            Result of func, or None if all retries fail
+        """
+        retries = max_retries if max_retries is not None else self.config.get("AGENT_MAX_RETRIES", 2)
+        for attempt in range(retries + 1):
+            try:
+                return func()
+            except Exception as e:
+                if attempt == retries:
+                    self.logger.warning(f"Failed to fetch {label} after {retries + 1} attempts: {e}")
+                    return None
+                wait = (2 ** attempt) + random.uniform(0, 1)
+                self.logger.info(f"Retry {attempt + 1}/{retries} for {label} in {wait:.1f}s: {e}")
+                await asyncio.sleep(wait)
+        return None
+
     async def fetch_data(self) -> Dict[str, Any]:
         """
-        Fetch market price data using yfinance.
+        Fetch market price data using yfinance with retry logic.
+        Each data source is fetched independently for graceful degradation.
 
         Returns:
             Dictionary with price history and current market data
         """
         ticker_obj = yf.Ticker(self.ticker)
+        result = {"ticker": self.ticker}
 
-        try:
-            # Get current info
-            info = ticker_obj.info
+        end_date = datetime.now()
 
-            # Get historical data (1 year)
-            end_date = datetime.now()
-            start_date = end_date - timedelta(days=365)
-            hist_1y = ticker_obj.history(start=start_date, end=end_date)
+        # Fetch each data source independently with retries
+        info = await self._retry_fetch(
+            lambda: ticker_obj.info, label=f"{self.ticker} info"
+        )
+        result["info"] = info or {}
 
-            # Get recent data (3 months for detailed analysis)
-            start_3m = end_date - timedelta(days=90)
-            hist_3m = ticker_obj.history(start=start_3m, end=end_date)
+        result["history_1y"] = await self._retry_fetch(
+            lambda: ticker_obj.history(start=end_date - timedelta(days=365), end=end_date),
+            label=f"{self.ticker} history_1y"
+        )
 
-            # Get very recent data (1 month for short-term trends)
-            start_1m = end_date - timedelta(days=30)
-            hist_1m = ticker_obj.history(start=start_1m, end=end_date)
+        result["history_3m"] = await self._retry_fetch(
+            lambda: ticker_obj.history(start=end_date - timedelta(days=90), end=end_date),
+            label=f"{self.ticker} history_3m"
+        )
 
-            return {
-                "info": info,
-                "history_1y": hist_1y,
-                "history_3m": hist_3m,
-                "history_1m": hist_1m,
-                "ticker": self.ticker
-            }
+        result["history_1m"] = await self._retry_fetch(
+            lambda: ticker_obj.history(start=end_date - timedelta(days=30), end=end_date),
+            label=f"{self.ticker} history_1m"
+        )
 
-        except Exception as e:
-            self.logger.error(f"Error fetching market data for {self.ticker}: {e}")
-            raise
+        # Only raise if we got absolutely nothing useful
+        if (not result["info"]
+            and result["history_1y"] is None
+            and result["history_3m"] is None
+            and result["history_1m"] is None):
+            raise Exception(f"Failed to fetch any market data for {self.ticker}")
+
+        return result
 
     async def analyze(self, raw_data: Dict[str, Any]) -> Dict[str, Any]:
         """

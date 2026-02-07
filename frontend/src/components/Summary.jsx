@@ -5,6 +5,78 @@
 import React from 'react';
 import { DocumentIcon, ShieldExclamationIcon, LightbulbIcon, ArrowUpIcon, ArrowDownIcon } from './Icons';
 
+/**
+ * FormattedReasoning - Parses LLM chain-of-thought reasoning into styled sections.
+ * Handles numbered sections (1. Title: body), double-newline paragraphs, or raw text.
+ */
+const FormattedReasoning = ({ text }) => {
+  if (!text) return null;
+
+  // Try to split on numbered sections: "1. ", "2. ", etc.
+  const sections = text.split(/(?=\d+\.\s)/).filter(s => s.trim());
+
+  if (sections.length > 1) {
+    return (
+      <div className="space-y-2.5">
+        {sections.map((section, index) => {
+          const match = section.match(/^(\d+)\.\s*(.*)/s);
+          if (!match) {
+            return <p key={index} className="text-sm leading-relaxed text-gray-400">{section.trim()}</p>;
+          }
+
+          const num = match[1];
+          const content = match[2].trim();
+
+          // Split title from body at first colon
+          const colonIdx = content.indexOf(':');
+          let title, body;
+          if (colonIdx > 0 && colonIdx < 80) {
+            title = content.substring(0, colonIdx).trim();
+            body = content.substring(colonIdx + 1).trim();
+          } else {
+            // No colon found — use first sentence as title
+            const periodIdx = content.indexOf('. ');
+            if (periodIdx > 0 && periodIdx < 100) {
+              title = content.substring(0, periodIdx).trim();
+              body = content.substring(periodIdx + 2).trim();
+            } else {
+              title = content.substring(0, 80);
+              body = content.length > 80 ? content.substring(80).trim() : '';
+            }
+          }
+
+          return (
+            <div key={index} className="flex items-start space-x-3 p-3 bg-dark-inset rounded-lg">
+              <span className="flex-shrink-0 w-6 h-6 rounded-full bg-accent-blue/15 border border-accent-blue/30 flex items-center justify-center text-[10px] font-bold text-accent-blue mt-0.5">
+                {num}
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-medium text-gray-200 leading-snug">{title}</div>
+                {body && <div className="text-[13px] text-gray-400 leading-relaxed mt-1">{body}</div>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  // Fallback: split on double newlines for paragraphs
+  const paragraphs = text.split(/\n\n+/).filter(p => p.trim());
+  if (paragraphs.length > 1) {
+    return (
+      <div className="space-y-3">
+        {paragraphs.map((para, i) => (
+          <p key={i} className="text-sm leading-relaxed text-gray-300">{para.trim()}</p>
+        ))}
+      </div>
+    );
+  }
+
+  // Final fallback: render as single paragraph
+  return <p className="text-sm leading-7 text-gray-300">{text}</p>;
+};
+
 const Summary = ({ analysis }) => {
   if (!analysis) {
     return null;
@@ -30,9 +102,7 @@ const Summary = ({ analysis }) => {
             <DocumentIcon className="w-4 h-4 text-accent-blue" />
             <span>Executive Summary</span>
           </h3>
-          <div className="border-l-2 border-accent-blue/40 pl-4">
-            <p className="text-sm leading-7 text-gray-300">{reasoning}</p>
-          </div>
+          <FormattedReasoning text={reasoning} />
         </div>
       )}
 

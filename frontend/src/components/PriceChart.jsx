@@ -1,22 +1,10 @@
 /**
- * PriceChart - Price visualization with recharts and technical indicators
+ * PriceChart - TradingView interactive chart with metric cards and technical indicators
  */
 
-import React from 'react';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine, ResponsiveContainer } from 'recharts';
+import React, { useMemo } from 'react';
+import { AdvancedRealTimeChart } from 'react-ts-tradingview-widgets';
 import { TrendingUpIcon, TrendingDownIcon } from './Icons';
-
-const CustomTooltip = ({ active, payload, label }) => {
-  if (active && payload && payload.length) {
-    return (
-      <div className="glass-card-elevated rounded-lg px-3 py-2 text-xs">
-        <div className="text-gray-400 mb-1">{label}</div>
-        <div className="font-semibold text-white">${payload[0].value?.toFixed(2)}</div>
-      </div>
-    );
-  }
-  return null;
-};
 
 const PriceChart = ({ analysis }) => {
   if (!analysis) {
@@ -37,18 +25,11 @@ const PriceChart = ({ analysis }) => {
   const marketData = analysis.agent_results?.market?.data || {};
   const technicalData = analysis.agent_results?.technical?.data || {};
 
-  // Build synthetic price trajectory from available data points
-  const chartData = [
-    marketData.price_change_3m?.start_price && { name: '3M Ago', price: marketData.price_change_3m.start_price },
-    marketData.price_change_1m?.start_price && { name: '1M Ago', price: marketData.price_change_1m.start_price },
-    marketData.previous_close && { name: 'Prev Close', price: marketData.previous_close },
-    marketData.open && { name: 'Open', price: marketData.open },
-    marketData.current_price && { name: 'Current', price: marketData.current_price },
-  ].filter(Boolean);
-
-  const hasChart = chartData.length >= 2;
   const priceChange = marketData.price_change_1m?.change_pct;
   const isPositive = priceChange > 0;
+
+  // TradingView symbol — bare ticker works for US equities
+  const tvSymbol = analysis.ticker || 'AAPL';
 
   return (
     <div className="glass-card-elevated rounded-xl p-5">
@@ -70,81 +51,25 @@ const PriceChart = ({ analysis }) => {
             </div>
           )}
         </div>
-        <div className="flex space-x-1 text-xs">
-          {['1D', '1W', '1M', '3M', '1Y'].map((period) => (
-            <button
-              key={period}
-              className={`px-2.5 py-1 rounded-md transition-all ${
-                period === '1M'
-                  ? 'bg-accent-blue/15 text-accent-blue border border-accent-blue/30'
-                  : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'
-              }`}
-            >
-              {period}
-            </button>
-          ))}
-        </div>
       </div>
 
-      {/* Chart */}
-      {hasChart ? (
-        <div className="h-48 mt-2 mb-4">
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={chartData} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
-              <defs>
-                <linearGradient id="priceGradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor={isPositive ? '#10b981' : '#ef4444'} stopOpacity={0.3} />
-                  <stop offset="100%" stopColor={isPositive ? '#10b981' : '#ef4444'} stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid stroke="#1f2937" strokeDasharray="3 3" vertical={false} />
-              <XAxis
-                dataKey="name"
-                tick={{ fill: '#64748b', fontSize: 10 }}
-                axisLine={{ stroke: '#1f2937' }}
-                tickLine={false}
-              />
-              <YAxis
-                tick={{ fill: '#64748b', fontSize: 10 }}
-                axisLine={false}
-                tickLine={false}
-                domain={['auto', 'auto']}
-                tickFormatter={(val) => `$${val.toFixed(0)}`}
-              />
-              <Tooltip content={<CustomTooltip />} />
-              {marketData.support_level && (
-                <ReferenceLine
-                  y={marketData.support_level}
-                  stroke="#10b981"
-                  strokeDasharray="4 4"
-                  strokeOpacity={0.5}
-                />
-              )}
-              {marketData.resistance_level && (
-                <ReferenceLine
-                  y={marketData.resistance_level}
-                  stroke="#ef4444"
-                  strokeDasharray="4 4"
-                  strokeOpacity={0.5}
-                />
-              )}
-              <Area
-                type="monotone"
-                dataKey="price"
-                stroke={isPositive ? '#10b981' : '#ef4444'}
-                strokeWidth={2}
-                fill="url(#priceGradient)"
-                dot={{ r: 3, fill: isPositive ? '#10b981' : '#ef4444', strokeWidth: 0 }}
-                activeDot={{ r: 5, fill: isPositive ? '#10b981' : '#ef4444', stroke: '#fff', strokeWidth: 1 }}
-              />
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
-      ) : (
-        <div className="h-48 bg-dark-inset rounded-lg flex items-center justify-center mb-4">
-          <span className="text-xs text-gray-500">Insufficient data for chart</span>
-        </div>
-      )}
+      {/* TradingView Chart */}
+      <div className="h-[400px] mt-2 mb-4 rounded-lg overflow-hidden border border-dark-border">
+        <AdvancedRealTimeChart
+          symbol={tvSymbol}
+          theme="dark"
+          autosize
+          interval="D"
+          timezone="America/New_York"
+          style="1"
+          locale="en"
+          enable_publishing={false}
+          hide_legend={false}
+          save_image={false}
+          allow_symbol_change={false}
+          container_id={`tradingview_${tvSymbol}`}
+        />
+      </div>
 
       {/* Metric Cards */}
       <div className="grid grid-cols-4 gap-3">

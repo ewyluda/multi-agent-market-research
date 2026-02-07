@@ -105,7 +105,30 @@ class SolutionAgent(BaseAgent):
 - ROE: {fundamentals_data.get('return_on_equity', 'N/A')}
 - Dividend Yield: {fundamentals_data.get('dividend_yield', 'N/A')}
 - Health Score: {fundamentals_data.get('health_score', 'N/A')}/100
+- Earnings Beat Rate: {fundamentals_data.get('recent_earnings', {}).get('beat_rate', 'N/A')}% ({fundamentals_data.get('recent_earnings', {}).get('beats', 0)}/{fundamentals_data.get('recent_earnings', {}).get('total', 0)})
+- Earnings Trend: {fundamentals_data.get('recent_earnings', {}).get('trend', 'N/A')}
 - Summary: {fundamentals_data.get('summary', '')}
+
+## SEC EDGAR FINANCIAL DATA
+- EPS Trend: {fundamentals_data.get('eps_trend', {}).get('trend', 'N/A')}
+- Latest EPS: {fundamentals_data.get('eps_trend', {}).get('latest_eps', 'N/A')}
+- EPS QoQ Change: {fundamentals_data.get('eps_trend', {}).get('qoq_pct', 'N/A')}%
+- EPS YoY Change: {fundamentals_data.get('eps_trend', {}).get('yoy_pct', 'N/A')}%
+- Revenue Trend: {fundamentals_data.get('revenue_trend', {}).get('trend', 'N/A')}
+- Latest Revenue: {fundamentals_data.get('revenue_trend', {}).get('latest_revenue', 'N/A')}
+- Revenue QoQ Change: {fundamentals_data.get('revenue_trend', {}).get('qoq_pct', 'N/A')}%
+- Revenue YoY Change: {fundamentals_data.get('revenue_trend', {}).get('yoy_pct', 'N/A')}%
+
+## EQUITY RESEARCH REPORT (AI-Generated Deep Analysis)
+- Executive Summary: {fundamentals_data.get('equity_research_report', {}).get('executive_summary', 'N/A') if fundamentals_data.get('equity_research_report') else 'Not available'}
+- Bull Case Catalysts: {[c.get('catalyst', '') for c in (fundamentals_data.get('equity_research_report') or {}).get('bull_case', {}).get('catalysts', [])] if fundamentals_data.get('equity_research_report') else 'N/A'}
+- Competitive Moat: {(fundamentals_data.get('equity_research_report') or {}).get('bull_case', {}).get('moat', 'N/A')}
+- Existential Risk: {(fundamentals_data.get('equity_research_report') or {}).get('bear_case', {}).get('existential_risk', 'N/A')}
+- Concerning Metrics: {[(c.get('metric', '') + ': ' + c.get('concern', '')) for c in (fundamentals_data.get('equity_research_report') or {}).get('bear_case', {}).get('concerning_metrics', [])] if fundamentals_data.get('equity_research_report') else 'N/A'}
+- FCF Analysis: {(fundamentals_data.get('equity_research_report') or {}).get('financial_health_check', {}).get('fcf_analysis', 'N/A')}
+- Valuation Analysis: {(fundamentals_data.get('equity_research_report') or {}).get('financial_health_check', {}).get('valuation_analysis', 'N/A')}
+- Uncomfortable Questions: {(fundamentals_data.get('equity_research_report') or {}).get('uncomfortable_questions', [])}
+- Overall Assessment: {(fundamentals_data.get('equity_research_report') or {}).get('overall_assessment', 'N/A')}
 
 ## MARKET DATA
 - Current Price: ${market_data.get('current_price', 'N/A')}
@@ -144,12 +167,15 @@ class SolutionAgent(BaseAgent):
 
 Using chain-of-thought reasoning and first principles:
 
-1. Assess current company health (fundamentals)
-2. Evaluate market conditions and price action
-3. Consider sentiment and news impact
-4. Synthesize technical signals
-5. Determine risk/reward ratio
-6. Provide final recommendation
+1. Assess current company health (fundamentals + SEC earnings data)
+2. Consider the equity research report's bull/bear thesis, moat, and risk analysis
+3. Evaluate market conditions and price action
+4. Consider sentiment and news impact
+5. Synthesize technical signals
+6. Analyze earnings trends (beat rate, EPS/revenue trajectory from SEC filings)
+7. Weigh concerning metrics and existential risks identified
+8. Determine risk/reward ratio
+9. Provide final recommendation
 
 Respond in JSON format:
 {{
@@ -247,7 +273,30 @@ Respond in JSON format:
 - ROE: {fundamentals_data.get('return_on_equity', 'N/A')}
 - Dividend Yield: {fundamentals_data.get('dividend_yield', 'N/A')}
 - Health Score: {fundamentals_data.get('health_score', 'N/A')}/100
+- Earnings Beat Rate: {fundamentals_data.get('recent_earnings', {}).get('beat_rate', 'N/A')}% ({fundamentals_data.get('recent_earnings', {}).get('beats', 0)}/{fundamentals_data.get('recent_earnings', {}).get('total', 0)})
+- Earnings Trend: {fundamentals_data.get('recent_earnings', {}).get('trend', 'N/A')}
 - Summary: {fundamentals_data.get('summary', '')}
+
+## SEC EDGAR FINANCIAL DATA
+- EPS Trend: {fundamentals_data.get('eps_trend', {}).get('trend', 'N/A')}
+- Latest EPS: {fundamentals_data.get('eps_trend', {}).get('latest_eps', 'N/A')}
+- EPS QoQ Change: {fundamentals_data.get('eps_trend', {}).get('qoq_pct', 'N/A')}%
+- EPS YoY Change: {fundamentals_data.get('eps_trend', {}).get('yoy_pct', 'N/A')}%
+- Revenue Trend: {fundamentals_data.get('revenue_trend', {}).get('trend', 'N/A')}
+- Latest Revenue: {fundamentals_data.get('revenue_trend', {}).get('latest_revenue', 'N/A')}
+- Revenue QoQ Change: {fundamentals_data.get('revenue_trend', {}).get('qoq_pct', 'N/A')}%
+- Revenue YoY Change: {fundamentals_data.get('revenue_trend', {}).get('yoy_pct', 'N/A')}%
+
+## EQUITY RESEARCH REPORT (AI-Generated Deep Analysis)
+- Executive Summary: {fundamentals_data.get('equity_research_report', {}).get('executive_summary', 'N/A') if fundamentals_data.get('equity_research_report') else 'Not available'}
+- Bull Case Catalysts: {[c.get('catalyst', '') for c in (fundamentals_data.get('equity_research_report') or {}).get('bull_case', {}).get('catalysts', [])] if fundamentals_data.get('equity_research_report') else 'N/A'}
+- Competitive Moat: {(fundamentals_data.get('equity_research_report') or {}).get('bull_case', {}).get('moat', 'N/A')}
+- Existential Risk: {(fundamentals_data.get('equity_research_report') or {}).get('bear_case', {}).get('existential_risk', 'N/A')}
+- Concerning Metrics: {[(c.get('metric', '') + ': ' + c.get('concern', '')) for c in (fundamentals_data.get('equity_research_report') or {}).get('bear_case', {}).get('concerning_metrics', [])] if fundamentals_data.get('equity_research_report') else 'N/A'}
+- FCF Analysis: {(fundamentals_data.get('equity_research_report') or {}).get('financial_health_check', {}).get('fcf_analysis', 'N/A')}
+- Valuation Analysis: {(fundamentals_data.get('equity_research_report') or {}).get('financial_health_check', {}).get('valuation_analysis', 'N/A')}
+- Uncomfortable Questions: {(fundamentals_data.get('equity_research_report') or {}).get('uncomfortable_questions', [])}
+- Overall Assessment: {(fundamentals_data.get('equity_research_report') or {}).get('overall_assessment', 'N/A')}
 
 ## MARKET DATA
 - Current Price: ${market_data.get('current_price', 'N/A')}
@@ -286,12 +335,15 @@ Respond in JSON format:
 
 Using chain-of-thought reasoning and first principles:
 
-1. Assess current company health (fundamentals)
-2. Evaluate market conditions and price action
-3. Consider sentiment and news impact
-4. Synthesize technical signals
-5. Determine risk/reward ratio
-6. Provide final recommendation
+1. Assess current company health (fundamentals + SEC earnings data)
+2. Consider the equity research report's bull/bear thesis, moat, and risk analysis
+3. Evaluate market conditions and price action
+4. Consider sentiment and news impact
+5. Synthesize technical signals
+6. Analyze earnings trends (beat rate, EPS/revenue trajectory from SEC filings)
+7. Weigh concerning metrics and existential risks identified
+8. Determine risk/reward ratio
+9. Provide final recommendation
 
 Respond in JSON format:
 {{
