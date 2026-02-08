@@ -1,5 +1,6 @@
 """In-memory TTL cache for Alpha Vantage API responses."""
 
+import asyncio
 import time
 import logging
 from typing import Dict, Any, Optional, Tuple
@@ -55,6 +56,8 @@ class AVCache:
         self.logger = logging.getLogger(__name__)
         self._hits = 0
         self._misses = 0
+        self._coalesced = 0
+        self._in_flight: Dict[str, asyncio.Future] = {}
 
     def _make_key(self, params: Dict[str, str]) -> str:
         """
@@ -112,11 +115,34 @@ class AVCache:
         self._cache[key] = (data, expiry)
         self.logger.debug(f"AV cache PUT: {func_name} (TTL={ttl}s)")
 
+    def get_in_flight(self, params: Dict[str, str]) -> Optional[asyncio.Future]:
+        """Return the Future for an in-flight request with the same cache key, or None."""
+        key = self._make_key(params)
+        future = self._in_flight.get(key)
+        if future is not None and not future.done():
+            self._coalesced += 1
+            return future
+        return None
+
+    def set_in_flight(self, params: Dict[str, str]) -> asyncio.Future:
+        """Register a new in-flight request and return a Future for concurrent callers to await."""
+        key = self._make_key(params)
+        future = asyncio.get_running_loop().create_future()
+        self._in_flight[key] = future
+        return future
+
+    def remove_in_flight(self, params: Dict[str, str]) -> None:
+        """Remove in-flight tracking for the given params. Call in a finally block."""
+        key = self._make_key(params)
+        self._in_flight.pop(key, None)
+
     def clear(self) -> None:
         """Clear all cached entries."""
         self._cache.clear()
+        self._in_flight.clear()
         self._hits = 0
         self._misses = 0
+        self._coalesced = 0
 
     @property
     def stats(self) -> Dict[str, Any]:
@@ -125,6 +151,8 @@ class AVCache:
         return {
             "hits": self._hits,
             "misses": self._misses,
+            "coalesced": self._coalesced,
             "size": len(self._cache),
             "hit_rate": round(self._hits / max(1, total), 3),
+            "in_flight": len(self._in_flight),
         }

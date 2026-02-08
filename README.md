@@ -24,7 +24,7 @@ A **Solution Agent** synthesizes all outputs using chain-of-thought reasoning to
 - Graceful fallback to yfinance, NewsAPI, and SEC EDGAR when AV is unavailable
 - `data_source` tracking in every agent output for transparency
 - LLM-powered equity research (Anthropic Claude / OpenAI / xAI Grok)
-- WebSocket support for live progress updates
+- Server-Sent Events (SSE) for live progress streaming
 - Historical analysis tracking with SQLite
 - RESTful API built with FastAPI
 - React frontend with Hero UI dark theme
@@ -156,14 +156,23 @@ Example:
 curl http://localhost:8000/api/analysis/NVDA/history
 ```
 
-### WebSocket Real-time Updates
-```javascript
-const ws = new WebSocket('ws://localhost:8000/ws/analysis/NVDA');
+### SSE Real-time Streaming
+```bash
+GET /api/analyze/{ticker}/stream?agents={optional}
 
-ws.onmessage = (event) => {
-  const update = JSON.parse(event.data);
-  console.log(update);
-};
+# Stream analysis with real-time progress
+curl -N http://localhost:8000/api/analyze/NVDA/stream
+```
+
+Events streamed:
+- `progress` — agent status updates (`{stage, progress, ticker, timestamp}`)
+- `result` — final analysis (same shape as POST response)
+- `error` — on failure (`{error, ticker}`)
+
+```javascript
+const es = new EventSource('http://localhost:8000/api/analyze/NVDA/stream');
+es.addEventListener('progress', (e) => console.log(JSON.parse(e.data)));
+es.addEventListener('result', (e) => { console.log(JSON.parse(e.data)); es.close(); });
 ```
 
 ### Export Analysis as CSV
@@ -384,7 +393,7 @@ The frontend is a React application with a Hero UI-inspired dark theme built on 
 - Three-layer color system: Tailwind config, `@theme` CSS tokens, and `:root` CSS custom properties
 
 ### Components
-- **Dashboard** - Main layout with search, agent orchestration, and WebSocket integration
+- **Dashboard** - Main layout with search, agent orchestration, and SSE streaming
 - **Recommendation** - SVG gauge component showing BUY/HOLD/SELL with score
 - **AgentStatus** - Real-time progress indicators for each agent
 - **PriceChart** - Price history, moving averages, and technical indicator display
@@ -434,14 +443,14 @@ python run.py  # Will create fresh database
 - **Light/dark theme toggle**: The frontend currently supports dark theme only. Adding a light theme variant with a toggle would improve accessibility.
 - **Historical data source comparison**: Track and display which data source was used per agent over time, allowing users to compare analysis quality between AV and fallback sources.
 - **Unit and integration tests**: Add pytest test suite for agent data parsing, AV response handling, fallback logic, and end-to-end analysis flow.
-- **Real-time streaming via SSE**: Replace WebSocket polling pattern with Server-Sent Events for simpler one-way streaming of agent progress updates.
+- ~~**Real-time streaming via SSE**: Replace WebSocket polling pattern with Server-Sent Events for simpler one-way streaming of agent progress updates.~~ *(Done — `GET /api/analyze/{ticker}/stream` delivers progress + final result via SSE)*
 - **Multi-ticker batch analysis**: Support analyzing multiple tickers in a single request with shared AV rate budget.
 - **Options flow / unusual activity agent**: Add a new agent that monitors options market data for unusual volume, put/call ratios, and large block trades.
 - ~~**Macroeconomic agent**: Add an agent for broader market context using AV endpoints like `FEDERAL_FUNDS_RATE`, `CPI`, `REAL_GDP`, and treasury yield data.~~ *(Done — `MacroAgent` fetches 7 AV macro endpoints with yield curve, economic cycle, and risk environment analysis)*
 - ~~**News sentiment aggregation into sentiment agent**: The AV NEWS_SENTIMENT endpoint provides per-article sentiment scores. These could be forwarded to the sentiment agent to supplement its LLM-based analysis.~~ *(Done — AV per-article sentiment scores are now included in the LLM prompt and blended into the keyword fallback)*
 - **Docker containerization**: Add Dockerfile and docker-compose for one-command deployment of both backend and frontend.
 - ~~**Export analysis as PDF/CSV**: Add endpoints to export analysis results in downloadable formats for reporting.~~ *(Done — CSV export available at `GET /api/analysis/{ticker}/export/csv`)*
-- **In-flight request coalescing**: Deduplicate concurrent identical AV requests (e.g., market and technical agents both requesting TIME_SERIES_DAILY simultaneously).
+- ~~**In-flight request coalescing**: Deduplicate concurrent identical AV requests (e.g., market and technical agents both requesting TIME_SERIES_DAILY simultaneously).~~ *(Done — `AVCache` tracks in-flight requests via `asyncio.Future`; concurrent identical requests coalesce into a single HTTP call)*
 
 ## License
 

@@ -53,7 +53,7 @@ Each agent inherits from `BaseAgent` which provides:
 
 ### Entry Points
 - **`run.py`** - Application startup script (runs FastAPI server)
-- **`src/api.py`** - FastAPI application with REST and WebSocket endpoints
+- **`src/api.py`** - FastAPI application with REST and SSE endpoints
 
 ### Core Logic
 - **`src/orchestrator.py`** - Coordinates agents (configurable pipeline), manages shared session/cache/rate limiter
@@ -102,7 +102,7 @@ frontend/
 
 ## Key Technologies
 
-- **FastAPI** - REST API and WebSocket server
+- **FastAPI** - REST API and SSE streaming server
 - **SQLite** - Database for caching and persistence
 - **Anthropic Claude / OpenAI / xAI Grok** - LLM for sentiment, equity research, and synthesis
 - **AsyncIO** - Parallel agent execution
@@ -199,9 +199,10 @@ GET /api/analysis/{ticker}/history?limit=10
 curl http://localhost:8000/api/analysis/NVDA/history
 ```
 
-**WebSocket (Real-time Updates)**
-```javascript
-ws://localhost:8000/ws/analysis/{ticker}
+**SSE Stream (Real-time Updates)**
+```bash
+GET /api/analyze/{ticker}/stream?agents={comma-separated agent names}
+curl -N http://localhost:8000/api/analyze/NVDA/stream
 ```
 
 **Export Analysis as CSV**
@@ -458,12 +459,12 @@ The frontend is in `frontend/` directory (React + Vite + Tailwind CSS v4).
 
 **Backend provides**:
 - REST API for historical data
-- WebSocket for real-time updates
+- SSE streaming for real-time progress updates
 - JSON responses with full analysis
 
 **Frontend connects via**:
 - Axios for HTTP requests
-- WebSocket for live progress
+- EventSource (SSE) for live progress
 - `http://localhost:8000` as API base URL
 
 ## Development Workflow
@@ -472,7 +473,7 @@ The frontend is in `frontend/` directory (React + Vite + Tailwind CSS v4).
 2. **Test locally** with curl or Python
 3. **Check database** to verify data persistence
 4. **Run API tests** to ensure endpoints work
-5. **Test WebSocket** for real-time updates
+5. **Test SSE stream** for real-time updates
 6. **Build frontend** to verify no build errors: `cd frontend && npm run build`
 
 ## Code Style
@@ -503,7 +504,7 @@ The frontend is in `frontend/` directory (React + Vite + Tailwind CSS v4).
 - Database **caching** reduces API calls
 - News and price data **cached** with TTL
 - Agent **timeout** prevents hanging
-- WebSocket for **real-time** updates (no polling)
+- SSE for **real-time** progress streaming (no polling)
 - Alpha Vantage as primary reduces yfinance rate-limit issues
 - `return_exceptions=True` in `asyncio.gather()` prevents one failed endpoint from blocking others
 

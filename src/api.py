@@ -1,9 +1,10 @@
 """FastAPI application for multi-agent market research."""
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Query
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from typing import Dict, List, Optional
+from typing import Optional
+import json
 import logging
 import io
 import csv
@@ -15,7 +16,6 @@ from .models import (
     AnalysisResponse,
     AnalysisHistoryResponse,
     HealthCheckResponse,
-    ProgressUpdate
 )
 from .orchestrator import Orchestrator
 from .config import Config
@@ -57,48 +57,6 @@ av_rate_limiter = AVRateLimiter(
 )
 av_cache = AVCache()
 
-# WebSocket connection manager
-class ConnectionManager:
-    """Manages WebSocket connections."""
-
-    def __init__(self):
-        self.active_connections: Dict[str, List[WebSocket]] = {}
-
-    async def connect(self, websocket: WebSocket, ticker: str):
-        """Connect a WebSocket for a ticker."""
-        await websocket.accept()
-        if ticker not in self.active_connections:
-            self.active_connections[ticker] = []
-        self.active_connections[ticker].append(websocket)
-        logger.info(f"WebSocket connected for {ticker}")
-
-    def disconnect(self, websocket: WebSocket, ticker: str):
-        """Disconnect a WebSocket."""
-        if ticker in self.active_connections:
-            if websocket in self.active_connections[ticker]:
-                self.active_connections[ticker].remove(websocket)
-            if not self.active_connections[ticker]:
-                del self.active_connections[ticker]
-        logger.info(f"WebSocket disconnected for {ticker}")
-
-    async def send_update(self, ticker: str, update: dict):
-        """Send update to all connected clients for a ticker."""
-        if ticker in self.active_connections:
-            disconnected = []
-            for connection in self.active_connections[ticker]:
-                try:
-                    await connection.send_json(update)
-                except Exception as e:
-                    logger.error(f"Failed to send update: {e}")
-                    disconnected.append(connection)
-
-            # Remove disconnected clients
-            for connection in disconnected:
-                self.disconnect(connection, ticker)
-
-
-manager = ConnectionManager()
-
 
 @app.get("/")
 async def root():
@@ -108,11 +66,11 @@ async def root():
         "version": "0.1.0",
         "endpoints": {
             "analyze": "POST /api/analyze/{ticker}",
+            "stream": "GET /api/analyze/{ticker}/stream",
             "latest": "GET /api/analysis/{ticker}/latest",
             "history": "GET /api/analysis/{ticker}/history",
             "export_csv": "GET /api/analysis/{ticker}/export/csv",
-            "health": "GET /health",
-            "websocket": "WS /ws/analysis/{ticker}"
+            "health": "GET /health"
         }
     }
 
@@ -177,14 +135,10 @@ async def analyze_ticker(
 
     logger.info(f"Starting analysis for {ticker}")
 
-    # Create progress callback for WebSocket updates
-    async def progress_callback(update: dict):
-        await manager.send_update(ticker, update)
-
-    # Create orchestrator with shared AV infrastructure
+    # Create orchestrator (no progress streaming for REST endpoint; use GET /stream for SSE)
     orchestrator = Orchestrator(
         db_manager=db_manager,
-        progress_callback=progress_callback,
+        progress_callback=None,
         rate_limiter=av_rate_limiter,
         av_cache=av_cache,
     )
@@ -368,54 +322,105 @@ async def export_analysis_csv(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.websocket("/ws/analysis/{ticker}")
-async def websocket_endpoint(websocket: WebSocket, ticker: str):
+@app.get("/api/analyze/{ticker}/stream")
+async def analyze_ticker_stream(
+    ticker: str,
+    agents: Optional[str] = Query(
+        default=None,
+        description="Comma-separated list of agents to run: news,sentiment,fundamentals,market,technical,macro. Default: all.",
+    ),
+):
     """
-    WebSocket endpoint for real-time analysis updates.
+    Stream analysis progress and results via Server-Sent Events (SSE).
+
+    Opens a long-lived HTTP connection that streams:
+    - ``progress`` events as each agent starts/completes
+    - ``result`` event with the final analysis
+    - ``error`` event if analysis fails
 
     Args:
-        websocket: WebSocket connection
-        ticker: Stock ticker symbol
+        ticker: Stock ticker symbol (e.g., NVDA, AAPL)
+        agents: Optional comma-separated agent names to run
     """
     ticker = ticker.upper()
-    await manager.connect(websocket, ticker)
 
-    try:
-        # Send initial connection confirmation
-        await websocket.send_json({
-            "type": "connected",
-            "ticker": ticker,
-            "timestamp": datetime.utcnow().isoformat()
-        })
+    import re
+    if not re.match(r'^[A-Z]{1,5}$', ticker):
+        raise HTTPException(status_code=400, detail="Invalid ticker symbol format")
 
-        # Keep connection alive and listen for messages
-        while True:
+    requested_agents = None
+    if agents:
+        valid_agents = {"news", "sentiment", "fundamentals", "market", "technical", "macro"}
+        requested_agents = [a.strip().lower() for a in agents.split(",")]
+        invalid = set(requested_agents) - valid_agents
+        if invalid:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid agent names: {', '.join(sorted(invalid))}. Valid: {', '.join(sorted(valid_agents))}"
+            )
+
+    async def event_generator():
+        queue: asyncio.Queue = asyncio.Queue()
+
+        async def progress_callback(update: dict):
+            await queue.put(("progress", update))
+
+        orchestrator = Orchestrator(
+            db_manager=db_manager,
+            progress_callback=progress_callback,
+            rate_limiter=av_rate_limiter,
+            av_cache=av_cache,
+        )
+
+        async def run_analysis():
             try:
-                # Wait for client messages (ping/pong, etc.)
-                data = await asyncio.wait_for(
-                    websocket.receive_text(),
-                    timeout=Config.WS_HEARTBEAT_INTERVAL
-                )
+                result = await orchestrator.analyze_ticker(ticker, requested_agents=requested_agents)
+                if result.get("success"):
+                    await queue.put(("result", {
+                        "success": True,
+                        "ticker": ticker,
+                        "analysis_id": result.get("analysis_id"),
+                        "analysis": result.get("analysis"),
+                        "agent_results": result.get("agent_results"),
+                        "duration_seconds": result.get("duration_seconds", 0.0),
+                    }))
+                else:
+                    await queue.put(("error", {
+                        "error": result.get("error", "Analysis failed"),
+                        "ticker": ticker,
+                    }))
+            except Exception as e:
+                logger.error(f"SSE analysis failed for {ticker}: {e}", exc_info=True)
+                await queue.put(("error", {"error": str(e), "ticker": ticker}))
 
-                # Echo back to confirm connection is alive
-                await websocket.send_json({
-                    "type": "pong",
-                    "timestamp": datetime.utcnow().isoformat()
-                })
+        task = asyncio.create_task(run_analysis())
 
-            except asyncio.TimeoutError:
-                # Send heartbeat
-                await websocket.send_json({
-                    "type": "heartbeat",
-                    "timestamp": datetime.utcnow().isoformat()
-                })
+        try:
+            while True:
+                event_type, data = await queue.get()
+                yield f"event: {event_type}\ndata: {json.dumps(data, default=str)}\n\n"
+                if event_type in ("result", "error"):
+                    break
+        except asyncio.CancelledError:
+            task.cancel()
+            raise
+        finally:
+            if not task.done():
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
 
-    except WebSocketDisconnect:
-        manager.disconnect(websocket, ticker)
-        logger.info(f"Client disconnected from {ticker}")
-    except Exception as e:
-        logger.error(f"WebSocket error for {ticker}: {e}")
-        manager.disconnect(websocket, ticker)
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 if __name__ == "__main__":

@@ -11,7 +11,7 @@ React frontend for the AI-powered stock market analysis platform.
 
 ## Features
 
-- Real-time analysis updates via WebSocket
+- Real-time analysis updates via Server-Sent Events (SSE)
 - Interactive dashboard with 5 specialized agents
 - BUY/HOLD/SELL recommendation gauge
 - Sentiment analysis breakdown

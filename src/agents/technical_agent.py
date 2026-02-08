@@ -201,7 +201,7 @@ class TechnicalAgent(BaseAgent):
         data = await self._av_request({
             "function": "TIME_SERIES_DAILY",
             "symbol": self.ticker,
-            "outputsize": "compact",
+            "outputsize": "full",
             "datatype": "json",
         })
         if not data:

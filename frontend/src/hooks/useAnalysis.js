@@ -2,10 +2,10 @@
  * Custom hook for triggering and managing analysis
  */
 
-import { useState, useCallback } from 'react';
+import { useCallback, useRef } from 'react';
 import { useAnalysisContext } from '../context/AnalysisContext';
-import { analyzeTickerAPI, getLatestAnalysis } from '../utils/api';
-import { useWebSocket } from './useWebSocket';
+import { getLatestAnalysis } from '../utils/api';
+import { useSSE } from './useSSE';
 
 export const useAnalysis = () => {
   const {
@@ -22,61 +22,74 @@ export const useAnalysis = () => {
     resetAnalysis,
   } = useAnalysisContext();
 
-  const [wsConnected, setWsConnected] = useState(false);
+  const { startStream, cancelStream } = useSSE();
+  const activeAnalysisRef = useRef(null);
 
-  // Handle WebSocket updates
-  const handleWSUpdate = useCallback((update) => {
-    console.log('Progress update:', update);
+  // Trigger new analysis via SSE stream
+  const runAnalysis = useCallback((ticker) => {
+    cancelStream();
 
-    if (update.stage) {
-      setStage(update.stage);
-    }
+    setCurrentTicker(ticker);
+    setLoading(true);
+    setError(null);
+    resetAnalysis();
+    setProgress(0);
+    setStage('starting');
 
-    if (update.progress !== undefined) {
-      setProgress(update.progress);
-    }
+    console.log(`Starting SSE analysis for ${ticker}...`);
 
-    // If analysis is complete, it will be fetched by the API call
-  }, [setStage, setProgress]);
+    activeAnalysisRef.current = ticker;
 
-  // Initialize WebSocket connection
-  const { sendMessage } = useWebSocket(currentTicker, handleWSUpdate);
+    return new Promise((resolve, reject) => {
+      startStream(ticker, {
+        onProgress: (update) => {
+          if (activeAnalysisRef.current !== ticker) return;
 
-  // Trigger new analysis
-  const runAnalysis = useCallback(async (ticker) => {
-    try {
-      setCurrentTicker(ticker);
-      setLoading(true);
-      setError(null);
-      resetAnalysis();
-      setProgress(0);
-      setStage('starting');
+          console.log('Progress update:', update);
+          if (update.stage) {
+            setStage(update.stage);
+          }
+          if (update.progress !== undefined) {
+            setProgress(update.progress);
+          }
+        },
 
-      console.log(`Starting analysis for ${ticker}...`);
+        onResult: (result) => {
+          if (activeAnalysisRef.current !== ticker) return;
 
-      // Trigger analysis via API
-      const result = await analyzeTickerAPI(ticker);
+          console.log('Analysis result:', result);
+          if (result.success) {
+            setAnalysis(result);
+            setProgress(100);
+            setStage('complete');
+          } else {
+            setError(result.error || 'Analysis failed');
+            setStage('error');
+          }
+          setLoading(false);
+          resolve(result);
+        },
 
-      console.log('Analysis result:', result);
+        onError: (errorMessage) => {
+          if (activeAnalysisRef.current !== ticker) return;
 
-      if (result.success) {
-        setAnalysis(result);
-        setProgress(100);
-        setStage('complete');
-      } else {
-        throw new Error(result.error || 'Analysis failed');
-      }
+          console.error('Analysis error:', errorMessage);
+          setError(errorMessage);
+          setStage('error');
+          setLoading(false);
+          reject(new Error(errorMessage));
+        },
 
-      return result;
-    } catch (err) {
-      console.error('Analysis error:', err);
-      setError(err.message || 'Failed to run analysis');
-      setStage('error');
-      throw err;
-    } finally {
-      setLoading(false);
-    }
+        onClose: () => {
+          if (activeAnalysisRef.current === ticker) {
+            setLoading(false);
+          }
+        },
+      });
+    });
   }, [
+    cancelStream,
+    startStream,
     setCurrentTicker,
     setLoading,
     setError,

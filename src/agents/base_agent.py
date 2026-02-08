@@ -85,10 +85,10 @@ class BaseAgent(ABC):
 
     async def _av_request(self, params: Dict[str, str]) -> Optional[Dict]:
         """
-        Make a request to Alpha Vantage API.
+        Make a request to Alpha Vantage API with in-flight request coalescing.
 
-        Uses the shared session if available (set by orchestrator),
-        otherwise creates a per-request session (backward compatible).
+        If another agent is already making an identical request (same cache key),
+        this method awaits that request instead of making a duplicate HTTP call.
 
         Args:
             params: Query parameters (function, symbol, etc.) — apikey is added internally
@@ -107,6 +107,14 @@ class BaseAgent(ABC):
             if cached is not None:
                 return cached
 
+            # Check for in-flight request with the same cache key
+            in_flight = cache.get_in_flight(params)
+            if in_flight is not None:
+                func_name = params.get("function", "unknown")
+                symbol = params.get("symbol", params.get("tickers", "unknown"))
+                self.logger.info(f"Coalescing: awaiting in-flight request for {func_name} ({symbol})")
+                return await in_flight
+
         # Check rate limiter
         rate_limiter = getattr(self, '_rate_limiter', None)
         if rate_limiter:
@@ -114,6 +122,9 @@ class BaseAgent(ABC):
             if not allowed:
                 self.logger.info("AV daily limit reached, skipping request")
                 return None
+
+        # Register as in-flight so concurrent callers coalesce
+        future = cache.set_in_flight(params) if cache else None
 
         # Add apikey for the actual request
         request_params = {**params, "apikey": api_key}
@@ -129,10 +140,20 @@ class BaseAgent(ABC):
             if data is not None and cache:
                 cache.put(params, data)
 
+            # Resolve the future so coalesced waiters get the result
+            if future is not None and not future.done():
+                future.set_result(data)
+
             return data
         except Exception as e:
             self.logger.warning(f"Alpha Vantage request failed: {e}")
+            # Resolve with None so coalesced waiters don't hang
+            if future is not None and not future.done():
+                future.set_result(None)
             return None
+        finally:
+            if cache:
+                cache.remove_in_flight(params)
 
     async def _do_av_request(self, session: aiohttp.ClientSession, params: Dict[str, str]) -> Optional[Dict]:
         """

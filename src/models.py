@@ -78,7 +78,7 @@ class AnalysisHistoryResponse(BaseModel):
 
 
 class ProgressUpdate(BaseModel):
-    """Model for progress updates via WebSocket."""
+    """Model for progress updates via SSE."""
     stage: str
     ticker: str
     progress: int  # 0-100

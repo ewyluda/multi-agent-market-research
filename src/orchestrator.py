@@ -1,6 +1,7 @@
 """Orchestrator for coordinating all market research agents."""
 
 import asyncio
+import inspect
 import logging
 import time
 from typing import Dict, Any, Optional, Callable, List
@@ -158,29 +159,29 @@ class Orchestrator:
         agents_to_run = self._resolve_agents(requested_agents)
 
         self.logger.info(f"Starting analysis for {ticker} (agents: {', '.join(sorted(agents_to_run))})")
-        self._notify_progress("starting", ticker, 0)
+        await self._notify_progress("starting", ticker, 0)
 
         # Create shared session for this analysis run
         await self._create_shared_session()
 
         try:
             # Phase 1: Run data gathering agents
-            self._notify_progress("gathering_data", ticker, 10)
+            await self._notify_progress("gathering_data", ticker, 10)
 
             agent_results = await self._run_agents(ticker, agents_to_run)
 
             # Phase 2: Run solution agent with aggregated results
-            self._notify_progress("synthesizing", ticker, 80)
+            await self._notify_progress("synthesizing", ticker, 80)
 
             final_analysis = await self._run_solution_agent(ticker, agent_results)
 
             # Phase 3: Save to database
-            self._notify_progress("saving", ticker, 95)
+            await self._notify_progress("saving", ticker, 95)
 
             analysis_id = self._save_to_database(ticker, agent_results, final_analysis, time.time() - start_time)
 
             # Complete
-            self._notify_progress("complete", ticker, 100)
+            await self._notify_progress("complete", ticker, 100)
 
             return {
                 "success": True,
@@ -193,7 +194,7 @@ class Orchestrator:
 
         except Exception as e:
             self.logger.error(f"Analysis failed for {ticker}: {e}", exc_info=True)
-            self._notify_progress("error", ticker, 0, str(e))
+            await self._notify_progress("error", ticker, 0, str(e))
 
             return {
                 "success": False,
@@ -255,7 +256,7 @@ class Orchestrator:
 
             sentiment_agent.set_context_data(news_articles, market_data)
 
-            self._notify_progress("analyzing_sentiment", ticker, 70)
+            await self._notify_progress("analyzing_sentiment", ticker, 70)
             try:
                 sentiment_result = await asyncio.wait_for(
                     sentiment_agent.execute(),
@@ -329,7 +330,7 @@ class Orchestrator:
         progress_pct: int
     ):
         """Run agent and notify progress."""
-        self._notify_progress(f"running_{agent_name}", ticker, progress_pct)
+        await self._notify_progress(f"running_{agent_name}", ticker, progress_pct)
         return await agent.execute()
 
     async def _run_solution_agent(
@@ -426,7 +427,7 @@ class Orchestrator:
 
         return analysis_id
 
-    def _notify_progress(
+    async def _notify_progress(
         self,
         stage: str,
         ticker: str,
@@ -444,13 +445,17 @@ class Orchestrator:
         """
         if self.progress_callback:
             try:
-                self.progress_callback({
+                update = {
                     "stage": stage,
                     "ticker": ticker,
                     "progress": progress,
                     "message": message,
                     "timestamp": datetime.utcnow().isoformat()
-                })
+                }
+                if inspect.iscoroutinefunction(self.progress_callback):
+                    await self.progress_callback(update)
+                else:
+                    self.progress_callback(update)
             except Exception as e:
                 self.logger.warning(f"Progress callback failed: {e}")
 

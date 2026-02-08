@@ -96,9 +96,6 @@ class Config:
     API_RELOAD = os.getenv("API_RELOAD", "true").lower() == "true"
     CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:3000").split(",")
 
-    # WebSocket Configuration
-    WS_HEARTBEAT_INTERVAL = int(os.getenv("WS_HEARTBEAT_INTERVAL", "30"))
-
     # Logging Configuration
     LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
     LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
