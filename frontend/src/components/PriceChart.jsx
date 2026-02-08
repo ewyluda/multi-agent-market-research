@@ -43,7 +43,7 @@ const PriceChart = ({ analysis }) => {
             <div className="flex items-center space-x-2 mt-0.5">
               <span className="text-2xl font-bold tabular-nums">${marketData.current_price.toFixed(2)}</span>
               {priceChange !== undefined && (
-                <span className={`flex items-center text-sm font-semibold ${isPositive ? 'text-emerald-400' : 'text-red-400'}`}>
+                <span className={`flex items-center text-sm font-semibold ${isPositive ? 'text-success-400' : 'text-danger-400'}`}>
                   {isPositive ? <TrendingUpIcon className="w-4 h-4 mr-0.5" /> : <TrendingDownIcon className="w-4 h-4 mr-0.5" />}
                   {isPositive ? '+' : ''}{priceChange?.toFixed(2)}%
                 </span>
@@ -79,9 +79,9 @@ const PriceChart = ({ analysis }) => {
             <div className="text-sm font-bold tabular-nums">${marketData.current_price.toFixed(2)}</div>
           </div>
         )}
-        <div className="p-3 bg-dark-inset rounded-lg border-l-2" style={{ borderLeftColor: isPositive ? '#10b981' : '#ef4444' }}>
+        <div className="p-3 bg-dark-inset rounded-lg border-l-2" style={{ borderLeftColor: isPositive ? '#17c964' : '#f31260' }}>
           <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">1M Change</div>
-          <div className={`text-sm font-bold tabular-nums ${isPositive ? 'text-emerald-400' : 'text-red-400'}`}>
+          <div className={`text-sm font-bold tabular-nums ${isPositive ? 'text-success-400' : 'text-danger-400'}`}>
             {priceChange !== undefined ? `${isPositive ? '+' : ''}${priceChange?.toFixed(2)}%` : 'N/A'}
           </div>
         </div>
@@ -107,8 +107,8 @@ const PriceChart = ({ analysis }) => {
               <div className="flex justify-between items-center mb-1">
                 <span className="text-[10px] text-gray-500 uppercase tracking-wider">RSI</span>
                 <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
-                  technicalData.indicators.rsi.value > 70 ? 'bg-red-500/15 text-red-400' :
-                  technicalData.indicators.rsi.value < 30 ? 'bg-emerald-500/15 text-emerald-400' :
+                  technicalData.indicators.rsi.value > 70 ? 'bg-danger/15 text-danger-400' :
+                  technicalData.indicators.rsi.value < 30 ? 'bg-success/15 text-success-400' :
                   'bg-gray-500/15 text-gray-400'
                 }`}>
                   {technicalData.indicators.rsi.interpretation}
@@ -125,8 +125,8 @@ const PriceChart = ({ analysis }) => {
                 <span className="text-[10px] text-gray-500 uppercase tracking-wider">MACD</span>
                 <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
                   technicalData.indicators.macd.interpretation?.includes('bullish')
-                    ? 'bg-emerald-500/15 text-emerald-400'
-                    : 'bg-red-500/15 text-red-400'
+                    ? 'bg-success/15 text-success-400'
+                    : 'bg-danger/15 text-danger-400'
                 }`}>
                   {technicalData.indicators.macd.interpretation || 'N/A'}
                 </span>
@@ -141,9 +141,9 @@ const PriceChart = ({ analysis }) => {
               <div className="flex justify-between items-center mb-1">
                 <span className="text-[10px] text-gray-500 uppercase tracking-wider">Signal</span>
                 <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
-                  technicalData.signals.overall === 'bullish' ? 'bg-emerald-500/15 text-emerald-400' :
-                  technicalData.signals.overall === 'bearish' ? 'bg-red-500/15 text-red-400' :
-                  'bg-amber-500/15 text-amber-400'
+                  technicalData.signals.overall === 'bullish' ? 'bg-success/15 text-success-400' :
+                  technicalData.signals.overall === 'bearish' ? 'bg-danger/15 text-danger-400' :
+                  'bg-warning/15 text-warning-400'
                 }`}>
                   {technicalData.signals.overall}
                 </span>
@@ -154,9 +154,9 @@ const PriceChart = ({ analysis }) => {
               <div className="mt-1 h-1 bg-gray-700 rounded-full overflow-hidden">
                 <div
                   className={`h-full rounded-full transition-all ${
-                    technicalData.signals.overall === 'bullish' ? 'bg-emerald-500' :
-                    technicalData.signals.overall === 'bearish' ? 'bg-red-500' :
-                    'bg-amber-500'
+                    technicalData.signals.overall === 'bullish' ? 'bg-success' :
+                    technicalData.signals.overall === 'bearish' ? 'bg-danger' :
+                    'bg-warning'
                   }`}
                   style={{ width: `${(technicalData.signals.strength || 0) * 100}%` }}
                 />

@@ -13,7 +13,14 @@ from .base_agent import BaseAgent
 
 
 class FundamentalsAgent(BaseAgent):
-    """Agent for fetching and analyzing fundamental company data."""
+    """Agent for fetching and analyzing fundamental company data.
+
+    Data source priority:
+        1. Alpha Vantage API (COMPANY_OVERVIEW, INCOME_STATEMENT, BALANCE_SHEET, CASH_FLOW, EARNINGS)
+        2. yfinance + SEC EDGAR (fallback)
+    """
+
+    AV_BASE_URL = "https://www.alphavantage.co/query"
 
     # SEC EDGAR XBRL tag variants for key financial metrics
     REVENUE_TAGS = [
@@ -60,16 +67,399 @@ class FundamentalsAgent(BaseAgent):
                 await asyncio.sleep(wait)
         return None
 
+    # ──────────────────────────────────────────────
+    # Alpha Vantage Data Fetching
+    # ──────────────────────────────────────────────
+
+    async def _av_request(self, params: Dict[str, str]) -> Optional[Dict]:
+        """
+        Make a request to Alpha Vantage API.
+
+        Args:
+            params: Query parameters (function, symbol, etc.)
+
+        Returns:
+            JSON response dict, or None on failure
+        """
+        api_key = self.config.get("ALPHA_VANTAGE_API_KEY", "")
+        if not api_key:
+            return None
+
+        params["apikey"] = api_key
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    self.AV_BASE_URL,
+                    params=params,
+                    timeout=aiohttp.ClientTimeout(total=15)
+                ) as resp:
+                    if resp.status != 200:
+                        self.logger.warning(f"Alpha Vantage returned status {resp.status}")
+                        return None
+                    data = await resp.json(content_type=None)
+                    if "Error Message" in data or "Note" in data:
+                        msg = data.get("Error Message") or data.get("Note", "")
+                        self.logger.warning(f"Alpha Vantage API error: {msg}")
+                        return None
+                    if "Information" in data and "rate limit" in data.get("Information", "").lower():
+                        self.logger.warning(f"Alpha Vantage rate limited: {data['Information']}")
+                        return None
+                    return data
+        except Exception as e:
+            self.logger.warning(f"Alpha Vantage request failed: {e}")
+            return None
+
+    async def _fetch_av_overview(self) -> Optional[Dict[str, Any]]:
+        """
+        Fetch company overview from Alpha Vantage COMPANY_OVERVIEW.
+
+        Returns:
+            Dict with company info mapped to yfinance-compatible keys, or None
+        """
+        data = await self._av_request({
+            "function": "COMPANY_OVERVIEW",
+            "symbol": self.ticker,
+        })
+        if not data or "Symbol" not in data:
+            return None
+
+        def _float(key, default=None):
+            val = data.get(key)
+            if val is None or val == "None" or val == "-":
+                return default
+            try:
+                return float(val)
+            except (ValueError, TypeError):
+                return default
+
+        def _int(key, default=None):
+            val = data.get(key)
+            if val is None or val == "None" or val == "-":
+                return default
+            try:
+                return int(val)
+            except (ValueError, TypeError):
+                return default
+
+        # Map AV fields to yfinance-compatible dict keys
+        return {
+            "longName": data.get("Name", ""),
+            "sector": data.get("Sector", ""),
+            "industry": data.get("Industry", ""),
+            "marketCap": _int("MarketCapitalization"),
+            "enterpriseValue": None,  # Not in AV overview
+            "trailingPE": _float("TrailingPE"),
+            "forwardPE": _float("ForwardPE"),
+            "pegRatio": _float("PEGRatio"),
+            "priceToBook": _float("PriceToBookRatio"),
+            "priceToSalesTrailing12Months": _float("PriceToSalesRatioTTM"),
+            "profitMargins": _float("ProfitMargin"),
+            "operatingMargins": _float("OperatingMarginTTM"),
+            "returnOnAssets": _float("ReturnOnAssetsTTM"),
+            "returnOnEquity": _float("ReturnOnEquityTTM"),
+            "dividendYield": _float("DividendYield"),
+            "dividendRate": _float("DividendPerShare"),
+            "payoutRatio": _float("PayoutRatio"),
+            "revenueGrowth": _float("QuarterlyRevenueGrowthYOY"),
+            "earningsGrowth": _float("QuarterlyEarningsGrowthYOY"),
+            "trailingEps": _float("EPS"),
+            "forwardEps": None,  # Not in AV overview
+            "targetHighPrice": _float("AnalystTargetPrice"),
+            "targetLowPrice": None,
+            "targetMeanPrice": _float("AnalystTargetPrice"),
+            "targetMedianPrice": None,
+            "recommendationKey": data.get("AnalystRatingStrongBuy", None),
+            "numberOfAnalystOpinions": _int("AnalystRatingStrongBuy"),  # Partial
+            "currentRatio": None,  # Comes from balance sheet
+            "debtToEquity": None,  # Comes from balance sheet
+            "quickRatio": None,
+            "freeCashflow": None,  # Comes from cash flow
+            "operatingCashflow": None,  # Comes from cash flow
+            "beta": _float("Beta"),
+            "52WeekHigh": _float("52WeekHigh"),
+            "52WeekLow": _float("52WeekLow"),
+            "50DayMovingAverage": _float("50DayMovingAverage"),
+            "200DayMovingAverage": _float("200DayMovingAverage"),
+        }
+
+    async def _fetch_av_earnings(self) -> Optional[Dict[str, Any]]:
+        """
+        Fetch earnings data from Alpha Vantage EARNINGS endpoint.
+
+        Returns:
+            Dict with quarterly earnings including beat/miss data, or None
+        """
+        data = await self._av_request({
+            "function": "EARNINGS",
+            "symbol": self.ticker,
+        })
+        if not data or "quarterlyEarnings" not in data:
+            return None
+
+        quarterly = data.get("quarterlyEarnings", [])
+        annual = data.get("annualEarnings", [])
+
+        # Parse quarterly earnings with beat/miss data
+        parsed_quarterly = []
+        for q in quarterly[:12]:  # Last 12 quarters
+            try:
+                reported = q.get("reportedEPS")
+                estimated = q.get("estimatedEPS")
+                surprise = q.get("surprise")
+                surprise_pct = q.get("surprisePercentage")
+
+                parsed_quarterly.append({
+                    "fiscalDateEnding": q.get("fiscalDateEnding", ""),
+                    "reportedEPS": float(reported) if reported and reported != "None" else None,
+                    "estimatedEPS": float(estimated) if estimated and estimated != "None" else None,
+                    "surprise": float(surprise) if surprise and surprise != "None" else None,
+                    "surprisePercentage": float(surprise_pct) if surprise_pct and surprise_pct != "None" else None,
+                })
+            except (ValueError, TypeError):
+                continue
+
+        return {
+            "quarterlyEarnings": parsed_quarterly,
+            "annualEarnings": annual[:5],  # Last 5 years
+        }
+
+    async def _fetch_av_balance_sheet(self) -> Optional[Dict[str, Any]]:
+        """
+        Fetch balance sheet from Alpha Vantage BALANCE_SHEET endpoint.
+
+        Returns:
+            Dict with key balance sheet metrics, or None
+        """
+        data = await self._av_request({
+            "function": "BALANCE_SHEET",
+            "symbol": self.ticker,
+        })
+        if not data or "quarterlyReports" not in data:
+            return None
+
+        reports = data.get("quarterlyReports", [])
+        if not reports:
+            return None
+
+        latest = reports[0]
+
+        def _float(key):
+            val = latest.get(key)
+            if val is None or val == "None" or val == "-":
+                return None
+            try:
+                return float(val)
+            except (ValueError, TypeError):
+                return None
+
+        total_current_assets = _float("totalCurrentAssets")
+        total_current_liabilities = _float("totalCurrentLiabilities")
+        total_debt = _float("shortLongTermDebtTotal") or _float("longTermDebt")
+        total_equity = _float("totalShareholderEquity")
+        inventory = _float("inventory")
+
+        current_ratio = None
+        if total_current_assets and total_current_liabilities and total_current_liabilities != 0:
+            current_ratio = total_current_assets / total_current_liabilities
+
+        quick_ratio = None
+        if total_current_assets and inventory and total_current_liabilities and total_current_liabilities != 0:
+            quick_ratio = (total_current_assets - (inventory or 0)) / total_current_liabilities
+
+        debt_to_equity = None
+        if total_debt and total_equity and total_equity != 0:
+            debt_to_equity = (total_debt / total_equity) * 100  # yfinance format is percentage
+
+        return {
+            "currentRatio": current_ratio,
+            "quickRatio": quick_ratio,
+            "debtToEquity": debt_to_equity,
+            "totalCurrentAssets": total_current_assets,
+            "totalCurrentLiabilities": total_current_liabilities,
+            "totalDebt": total_debt,
+            "totalEquity": total_equity,
+        }
+
+    async def _fetch_av_cash_flow(self) -> Optional[Dict[str, Any]]:
+        """
+        Fetch cash flow from Alpha Vantage CASH_FLOW endpoint.
+
+        Returns:
+            Dict with key cash flow metrics, or None
+        """
+        data = await self._av_request({
+            "function": "CASH_FLOW",
+            "symbol": self.ticker,
+        })
+        if not data or "quarterlyReports" not in data:
+            return None
+
+        reports = data.get("quarterlyReports", [])
+        if not reports:
+            return None
+
+        # Sum last 4 quarters for TTM values
+        operating_cf_ttm = 0
+        capex_ttm = 0
+        quarters_counted = 0
+
+        for report in reports[:4]:
+            try:
+                ocf = report.get("operatingCashflow")
+                capex = report.get("capitalExpenditures")
+
+                if ocf and ocf != "None":
+                    operating_cf_ttm += float(ocf)
+                if capex and capex != "None":
+                    capex_ttm += float(capex)
+                quarters_counted += 1
+            except (ValueError, TypeError):
+                continue
+
+        if quarters_counted == 0:
+            return None
+
+        return {
+            "operatingCashflow": operating_cf_ttm,
+            "freeCashflow": operating_cf_ttm - capex_ttm,
+            "capitalExpenditures": capex_ttm,
+            "quartersIncluded": quarters_counted,
+        }
+
+    async def _fetch_av_income_statement(self) -> Optional[List[Dict]]:
+        """
+        Fetch income statement from Alpha Vantage INCOME_STATEMENT endpoint.
+
+        Returns:
+            List of quarterly income statement records, or None
+        """
+        data = await self._av_request({
+            "function": "INCOME_STATEMENT",
+            "symbol": self.ticker,
+        })
+        if not data or "quarterlyReports" not in data:
+            return None
+
+        reports = data.get("quarterlyReports", [])
+        parsed = []
+        for report in reports[:8]:  # Last 8 quarters
+            def _float(key):
+                val = report.get(key)
+                if val is None or val == "None" or val == "-":
+                    return None
+                try:
+                    return float(val)
+                except (ValueError, TypeError):
+                    return None
+
+            parsed.append({
+                "fiscalDateEnding": report.get("fiscalDateEnding", ""),
+                "totalRevenue": _float("totalRevenue"),
+                "grossProfit": _float("grossProfit"),
+                "operatingIncome": _float("operatingIncome"),
+                "netIncome": _float("netIncome"),
+                "ebitda": _float("ebitda"),
+            })
+
+        return parsed if parsed else None
+
     async def fetch_data(self) -> Dict[str, Any]:
         """
-        Fetch fundamental data using yfinance and SEC EDGAR with retry logic.
-        Each data source is fetched independently for graceful degradation.
+        Fetch fundamental data. Tries Alpha Vantage first, falls back to yfinance + SEC EDGAR.
 
         Returns:
             Dictionary with company info, financials, earnings data, and SEC filings
         """
+        result = {"ticker": self.ticker, "source": "unknown"}
+
+        # ── Try Alpha Vantage first ──
+        av_api_key = self.config.get("ALPHA_VANTAGE_API_KEY", "")
+        if av_api_key:
+            self.logger.info(f"Fetching {self.ticker} fundamentals from Alpha Vantage (primary)")
+
+            # Fetch all AV endpoints concurrently
+            av_overview, av_earnings, av_balance, av_cashflow, av_income = await asyncio.gather(
+                self._fetch_av_overview(),
+                self._fetch_av_earnings(),
+                self._fetch_av_balance_sheet(),
+                self._fetch_av_cash_flow(),
+                self._fetch_av_income_statement(),
+                return_exceptions=True,
+            )
+
+            # Handle exceptions from gather
+            for name, val in [("overview", av_overview), ("earnings", av_earnings),
+                              ("balance", av_balance), ("cashflow", av_cashflow),
+                              ("income", av_income)]:
+                if isinstance(val, Exception):
+                    self.logger.warning(f"Alpha Vantage {name} fetch raised: {val}")
+
+            av_overview = None if isinstance(av_overview, Exception) else av_overview
+            av_earnings = None if isinstance(av_earnings, Exception) else av_earnings
+            av_balance = None if isinstance(av_balance, Exception) else av_balance
+            av_cashflow = None if isinstance(av_cashflow, Exception) else av_cashflow
+            av_income = None if isinstance(av_income, Exception) else av_income
+
+            # We need at least the overview to use AV as primary
+            if av_overview:
+                self.logger.info(f"Alpha Vantage fundamentals retrieved for {self.ticker}")
+
+                result["source"] = "alpha_vantage"
+
+                # Merge balance sheet and cash flow metrics into info
+                info = av_overview
+                if av_balance:
+                    info["currentRatio"] = av_balance.get("currentRatio")
+                    info["quickRatio"] = av_balance.get("quickRatio")
+                    info["debtToEquity"] = av_balance.get("debtToEquity")
+                if av_cashflow:
+                    info["freeCashflow"] = av_cashflow.get("freeCashflow")
+                    info["operatingCashflow"] = av_cashflow.get("operatingCashflow")
+
+                result["info"] = info
+
+                # Build earnings data compatible with existing analyze() method
+                result["earnings_dates"] = []
+                result["earnings_dates_df"] = None
+                result["quarterly_earnings"] = []
+
+                if av_earnings:
+                    quarterly = av_earnings.get("quarterlyEarnings", [])
+                    # Build earnings_dates-compatible records for beat/miss analysis
+                    import pandas as pd
+                    earnings_records = []
+                    for q in quarterly:
+                        earnings_records.append({
+                            "Reported EPS": q.get("reportedEPS"),
+                            "EPS Estimate": q.get("estimatedEPS"),
+                        })
+                    if earnings_records:
+                        result["earnings_dates_df"] = pd.DataFrame(earnings_records)
+                        result["earnings_dates"] = earnings_records
+
+                    # Build quarterly_earnings-compatible records
+                    for q in quarterly:
+                        result["quarterly_earnings"].append({
+                            "Earnings": q.get("reportedEPS"),
+                            "Revenue": None,
+                            "fiscalDateEnding": q.get("fiscalDateEnding"),
+                        })
+
+                # Store income statement for revenue trend analysis
+                result["av_income_statement"] = av_income
+
+                # Skip SEC EDGAR when AV provides data
+                result["sec_data"] = None
+
+                return result
+            else:
+                self.logger.info(f"Alpha Vantage overview incomplete for {self.ticker}, falling back to yfinance + SEC EDGAR")
+
+        # ── Fallback to yfinance + SEC EDGAR ──
+        self.logger.info(f"Fetching {self.ticker} fundamentals from yfinance + SEC EDGAR (fallback)")
+        result["source"] = "yfinance"
+
         ticker_obj = yf.Ticker(self.ticker)
-        result = {"ticker": self.ticker}
 
         # Fetch each yfinance data source independently with retries
         info = await self._retry_fetch(
@@ -196,6 +586,24 @@ class FundamentalsAgent(BaseAgent):
                 analysis["eps_trend"] = self._analyze_eps_trend(eps_history)
             if revenue_history:
                 analysis["revenue_trend"] = self._analyze_revenue_trend(revenue_history)
+
+        # Parse Alpha Vantage income statement for revenue trends (when AV is primary)
+        av_income = raw_data.get("av_income_statement")
+        if av_income and not analysis.get("revenue_trend"):
+            revenue_history = []
+            for report in av_income:
+                rev = report.get("totalRevenue")
+                if rev is not None:
+                    revenue_history.append({
+                        "val": rev,
+                        "end": report.get("fiscalDateEnding", ""),
+                        "form": "AV",
+                    })
+            if len(revenue_history) >= 2:
+                analysis["revenue_trend"] = self._analyze_revenue_trend(revenue_history)
+
+        # Track data source
+        analysis["data_source"] = raw_data.get("source", "unknown")
 
         # Calculate health score
         analysis["health_score"] = self._calculate_health_score(analysis)

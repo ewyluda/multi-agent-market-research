@@ -29,9 +29,9 @@ const SentimentReport = ({ analysis }) => {
   };
 
   const getSentimentColor = (score) => {
-    if (score > 0.3) return 'text-emerald-400';
-    if (score < -0.3) return 'text-red-400';
-    return 'text-amber-400';
+    if (score > 0.3) return 'text-success-400';
+    if (score < -0.3) return 'text-danger-400';
+    return 'text-warning-400';
   };
 
   // Map sentiment score (-1 to 1) to percentage position (0% to 100%)
@@ -78,7 +78,7 @@ const SentimentReport = ({ analysis }) => {
             </div>
 
             {/* Sentiment bar: red to green */}
-            <div className="relative h-2 bg-gradient-to-r from-red-500/40 via-amber-500/40 to-emerald-500/40 rounded-full">
+            <div className="relative h-2 bg-gradient-to-r from-danger/40 via-warning/40 to-success/40 rounded-full">
               {/* Center marker */}
               <div className="absolute left-1/2 top-0 w-px h-full bg-gray-500/50" />
               {/* Position marker */}
@@ -157,7 +157,7 @@ const SentimentReport = ({ analysis }) => {
                 <div className="relative h-1.5 bg-gray-700/50 rounded-full overflow-hidden">
                   <div
                     className={`absolute h-full rounded-full transition-all duration-500 ${
-                      score > 0 ? 'bg-emerald-500' : 'bg-red-500'
+                      score > 0 ? 'bg-success' : 'bg-danger'
                     }`}
                     style={{
                       width: `${barWidth}%`,

@@ -22,9 +22,9 @@ const Recommendation = ({ analysis }) => {
   const rotation = (score / 100) * 90;
 
   const getColor = () => {
-    if (recommendation === 'BUY') return { text: 'text-emerald-400', bg: 'bg-emerald-500', border: 'border-t-emerald-500', glow: '0 0 20px rgba(16, 185, 129, 0.2)' };
-    if (recommendation === 'SELL') return { text: 'text-red-400', bg: 'bg-red-500', border: 'border-t-red-500', glow: '0 0 20px rgba(239, 68, 68, 0.2)' };
-    return { text: 'text-amber-400', bg: 'bg-amber-500', border: 'border-t-amber-500', glow: '0 0 20px rgba(245, 158, 11, 0.2)' };
+    if (recommendation === 'BUY') return { text: 'text-success-400', bg: 'bg-success', border: 'border-t-success', glow: '0 0 20px rgba(23, 201, 100, 0.2)' };
+    if (recommendation === 'SELL') return { text: 'text-danger-400', bg: 'bg-danger', border: 'border-t-danger', glow: '0 0 20px rgba(243, 18, 96, 0.2)' };
+    return { text: 'text-warning-400', bg: 'bg-warning', border: 'border-t-warning', glow: '0 0 20px rgba(245, 165, 36, 0.2)' };
   };
 
   const colors = getColor();
@@ -41,16 +41,16 @@ const Recommendation = ({ analysis }) => {
         <svg className="w-full h-full" viewBox="0 0 200 100">
           <defs>
             <linearGradient id="sellGradient" x1="0" y1="0" x2="1" y2="0">
-              <stop offset="0%" stopColor="#991b1b" />
-              <stop offset="100%" stopColor="#ef4444" />
+              <stop offset="0%" stopColor="#860825" />
+              <stop offset="100%" stopColor="#f31260" />
             </linearGradient>
             <linearGradient id="holdGradient" x1="0" y1="0" x2="1" y2="0">
-              <stop offset="0%" stopColor="#92400e" />
-              <stop offset="100%" stopColor="#f59e0b" />
+              <stop offset="0%" stopColor="#6b3a07" />
+              <stop offset="100%" stopColor="#f5a524" />
             </linearGradient>
             <linearGradient id="buyGradient" x1="0" y1="0" x2="1" y2="0">
-              <stop offset="0%" stopColor="#10b981" />
-              <stop offset="100%" stopColor="#065f46" />
+              <stop offset="0%" stopColor="#17c964" />
+              <stop offset="100%" stopColor="#095c30" />
             </linearGradient>
             <filter id="needleShadow">
               <feDropShadow dx="0" dy="1" stdDeviation="2" floodOpacity="0.5" />
@@ -58,7 +58,7 @@ const Recommendation = ({ analysis }) => {
           </defs>
 
           {/* Background track */}
-          <path d="M 15 90 A 75 75 0 0 1 185 90" fill="none" stroke="#1f2937" strokeWidth="16" strokeLinecap="round" />
+          <path d="M 15 90 A 75 75 0 0 1 185 90" fill="none" stroke="#27272a" strokeWidth="16" strokeLinecap="round" />
 
           {/* Colored zones */}
           <path d="M 15 90 A 75 75 0 0 1 60 22" fill="none" stroke="url(#sellGradient)" strokeWidth="16" strokeLinecap="round" opacity="0.6" />
@@ -70,7 +70,7 @@ const Recommendation = ({ analysis }) => {
             <line
               key={deg}
               x1="100" y1="90" x2="100" y2="24"
-              stroke="#374151" strokeWidth="0.5"
+              stroke="#3f3f46" strokeWidth="0.5"
               transform={`rotate(${deg} 100 90)`}
             />
           ))}
@@ -78,13 +78,13 @@ const Recommendation = ({ analysis }) => {
           {/* Needle */}
           <g transform={`rotate(${rotation} 100 90)`} filter="url(#needleShadow)">
             <line x1="100" y1="90" x2="100" y2="28" stroke="white" strokeWidth="2.5" strokeLinecap="round" />
-            <circle cx="100" cy="90" r="5" fill="#1f2937" stroke="white" strokeWidth="2" />
+            <circle cx="100" cy="90" r="5" fill="#27272a" stroke="white" strokeWidth="2" />
           </g>
 
           {/* Labels */}
-          <text x="22" y="98" fill="#ef4444" fontSize="10" fontWeight="600" opacity="0.7">SELL</text>
-          <text x="86" y="16" fill="#f59e0b" fontSize="10" fontWeight="600" opacity="0.7">HOLD</text>
-          <text x="160" y="98" fill="#10b981" fontSize="10" fontWeight="600" opacity="0.7">BUY</text>
+          <text x="22" y="98" fill="#f31260" fontSize="10" fontWeight="600" opacity="0.7">SELL</text>
+          <text x="86" y="16" fill="#f5a524" fontSize="10" fontWeight="600" opacity="0.7">HOLD</text>
+          <text x="160" y="98" fill="#17c964" fontSize="10" fontWeight="600" opacity="0.7">BUY</text>
         </svg>
       </div>
 
@@ -118,8 +118,8 @@ const Recommendation = ({ analysis }) => {
           <div className="flex justify-between items-center">
             <span className="text-xs text-gray-500">Position Size</span>
             <span className={`text-xs font-semibold px-2 py-0.5 rounded ${
-              analysis.analysis.position_size === 'LARGE' ? 'bg-emerald-500/15 text-emerald-400' :
-              analysis.analysis.position_size === 'MEDIUM' ? 'bg-blue-500/15 text-blue-400' :
+              analysis.analysis.position_size === 'LARGE' ? 'bg-success/15 text-success-400' :
+              analysis.analysis.position_size === 'MEDIUM' ? 'bg-primary/15 text-primary-400' :
               'bg-gray-500/15 text-gray-400'
             }`}>
               {analysis.analysis.position_size}

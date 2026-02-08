@@ -10,8 +10,14 @@ from .base_agent import BaseAgent
 
 
 class NewsAgent(BaseAgent):
-    """Agent for fetching financial news from various sources with relevance filtering."""
+    """Agent for fetching financial news from various sources with relevance filtering.
 
+    Data source priority:
+        1. Alpha Vantage NEWS_SENTIMENT (includes built-in sentiment scores)
+        2. NewsAPI (fallback)
+    """
+
+    AV_BASE_URL = "https://www.alphavantage.co/query"
     RELEVANCE_THRESHOLD = 0.15  # Minimum score to keep an article (very permissive)
 
     async def _retry_fetch(self, func, max_retries: int = None, label: str = ""):
@@ -38,6 +44,151 @@ class NewsAgent(BaseAgent):
                 self.logger.info(f"Retry {attempt + 1}/{retries} for {label} in {wait:.1f}s: {e}")
                 await asyncio.sleep(wait)
         return None
+
+    # ──────────────────────────────────────────────
+    # Alpha Vantage News Fetching
+    # ──────────────────────────────────────────────
+
+    async def _av_request(self, params: Dict[str, str]) -> Optional[Dict]:
+        """
+        Make a request to Alpha Vantage API.
+
+        Args:
+            params: Query parameters (function, symbol, etc.)
+
+        Returns:
+            JSON response dict, or None on failure
+        """
+        api_key = self.config.get("ALPHA_VANTAGE_API_KEY", "")
+        if not api_key:
+            return None
+
+        params["apikey"] = api_key
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    self.AV_BASE_URL,
+                    params=params,
+                    timeout=aiohttp.ClientTimeout(total=15)
+                ) as resp:
+                    if resp.status != 200:
+                        self.logger.warning(f"Alpha Vantage returned status {resp.status}")
+                        return None
+                    data = await resp.json(content_type=None)
+                    if "Error Message" in data or "Note" in data:
+                        msg = data.get("Error Message") or data.get("Note", "")
+                        self.logger.warning(f"Alpha Vantage API error: {msg}")
+                        return None
+                    if "Information" in data and "rate limit" in data.get("Information", "").lower():
+                        self.logger.warning(f"Alpha Vantage rate limited: {data['Information']}")
+                        return None
+                    return data
+        except Exception as e:
+            self.logger.warning(f"Alpha Vantage request failed: {e}")
+            return None
+
+    async def _fetch_av_news(self) -> Optional[List[Dict[str, Any]]]:
+        """
+        Fetch news from Alpha Vantage NEWS_SENTIMENT endpoint.
+
+        The AV NEWS_SENTIMENT endpoint provides articles with built-in
+        ticker-specific relevance scores and sentiment data.
+
+        Returns:
+            List of formatted article dicts, or None on failure
+        """
+        lookback_days = self.config.get("NEWS_LOOKBACK_DAYS", 7)
+        max_articles = self.config.get("MAX_NEWS_ARTICLES", 50)
+
+        time_from = (datetime.now() - timedelta(days=lookback_days)).strftime("%Y%m%dT0000")
+
+        data = await self._av_request({
+            "function": "NEWS_SENTIMENT",
+            "tickers": self.ticker,
+            "sort": "RELEVANCE",
+            "limit": str(min(max_articles, 200)),
+            "time_from": time_from,
+        })
+
+        if not data or "feed" not in data:
+            return None
+
+        feed = data.get("feed", [])
+        if not feed:
+            return None
+
+        articles = []
+        for item in feed:
+            # Extract ticker-specific sentiment from the ticker_sentiment array
+            ticker_sentiment = None
+            av_relevance = 0.0
+            for ts in item.get("ticker_sentiment", []):
+                if ts.get("ticker", "").upper() == self.ticker.upper():
+                    ticker_sentiment = ts
+                    try:
+                        av_relevance = float(ts.get("relevance_score", 0))
+                    except (ValueError, TypeError):
+                        av_relevance = 0.0
+                    break
+
+            # Build article in the same format as NewsAPI articles
+            articles.append({
+                "title": item.get("title", ""),
+                "source": item.get("source", ""),
+                "author": ", ".join(item.get("authors", [])),
+                "description": item.get("summary", ""),
+                "url": item.get("url", ""),
+                "published_at": self._parse_av_datetime(item.get("time_published", "")),
+                "content": item.get("summary", ""),
+                # AV-specific enrichment
+                "av_overall_sentiment_score": self._safe_float(item.get("overall_sentiment_score")),
+                "av_overall_sentiment_label": item.get("overall_sentiment_label", ""),
+                "av_ticker_relevance": av_relevance,
+                "av_ticker_sentiment_score": self._safe_float(
+                    ticker_sentiment.get("ticker_sentiment_score") if ticker_sentiment else None
+                ),
+                "av_ticker_sentiment_label": (
+                    ticker_sentiment.get("ticker_sentiment_label", "") if ticker_sentiment else ""
+                ),
+                # Use AV's relevance score directly as our relevance_score
+                "relevance_score": round(av_relevance, 3),
+            })
+
+        self.logger.info(f"Alpha Vantage NEWS_SENTIMENT returned {len(articles)} articles for {self.ticker}")
+        return articles
+
+    @staticmethod
+    def _parse_av_datetime(av_time: str) -> str:
+        """
+        Convert Alpha Vantage datetime format (20250207T120000) to ISO format.
+
+        Args:
+            av_time: AV datetime string like '20250207T120000'
+
+        Returns:
+            ISO format datetime string
+        """
+        if not av_time or len(av_time) < 15:
+            return av_time
+        try:
+            dt = datetime.strptime(av_time[:15], "%Y%m%dT%H%M%S")
+            return dt.isoformat() + "Z"
+        except (ValueError, TypeError):
+            return av_time
+
+    @staticmethod
+    def _safe_float(val) -> Optional[float]:
+        """Safely convert a value to float."""
+        if val is None or val == "None":
+            return None
+        try:
+            return float(val)
+        except (ValueError, TypeError):
+            return None
+
+    # ──────────────────────────────────────────────
+    # Company Info Lookup
+    # ──────────────────────────────────────────────
 
     async def _get_company_info(self) -> Dict[str, str]:
         """
@@ -318,15 +469,46 @@ class NewsAgent(BaseAgent):
 
     async def fetch_data(self) -> Dict[str, Any]:
         """
-        Fetch news articles from NewsAPI with smart query construction.
+        Fetch news articles. Tries Alpha Vantage NEWS_SENTIMENT first, falls back to NewsAPI.
 
-        Uses company name lookup via yfinance to build precise queries
-        instead of bare ticker symbols.
+        Alpha Vantage provides built-in ticker relevance and sentiment scores,
+        so articles from AV are already pre-scored and don't need our relevance filter.
 
         Returns:
             Dictionary with news articles and company info
         """
         articles = []
+        source = "unknown"
+
+        # ── Try Alpha Vantage NEWS_SENTIMENT first ──
+        av_api_key = self.config.get("ALPHA_VANTAGE_API_KEY", "")
+        if av_api_key:
+            self.logger.info(f"Fetching {self.ticker} news from Alpha Vantage NEWS_SENTIMENT (primary)")
+            try:
+                av_articles = await self._fetch_av_news()
+                if av_articles and len(av_articles) > 0:
+                    articles.extend(av_articles)
+                    source = "alpha_vantage"
+                    self.logger.info(f"Alpha Vantage returned {len(av_articles)} news articles for {self.ticker}")
+
+                    # Still look up company info for category/relevance scoring
+                    company_info = await self._get_company_info()
+                    self._company_info = company_info
+
+                    return {
+                        "articles": articles,
+                        "ticker": self.ticker,
+                        "total_count": len(articles),
+                        "company_info": company_info,
+                        "source": source,
+                    }
+                else:
+                    self.logger.info(f"Alpha Vantage returned no news for {self.ticker}, falling back to NewsAPI")
+            except Exception as e:
+                self.logger.warning(f"Alpha Vantage NEWS_SENTIMENT failed: {e}, falling back to NewsAPI")
+
+        # ── Fallback to NewsAPI ──
+        source = "newsapi"
 
         # Step 1: Look up company info for smart query construction
         company_info = await self._get_company_info()
@@ -352,6 +534,7 @@ class NewsAgent(BaseAgent):
             "ticker": self.ticker,
             "total_count": len(articles),
             "company_info": company_info,
+            "source": source,
         }
 
     async def _fetch_from_newsapi(
@@ -420,7 +603,8 @@ class NewsAgent(BaseAgent):
         """
         Analyze news articles with relevance filtering and categorization.
 
-        Two-layer defense:
+        For Alpha Vantage-sourced articles, relevance scores are pre-computed.
+        For NewsAPI-sourced articles, our two-layer defense applies:
         1. Smart query (in fetch_data) reduces irrelevant articles from NewsAPI
         2. Relevance scoring here catches any that slip through
 
@@ -432,6 +616,7 @@ class NewsAgent(BaseAgent):
         """
         articles = raw_data.get("articles", [])
         company_info = getattr(self, "_company_info", None) or raw_data.get("company_info", {})
+        data_source = raw_data.get("source", "unknown")
 
         if not articles:
             return {
@@ -446,9 +631,13 @@ class NewsAgent(BaseAgent):
         # Score and filter articles for relevance
         scored_articles = []
         for article in articles:
-            relevance = self._score_article_relevance(article, company_info)
-            article_with_score = {**article, "relevance_score": round(relevance, 3)}
-            scored_articles.append(article_with_score)
+            # AV articles already have relevance_score from the API
+            if data_source == "alpha_vantage" and "relevance_score" in article:
+                scored_articles.append(article)
+            else:
+                relevance = self._score_article_relevance(article, company_info)
+                article_with_score = {**article, "relevance_score": round(relevance, 3)}
+                scored_articles.append(article_with_score)
 
         # Sort by relevance descending
         scored_articles.sort(key=lambda a: a["relevance_score"], reverse=True)

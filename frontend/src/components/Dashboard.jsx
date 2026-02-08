@@ -66,7 +66,7 @@ const Dashboard = () => {
           <div className="flex items-center justify-between">
             {/* Brand */}
             <div className="flex items-center space-x-3">
-              <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-blue-500 to-cyan-400 flex items-center justify-center">
+              <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-primary to-primary-300 flex items-center justify-center">
                 <PulseIcon className="w-5 h-5 text-white" />
               </div>
               <div>
@@ -83,7 +83,7 @@ const Dashboard = () => {
                   value={tickerInput}
                   onChange={(e) => setTickerInput(e.target.value.toUpperCase())}
                   placeholder="Enter ticker (e.g., NVDA)"
-                  className="pl-4 pr-4 py-2 bg-dark-inset border border-dark-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-accent-blue/30 focus:border-accent-blue/50 focus:shadow-[0_0_15px_rgba(59,130,246,0.15)] transition-all uppercase w-56"
+                  className="pl-4 pr-4 py-2 bg-dark-inset border border-dark-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-accent-blue/30 focus:border-accent-blue/50 focus:shadow-[0_0_15px_rgba(0,111,238,0.15)] transition-all uppercase w-56"
                   maxLength={5}
                   disabled={loading}
                 />
@@ -91,7 +91,7 @@ const Dashboard = () => {
               <button
                 type="submit"
                 disabled={loading || !tickerInput.trim()}
-                className="px-5 py-2 bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 disabled:from-gray-700 disabled:to-gray-700 disabled:cursor-not-allowed rounded-lg font-medium text-sm transition-all flex items-center space-x-2"
+                className="px-5 py-2 bg-gradient-to-r from-primary-600 to-primary hover:from-primary hover:to-primary-400 disabled:from-zinc-700 disabled:to-zinc-700 disabled:cursor-not-allowed rounded-lg font-medium text-sm transition-all flex items-center space-x-2"
               >
                 {loading ? (
                   <>
@@ -114,7 +114,7 @@ const Dashboard = () => {
               </div>
               <div className="w-full h-1.5 bg-dark-inset rounded-full overflow-hidden shadow-inner">
                 <div
-                  className="h-full bg-gradient-to-r from-blue-600 via-blue-500 to-cyan-400 rounded-full transition-all duration-500 ease-out relative"
+                  className="h-full bg-gradient-to-r from-primary-600 via-primary to-primary-300 rounded-full transition-all duration-500 ease-out relative"
                   style={{ width: `${progress}%` }}
                 >
                   <div
@@ -128,7 +128,7 @@ const Dashboard = () => {
 
           {/* Error Display */}
           {error && (
-            <div className="mt-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm flex items-center space-x-2 animate-fade-in">
+            <div className="mt-4 p-3 bg-danger/10 border border-danger/30 rounded-lg text-danger-400 text-sm flex items-center space-x-2 animate-fade-in">
               <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
                 <circle cx="10" cy="10" r="7" />
                 <path d="M10 7v3M10 12.5v.5" />
@@ -193,8 +193,8 @@ const Dashboard = () => {
           /* Welcome Screen */
           <div className="mt-16 text-center animate-fade-in">
             {/* Animated Chart Icon */}
-            <div className="w-20 h-20 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-blue-500/20 to-cyan-400/20 border border-blue-500/20 flex items-center justify-center">
-              <PulseIcon className="w-10 h-10 text-blue-400" />
+            <div className="w-20 h-20 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-primary/20 to-primary-300/20 border border-primary/20 flex items-center justify-center">
+              <PulseIcon className="w-10 h-10 text-primary-400" />
             </div>
 
             <h2 className="text-3xl font-bold mb-2 tracking-tight">AI Trading Analyst</h2>

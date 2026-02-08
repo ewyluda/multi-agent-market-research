@@ -59,12 +59,12 @@ const AgentStatus = () => {
   const getStatusIndicator = (status) => {
     switch (status) {
       case 'success':
-        return <CheckCircleIcon className="w-4 h-4 text-emerald-400" />;
+        return <CheckCircleIcon className="w-4 h-4 text-success-400" />;
       case 'error':
-        return <XCircleIcon className="w-4 h-4 text-red-400" />;
+        return <XCircleIcon className="w-4 h-4 text-danger-400" />;
       case 'running':
         return (
-          <div className="w-3 h-3 rounded-full bg-blue-500 ring-4 ring-blue-500/20 animate-pulse" />
+          <div className="w-3 h-3 rounded-full bg-primary ring-4 ring-primary/20 animate-pulse" />
         );
       case 'pending':
         return <div className="w-3 h-3 rounded-full bg-gray-600" />;
@@ -96,15 +96,15 @@ const AgentStatus = () => {
               <div
                 className={`flex items-center justify-between p-2.5 rounded-lg transition-all ${
                   status === 'running'
-                    ? 'bg-blue-500/10 border border-blue-500/20'
+                    ? 'bg-primary/10 border border-primary/20'
                     : 'hover:bg-white/[0.03]'
                 }`}
               >
                 <div className="flex items-center space-x-3 min-w-0">
                   <div className={`flex-shrink-0 ${
                     status === 'success' ? 'text-gray-300' :
-                    status === 'running' ? 'text-blue-400' :
-                    status === 'error' ? 'text-red-400' :
+                    status === 'running' ? 'text-primary-400' :
+                    status === 'error' ? 'text-danger-400' :
                     'text-gray-500'
                   }`}>
                     <Icon className="w-4 h-4" />
@@ -127,8 +127,8 @@ const AgentStatus = () => {
               {!isLast && (
                 <div className="flex justify-center py-0.5">
                   <div className={`w-px h-2 ${
-                    status === 'success' ? 'bg-emerald-500/30' :
-                    status === 'running' ? 'bg-blue-500/30' :
+                    status === 'success' ? 'bg-success/30' :
+                    status === 'running' ? 'bg-primary/30' :
                     'bg-gray-700/50'
                   }`} />
                 </div>
@@ -152,7 +152,7 @@ const AgentStatus = () => {
       {loading && stage && (
         <div className="mt-4 pt-3 border-t border-white/5">
           <div className="flex items-center space-x-2">
-            <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
+            <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
             <span className="text-[10px] text-gray-400">Processing...</span>
           </div>
         </div>

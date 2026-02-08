@@ -20,12 +20,30 @@ User → FastAPI API → Orchestrator → [5 Agents Run in Parallel]
 
 ### Agent Roles
 
-1. **News Agent** (`src/agents/news_agent.py`) - Fetches financial news from multiple sources
+1. **News Agent** (`src/agents/news_agent.py`) - Fetches financial news with relevance filtering
 2. **Sentiment Agent** (`src/agents/sentiment_agent.py`) - LLM-based sentiment analysis on news
-3. **Fundamentals Agent** (`src/agents/fundamentals_agent.py`) - Company financials and health metrics
+3. **Fundamentals Agent** (`src/agents/fundamentals_agent.py`) - Company financials, health metrics, and LLM equity research
 4. **Market Agent** (`src/agents/market_agent.py`) - Price trends and market conditions
-5. **Technical Agent** (`src/agents/technical_agent.py`) - RSI, MACD, Bollinger Bands
+5. **Technical Agent** (`src/agents/technical_agent.py`) - RSI, MACD, Bollinger Bands, SMA
 6. **Solution Agent** (`src/agents/solution_agent.py`) - Synthesizes all outputs with chain-of-thought reasoning
+
+### Data Source Priority (per agent)
+
+All data-fetching agents follow a **primary → fallback** pattern:
+
+| Agent | Primary Source (Alpha Vantage) | Fallback Source |
+|-------|-------------------------------|-----------------|
+| **Market Agent** | `GLOBAL_QUOTE` + `TIME_SERIES_DAILY` | yfinance |
+| **Fundamentals Agent** | `COMPANY_OVERVIEW` + `EARNINGS` + `BALANCE_SHEET` + `CASH_FLOW` + `INCOME_STATEMENT` | yfinance + SEC EDGAR XBRL |
+| **News Agent** | `NEWS_SENTIMENT` (includes ticker-specific relevance & sentiment scores) | NewsAPI |
+| **Technical Agent** | `RSI` + `MACD` + `BBANDS` + `SMA` (×3 periods) + `TIME_SERIES_DAILY` | yfinance + local indicator calculation |
+| **Sentiment Agent** | N/A (LLM-powered) | N/A |
+
+Each agent has:
+- `_av_request()` method for generic Alpha Vantage API calls with error/rate-limit handling
+- `_fetch_av_*()` methods for specific AV endpoints
+- Graceful fallback when `ALPHA_VANTAGE_API_KEY` is missing or AV returns incomplete data
+- `data_source` tracking in analysis output (`"alpha_vantage"` or fallback source name)
 
 ## Core Files
 
@@ -43,24 +61,51 @@ User → FastAPI API → Orchestrator → [5 Agents Run in Parallel]
 ```
 src/agents/
 ├── base_agent.py         # Abstract base class for all agents
-├── news_agent.py         # News gathering
+├── news_agent.py         # News gathering (AV NEWS_SENTIMENT → NewsAPI)
 ├── sentiment_agent.py    # Sentiment analysis (LLM-powered)
-├── fundamentals_agent.py # Company fundamentals
-├── market_agent.py       # Market data
-├── technical_agent.py    # Technical indicators
+├── fundamentals_agent.py # Company fundamentals (AV 5-endpoint → yfinance + SEC EDGAR)
+├── market_agent.py       # Market data (AV GLOBAL_QUOTE + DAILY → yfinance)
+├── technical_agent.py    # Technical indicators (AV RSI/MACD/BBANDS/SMA → yfinance + local calc)
 └── solution_agent.py     # Final synthesis (LLM-powered)
 ```
+
+### Frontend
+```
+frontend/
+├── src/
+│   ├── components/
+│   │   ├── Dashboard.jsx       # Main layout and orchestration
+│   │   ├── Recommendation.jsx  # SVG gauge with BUY/HOLD/SELL
+│   │   ├── AgentStatus.jsx     # Real-time agent progress
+│   │   ├── PriceChart.jsx      # Price history and indicators
+│   │   ├── SentimentReport.jsx # Sentiment breakdown
+│   │   ├── Summary.jsx         # Price targets, risks, opportunities
+│   │   ├── NewsFeed.jsx        # News article list
+│   │   └── Icons.jsx           # SVG icon components
+│   ├── index.css               # Theme system (Tailwind v4 @theme + CSS custom properties)
+│   └── App.jsx                 # Root component
+├── tailwind.config.js          # Tailwind color configuration
+└── package.json
+```
+
+**Frontend Theme**: Hero UI dark theme variant (zinc-based). Three color layers:
+1. `tailwind.config.js` - Custom color values
+2. `@theme` block in `index.css` - Semantic tokens (`--color-primary`, `--color-success`, etc.)
+3. `:root` block in `index.css` - CSS custom properties for backgrounds, borders, glows
 
 ## Key Technologies
 
 - **FastAPI** - REST API and WebSocket server
 - **SQLite** - Database for caching and persistence
-- **Anthropic Claude / OpenAI** - LLM for sentiment and synthesis
+- **Anthropic Claude / OpenAI / xAI Grok** - LLM for sentiment, equity research, and synthesis
 - **AsyncIO** - Parallel agent execution
+- **aiohttp** - Async HTTP client for Alpha Vantage API calls
 - **Pydantic** - Data validation and models
-- **yfinance** - Stock market data
-- **Alpha Vantage** - Market data API (optional)
-- **NewsAPI** - News aggregation (optional)
+- **yfinance** - Stock market data (fallback source)
+- **Alpha Vantage** - Primary market data API (15 endpoints used across 4 agents)
+- **NewsAPI** - News aggregation (fallback for news agent)
+- **React + Tailwind CSS v4** - Frontend UI with Hero UI dark theme
+- **Vite** - Frontend build tool
 
 ## Environment Setup
 
@@ -69,25 +114,36 @@ src/agents/
 ANTHROPIC_API_KEY=sk-...  # Primary LLM provider
 # OR
 OPENAI_API_KEY=sk-...     # Alternative LLM provider
+# OR
+GROK_API_KEY=...          # xAI Grok provider
+```
+
+### Recommended API Keys
+```bash
+ALPHA_VANTAGE_API_KEY=... # Primary data source for all data agents (strongly recommended)
 ```
 
 ### Optional API Keys
 ```bash
-ALPHA_VANTAGE_API_KEY=...
-NEWSAPI_KEY=...
+NEWSAPI_KEY=...           # Fallback news source (used when AV unavailable)
 TWITTER_BEARER_TOKEN=...
 ```
 
 ### Configuration Options (`.env`)
-- `LLM_PROVIDER` - "anthropic" or "openai" (default: anthropic)
+- `LLM_PROVIDER` - "anthropic", "openai", or "xai" (default: anthropic)
 - `LLM_MODEL` - Model name (default: claude-3-5-sonnet-20241022)
 - `AGENT_TIMEOUT` - Timeout in seconds (default: 30)
+- `AGENT_MAX_RETRIES` - Retry attempts per data fetch (default: 2)
 - `NEWS_LOOKBACK_DAYS` - Days of news history (default: 7)
 - `MAX_NEWS_ARTICLES` - Max articles to fetch (default: 20)
+- `FUNDAMENTALS_LLM_ENABLED` - Enable LLM equity research in fundamentals agent (default: true)
+- `RSI_PERIOD` - RSI calculation period (default: 14)
+- `MACD_FAST` / `MACD_SLOW` / `MACD_SIGNAL` - MACD parameters (default: 12/26/9)
+- `BB_PERIOD` / `BB_STD` - Bollinger Bands parameters (default: 20/2)
 
 ## Running the Application
 
-### Start Server
+### Start Backend Server
 ```bash
 # Activate virtual environment
 source venv/bin/activate
@@ -97,6 +153,15 @@ python run.py
 ```
 
 Server runs on `http://localhost:8000`
+
+### Start Frontend
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Frontend runs on `http://localhost:5173`
 
 ### API Endpoints
 
@@ -156,22 +221,34 @@ curl http://localhost:8000/health
 
 1. Create file in `src/agents/` (e.g., `new_agent.py`)
 2. Inherit from `BaseAgent` in `src/agents/base_agent.py`
-3. Implement `async def analyze(self, ticker: str) -> Dict[str, Any]`
-4. Register agent in `src/orchestrator.py`
-5. Update database schema if needed
+3. Implement `async def fetch_data(self) -> Dict[str, Any]`
+4. Implement `async def analyze(self, raw_data: Dict[str, Any]) -> Dict[str, Any]`
+5. Register agent in `src/orchestrator.py`
+6. Update database schema if needed
 
 Example:
 ```python
 from src.agents.base_agent import BaseAgent
 
 class NewAgent(BaseAgent):
-    async def analyze(self, ticker: str) -> Dict[str, Any]:
-        # Your analysis logic here
-        return {
-            "status": "success",
-            "data": {...}
-        }
+    async def fetch_data(self) -> Dict[str, Any]:
+        # Fetch raw data (try AV first, fallback to other sources)
+        return {"ticker": self.ticker, "data": {...}}
+
+    async def analyze(self, raw_data: Dict[str, Any]) -> Dict[str, Any]:
+        # Analyze the fetched data
+        return {"status": "success", "data": {...}}
 ```
+
+### Adding Alpha Vantage to a New Agent
+
+Follow the established pattern:
+1. Add `AV_BASE_URL` class constant
+2. Add `_av_request()` method (same across all agents)
+3. Add `_fetch_av_*()` methods for each AV endpoint
+4. Update `fetch_data()` to try AV first, then fallback
+5. Normalize AV data to match existing dict key formats
+6. Add `data_source` field to track which source was used
 
 ### Modifying API Endpoints
 
@@ -181,7 +258,7 @@ Edit `src/api.py` - FastAPI application with all routes.
 
 Update `.env`:
 ```bash
-LLM_PROVIDER=openai  # or anthropic
+LLM_PROVIDER=openai  # or anthropic or xai
 OPENAI_API_KEY=sk-...
 ```
 
@@ -189,17 +266,28 @@ OPENAI_API_KEY=sk-...
 
 1. Check logs for specific agent errors
 2. Review `agent_results` table in database
-3. Test agent individually:
+3. Check `data_source` field in results to see which source was used
+4. Test agent individually:
 ```python
 from src.agents.news_agent import NewsAgent
 import asyncio
 
 async def test():
     agent = NewsAgent()
-    result = await agent.analyze("AAPL")
+    result = await agent.execute("AAPL")
     print(result)
 
 asyncio.run(test())
+```
+
+### Debugging Alpha Vantage Issues
+
+1. Check if `ALPHA_VANTAGE_API_KEY` is set in `.env`
+2. AV free tier: 25 requests/day — agents will fallback automatically when rate-limited
+3. Look for log messages: `"Alpha Vantage rate limited"`, `"Alpha Vantage API error"`, `"falling back to"`
+4. Test AV directly:
+```bash
+curl "https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=AAPL&apikey=YOUR_KEY"
 ```
 
 ## Important Patterns
@@ -218,10 +306,23 @@ All agents inherit from `BaseAgent` which provides:
 - Timeout management
 - Logging
 - Result validation
+- `execute()` method that orchestrates: `fetch_data()` → `analyze()` → return result dict
+
+### Alpha Vantage Integration Pattern
+All data agents follow the same pattern:
+1. `fetch_data()` checks for `ALPHA_VANTAGE_API_KEY`
+2. If present, fetches from AV endpoints concurrently via `asyncio.gather()`
+3. Handles exceptions per-endpoint (partial success is OK)
+4. If AV provides sufficient data, returns immediately with `source: "alpha_vantage"`
+5. If AV fails or is incomplete, falls through to fallback sources
+6. Data is normalized to match existing dict key formats so `analyze()` methods work unchanged
 
 ### Data Flow
 ```
 Ticker → Orchestrator → Agents (parallel) → Solution Agent → Database → API Response
+
+Per Agent:
+  fetch_data() → [AV API (primary)] → [yfinance/NewsAPI/SEC (fallback)] → analyze() → result
 ```
 
 ## Testing
@@ -255,7 +356,7 @@ import asyncio
 
 async def test():
     agent = MarketAgent()
-    result = await agent.analyze("NVDA")
+    result = await agent.execute("NVDA")
     print(result)
 
 asyncio.run(test())
@@ -286,9 +387,30 @@ python run.py
 - Check network connectivity
 - Verify external API keys are working
 
+### Alpha Vantage Rate Limiting
+- Free tier: 25 requests/day, 5 requests/minute
+- Premium tier: higher limits
+- Agents automatically fall back to yfinance/NewsAPI when rate-limited
+- The fundamentals agent makes 5 concurrent AV requests per analysis — plan accordingly
+- The technical agent makes 7 concurrent AV requests per analysis
+- Check logs for `"Alpha Vantage rate limited"` messages
+
+### Alpha Vantage Returns No Data
+- Verify the ticker symbol is valid on Alpha Vantage (some international tickers differ)
+- Check for `"Error Message"` in AV response logs
+- Agents will automatically use fallback sources
+
 ## Frontend Integration
 
-The frontend is in `frontend/` directory (separate React app).
+The frontend is in `frontend/` directory (React + Vite + Tailwind CSS v4).
+
+**Theme**: Hero UI dark variant (zinc-based palette)
+- Primary: `#006fee` (blue)
+- Success: `#17c964` (green)
+- Danger: `#f31260` (pink-red)
+- Warning: `#f5a524` (amber)
+- Background: `#000000` (pure black)
+- Content surfaces: `#18181b` → `#27272a` → `#3f3f46` → `#52525b` (zinc scale)
 
 **Backend provides**:
 - REST API for historical data
@@ -307,6 +429,7 @@ The frontend is in `frontend/` directory (separate React app).
 3. **Check database** to verify data persistence
 4. **Run API tests** to ensure endpoints work
 5. **Test WebSocket** for real-time updates
+6. **Build frontend** to verify no build errors: `cd frontend && npm run build`
 
 ## Code Style
 
@@ -315,6 +438,8 @@ The frontend is in `frontend/` directory (separate React app).
 - **Pydantic models** for data validation
 - **Error handling** with try/except in agents
 - **Logging** for debugging
+- **aiohttp** for all external HTTP requests in agents
+- **`asyncio.gather()`** for concurrent API calls within agents
 
 ## Security Notes
 
@@ -322,14 +447,18 @@ The frontend is in `frontend/` directory (separate React app).
 - `.env.example` provided as template
 - Database is local SQLite (not exposed)
 - CORS configured for frontend access
+- Alpha Vantage API key passed as query parameter (standard for AV)
 
 ## Performance Considerations
 
 - Agents run in **parallel** for speed
+- Within each agent, AV endpoints are fetched **concurrently** via `asyncio.gather()`
 - Database **caching** reduces API calls
 - News and price data **cached** with TTL
 - Agent **timeout** prevents hanging
 - WebSocket for **real-time** updates (no polling)
+- Alpha Vantage as primary reduces yfinance rate-limit issues
+- `return_exceptions=True` in `asyncio.gather()` prevents one failed endpoint from blocking others
 
 ## Next Steps for AI Assistants
 
@@ -343,6 +472,8 @@ When working with this codebase:
 6. **Preserve error handling** in all agents
 7. **Use type hints** for clarity
 8. **Follow existing agent patterns** when adding new ones
+9. **Follow the AV integration pattern** when adding new data sources
+10. **Keep fallback behavior** — never remove existing data sources
 
 ## File Reading Priority
 
@@ -351,13 +482,21 @@ For most tasks, read these files first:
 2. `src/agents/base_agent.py` - Understand agent interface
 3. Specific agent file you're modifying
 4. `src/models.py` - Understand data structures
-5. `src/database.py` - Understand persistence
+5. `src/config.py` - Understand configuration options
+6. `src/database.py` - Understand persistence
 
 ## Quick Reference Commands
 
 ```bash
-# Start server
+# Start backend server
+source venv/bin/activate
 python run.py
+
+# Start frontend
+cd frontend && npm run dev
+
+# Build frontend
+cd frontend && npm run build
 
 # Test API
 curl http://localhost:8000/health
@@ -366,11 +505,11 @@ curl -X POST http://localhost:8000/api/analyze/AAPL
 # Check database
 sqlite3 market_research.db "SELECT * FROM analyses ORDER BY timestamp DESC LIMIT 1;"
 
-# Activate venv
-source venv/bin/activate
-
-# Install dependencies
+# Install backend dependencies
 pip install -r requirements.txt
+
+# Install frontend dependencies
+cd frontend && npm install
 ```
 
 ## Response Format Example
@@ -382,8 +521,8 @@ pip install -r requirements.txt
   "analysis_id": 1,
   "analysis": {
     "recommendation": "BUY|HOLD|SELL",
-    "score": -100 to 100,
-    "confidence": 0.0 to 1.0,
+    "score": "-100 to 100",
+    "confidence": "0.0 to 1.0",
     "reasoning": "Detailed explanation...",
     "risks": ["Risk 1", "Risk 2"],
     "opportunities": ["Opp 1", "Opp 2"],
@@ -396,11 +535,11 @@ pip install -r requirements.txt
     "time_horizon": "SHORT_TERM|MEDIUM_TERM|LONG_TERM"
   },
   "agent_results": {
-    "news": {...},
-    "sentiment": {...},
-    "fundamentals": {...},
-    "market": {...},
-    "technical": {...}
+    "news": {"data_source": "alpha_vantage", "...": "..."},
+    "sentiment": {"...": "..."},
+    "fundamentals": {"data_source": "alpha_vantage", "...": "..."},
+    "market": {"data_source": "alpha_vantage", "...": "..."},
+    "technical": {"data_source": "alpha_vantage", "...": "..."}
   },
   "duration_seconds": 32.5
 }

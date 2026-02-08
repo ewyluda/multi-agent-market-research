@@ -2,15 +2,23 @@
 
 import asyncio
 import random
+import aiohttp
 import yfinance as yf
 import pandas as pd
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from datetime import datetime, timedelta
 from .base_agent import BaseAgent
 
 
 class MarketAgent(BaseAgent):
-    """Agent for fetching and analyzing market price data."""
+    """Agent for fetching and analyzing market price data.
+
+    Data source priority:
+        1. Alpha Vantage API (GLOBAL_QUOTE + TIME_SERIES_DAILY)
+        2. yfinance (fallback)
+    """
+
+    AV_BASE_URL = "https://www.alphavantage.co/query"
 
     async def _retry_fetch(self, func, max_retries: int = None, label: str = ""):
         """
@@ -37,20 +45,195 @@ class MarketAgent(BaseAgent):
                 await asyncio.sleep(wait)
         return None
 
+    # ──────────────────────────────────────────────
+    # Alpha Vantage Data Fetching
+    # ──────────────────────────────────────────────
+
+    async def _av_request(self, params: Dict[str, str]) -> Optional[Dict]:
+        """
+        Make a request to Alpha Vantage API.
+
+        Args:
+            params: Query parameters (function, symbol, etc.)
+
+        Returns:
+            JSON response dict, or None on failure
+        """
+        api_key = self.config.get("ALPHA_VANTAGE_API_KEY", "")
+        if not api_key:
+            return None
+
+        params["apikey"] = api_key
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    self.AV_BASE_URL,
+                    params=params,
+                    timeout=aiohttp.ClientTimeout(total=15)
+                ) as resp:
+                    if resp.status != 200:
+                        self.logger.warning(f"Alpha Vantage returned status {resp.status}")
+                        return None
+                    data = await resp.json(content_type=None)
+                    # Check for API error messages
+                    if "Error Message" in data or "Note" in data:
+                        msg = data.get("Error Message") or data.get("Note", "")
+                        self.logger.warning(f"Alpha Vantage API error: {msg}")
+                        return None
+                    if "Information" in data and "rate limit" in data.get("Information", "").lower():
+                        self.logger.warning(f"Alpha Vantage rate limited: {data['Information']}")
+                        return None
+                    return data
+        except Exception as e:
+            self.logger.warning(f"Alpha Vantage request failed: {e}")
+            return None
+
+    async def _fetch_av_quote(self) -> Optional[Dict[str, Any]]:
+        """
+        Fetch latest quote from Alpha Vantage GLOBAL_QUOTE.
+
+        Returns:
+            Dict with current price data, or None
+        """
+        data = await self._av_request({
+            "function": "GLOBAL_QUOTE",
+            "symbol": self.ticker,
+            "datatype": "json"
+        })
+        if not data or "Global Quote" not in data:
+            return None
+
+        quote = data["Global Quote"]
+        if not quote:
+            return None
+
+        try:
+            return {
+                "current_price": float(quote.get("05. price", 0)),
+                "open": float(quote.get("02. open", 0)),
+                "day_high": float(quote.get("03. high", 0)),
+                "day_low": float(quote.get("04. low", 0)),
+                "volume": int(quote.get("06. volume", 0)),
+                "previous_close": float(quote.get("08. previous close", 0)),
+                "change": float(quote.get("09. change", 0)),
+                "change_percent": quote.get("10. change percent", "0%"),
+            }
+        except (ValueError, TypeError) as e:
+            self.logger.warning(f"Failed to parse Alpha Vantage quote: {e}")
+            return None
+
+    async def _fetch_av_daily(self, outputsize: str = "compact") -> Optional[pd.DataFrame]:
+        """
+        Fetch daily time series from Alpha Vantage TIME_SERIES_DAILY.
+
+        Args:
+            outputsize: "compact" (100 data points) or "full" (20+ years)
+
+        Returns:
+            DataFrame with OHLCV data, or None
+        """
+        data = await self._av_request({
+            "function": "TIME_SERIES_DAILY",
+            "symbol": self.ticker,
+            "outputsize": outputsize,
+            "datatype": "json"
+        })
+        if not data:
+            return None
+
+        ts_key = "Time Series (Daily)"
+        if ts_key not in data:
+            return None
+
+        time_series = data[ts_key]
+        if not time_series:
+            return None
+
+        try:
+            rows = []
+            for date_str, values in time_series.items():
+                rows.append({
+                    "Date": pd.Timestamp(date_str),
+                    "Open": float(values.get("1. open", 0)),
+                    "High": float(values.get("2. high", 0)),
+                    "Low": float(values.get("3. low", 0)),
+                    "Close": float(values.get("4. close", 0)),
+                    "Volume": int(values.get("5. volume", 0)),
+                })
+
+            df = pd.DataFrame(rows)
+            df.set_index("Date", inplace=True)
+            df.sort_index(inplace=True)
+            return df
+        except Exception as e:
+            self.logger.warning(f"Failed to parse Alpha Vantage daily data: {e}")
+            return None
+
+    # ──────────────────────────────────────────────
+    # Data Fetching (AV first, yfinance fallback)
+    # ──────────────────────────────────────────────
+
     async def fetch_data(self) -> Dict[str, Any]:
         """
-        Fetch market price data using yfinance with retry logic.
-        Each data source is fetched independently for graceful degradation.
+        Fetch market price data. Tries Alpha Vantage first, falls back to yfinance.
 
         Returns:
             Dictionary with price history and current market data
         """
-        ticker_obj = yf.Ticker(self.ticker)
-        result = {"ticker": self.ticker}
+        result = {"ticker": self.ticker, "source": "unknown"}
 
+        # ── Try Alpha Vantage first ──
+        av_api_key = self.config.get("ALPHA_VANTAGE_API_KEY", "")
+        if av_api_key:
+            self.logger.info(f"Fetching {self.ticker} market data from Alpha Vantage (primary)")
+
+            # Fetch quote and daily data concurrently
+            av_quote, av_daily_full = await asyncio.gather(
+                self._fetch_av_quote(),
+                self._fetch_av_daily(outputsize="full"),
+                return_exceptions=True,
+            )
+
+            # Handle exceptions from gather
+            if isinstance(av_quote, Exception):
+                self.logger.warning(f"Alpha Vantage quote fetch raised: {av_quote}")
+                av_quote = None
+            if isinstance(av_daily_full, Exception):
+                self.logger.warning(f"Alpha Vantage daily fetch raised: {av_daily_full}")
+                av_daily_full = None
+
+            if av_quote and av_daily_full is not None and not av_daily_full.empty:
+                self.logger.info(f"Alpha Vantage returned {len(av_daily_full)} daily records for {self.ticker}")
+
+                result["source"] = "alpha_vantage"
+                result["info"] = {
+                    "currentPrice": av_quote["current_price"],
+                    "regularMarketPrice": av_quote["current_price"],
+                    "previousClose": av_quote["previous_close"],
+                    "open": av_quote["open"],
+                    "regularMarketOpen": av_quote["open"],
+                    "dayHigh": av_quote["day_high"],
+                    "dayLow": av_quote["day_low"],
+                    "volume": av_quote["volume"],
+                }
+
+                # Slice daily data into timeframes
+                now = pd.Timestamp.now()
+                result["history_1y"] = av_daily_full[av_daily_full.index >= now - pd.Timedelta(days=365)]
+                result["history_3m"] = av_daily_full[av_daily_full.index >= now - pd.Timedelta(days=90)]
+                result["history_1m"] = av_daily_full[av_daily_full.index >= now - pd.Timedelta(days=30)]
+
+                return result
+            else:
+                self.logger.info(f"Alpha Vantage incomplete for {self.ticker}, falling back to yfinance")
+
+        # ── Fallback to yfinance ──
+        self.logger.info(f"Fetching {self.ticker} market data from yfinance (fallback)")
+        result["source"] = "yfinance"
+
+        ticker_obj = yf.Ticker(self.ticker)
         end_date = datetime.now()
 
-        # Fetch each data source independently with retries
         info = await self._retry_fetch(
             lambda: ticker_obj.info, label=f"{self.ticker} info"
         )
@@ -73,9 +256,9 @@ class MarketAgent(BaseAgent):
 
         # Only raise if we got absolutely nothing useful
         if (not result["info"]
-            and result["history_1y"] is None
-            and result["history_3m"] is None
-            and result["history_1m"] is None):
+            and result.get("history_1y") is None
+            and result.get("history_3m") is None
+            and result.get("history_1m") is None):
             raise Exception(f"Failed to fetch any market data for {self.ticker}")
 
         return result
@@ -85,7 +268,7 @@ class MarketAgent(BaseAgent):
         Analyze market data for trends and patterns.
 
         Args:
-            raw_data: Raw price data from yfinance
+            raw_data: Raw price data from Alpha Vantage or yfinance
 
         Returns:
             Market analysis with trends and patterns
@@ -111,6 +294,9 @@ class MarketAgent(BaseAgent):
 
             # Market cap
             "market_cap": info.get("marketCap"),
+
+            # Data source
+            "data_source": raw_data.get("source", "unknown"),
         }
 
         # Calculate moving averages and trends
@@ -240,9 +426,11 @@ class MarketAgent(BaseAgent):
         current = analysis.get("current_price", "N/A")
         trend = analysis.get("trend", "unknown")
         change_1m = analysis.get("price_change_1m", {}).get("change_pct", 0)
+        source = analysis.get("data_source", "unknown")
 
         summary = f"Current price: ${current:.2f}" if isinstance(current, (int, float)) else f"Current price: {current}. "
         summary += f"Trend: {trend.replace('_', ' ')}. "
         summary += f"1-month change: {change_1m:+.2f}%."
+        summary += f" [Source: {source}]"
 
         return summary

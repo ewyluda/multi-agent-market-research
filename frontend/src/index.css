@@ -6,19 +6,36 @@
    ============================================ */
 
 @theme {
-  --color-dark-bg: #060911;
-  --color-dark-card: #111827;
-  --color-dark-card-hover: #1a2332;
-  --color-dark-border: #1f2937;
-  --color-dark-border-accent: rgba(59, 130, 246, 0.3);
-  --color-dark-inset: #080c15;
-  --color-dark-elevated: #1c2433;
-  --color-accent-blue: #3b82f6;
-  --color-accent-green: #10b981;
-  --color-accent-red: #ef4444;
-  --color-accent-amber: #f59e0b;
-  --color-accent-purple: #8b5cf6;
-  --color-accent-cyan: #06b6d4;
+  --color-dark-bg: #000000;
+  --color-dark-card: #18181b;
+  --color-dark-card-hover: #27272a;
+  --color-dark-border: #27272a;
+  --color-dark-border-accent: rgba(0, 111, 238, 0.3);
+  --color-dark-inset: #09090b;
+  --color-dark-elevated: #27272a;
+  --color-accent-blue: #006fee;
+  --color-accent-green: #17c964;
+  --color-accent-red: #f31260;
+  --color-accent-amber: #f5a524;
+  --color-accent-purple: #7828c8;
+  --color-accent-cyan: #338ef7;
+
+  /* Hero UI semantic color tokens */
+  --color-primary: #006fee;
+  --color-primary-300: #66aaf9;
+  --color-primary-400: #338ef7;
+  --color-primary-600: #005bc4;
+  --color-secondary: #7828c8;
+  --color-success: #17c964;
+  --color-success-400: #45d483;
+  --color-warning: #f5a524;
+  --color-warning-400: #f7b750;
+  --color-danger: #f31260;
+  --color-danger-400: #f4679d;
+  --color-content1: #18181b;
+  --color-content2: #27272a;
+  --color-content3: #3f3f46;
+  --color-content4: #52525b;
 }
 
 /* ============================================
@@ -27,43 +44,43 @@
 
 :root {
   /* Base backgrounds */
-  --bg-primary: #060911;
-  --bg-secondary: #0d1117;
-  --bg-card: #111827;
-  --bg-card-hover: #1a2332;
-  --bg-elevated: #1c2433;
-  --bg-inset: #080c15;
+  --bg-primary: #000000;
+  --bg-secondary: #18181b;
+  --bg-card: #18181b;
+  --bg-card-hover: #27272a;
+  --bg-elevated: #27272a;
+  --bg-inset: #09090b;
 
   /* Borders */
-  --border-subtle: #1f2937;
-  --border-default: #2d3748;
-  --border-accent: rgba(59, 130, 246, 0.3);
+  --border-subtle: #27272a;
+  --border-default: #3f3f46;
+  --border-accent: rgba(0, 111, 238, 0.3);
 
   /* Accent colors */
-  --accent-blue: #3b82f6;
-  --accent-blue-glow: rgba(59, 130, 246, 0.15);
-  --accent-green: #10b981;
-  --accent-green-glow: rgba(16, 185, 129, 0.15);
-  --accent-red: #ef4444;
-  --accent-red-glow: rgba(239, 68, 68, 0.15);
-  --accent-amber: #f59e0b;
-  --accent-amber-glow: rgba(245, 158, 11, 0.15);
-  --accent-purple: #8b5cf6;
-  --accent-purple-glow: rgba(139, 92, 246, 0.15);
-  --accent-cyan: #06b6d4;
+  --accent-blue: #006fee;
+  --accent-blue-glow: rgba(0, 111, 238, 0.15);
+  --accent-green: #17c964;
+  --accent-green-glow: rgba(23, 201, 100, 0.15);
+  --accent-red: #f31260;
+  --accent-red-glow: rgba(243, 18, 96, 0.15);
+  --accent-amber: #f5a524;
+  --accent-amber-glow: rgba(245, 165, 36, 0.15);
+  --accent-purple: #7828c8;
+  --accent-purple-glow: rgba(120, 40, 200, 0.15);
+  --accent-cyan: #338ef7;
 
   /* Text colors */
-  --text-primary: #f1f5f9;
-  --text-secondary: #94a3b8;
-  --text-muted: #64748b;
-  --text-dim: #475569;
+  --text-primary: #ffffff;
+  --text-secondary: #a1a1aa;
+  --text-muted: #71717a;
+  --text-dim: #52525b;
 
   /* Shadows */
-  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(0, 0, 0, 0.2);
-  --shadow-elevated: 0 4px 12px rgba(0, 0, 0, 0.4), 0 2px 4px rgba(0, 0, 0, 0.3);
-  --shadow-glow-blue: 0 0 20px rgba(59, 130, 246, 0.15);
-  --shadow-glow-green: 0 0 20px rgba(16, 185, 129, 0.15);
-  --shadow-glow-red: 0 0 20px rgba(239, 68, 68, 0.15);
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.4), 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-elevated: 0 4px 12px rgba(0, 0, 0, 0.5), 0 2px 4px rgba(0, 0, 0, 0.4);
+  --shadow-glow-blue: 0 0 20px rgba(0, 111, 238, 0.15);
+  --shadow-glow-green: 0 0 20px rgba(23, 201, 100, 0.15);
+  --shadow-glow-red: 0 0 20px rgba(243, 18, 96, 0.15);
 }
 
 /* ============================================
@@ -134,7 +151,7 @@ code {
    ============================================ */
 
 .glass-card {
-  background: linear-gradient(135deg, rgba(17, 24, 39, 0.7), rgba(17, 24, 39, 0.5));
+  background: linear-gradient(135deg, rgba(24, 24, 27, 0.7), rgba(24, 24, 27, 0.5));
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border: 1px solid rgba(255, 255, 255, 0.06);
@@ -142,7 +159,7 @@ code {
 }
 
 .glass-card-elevated {
-  background: linear-gradient(135deg, rgba(17, 24, 39, 0.9), rgba(13, 17, 23, 0.8));
+  background: linear-gradient(135deg, rgba(24, 24, 27, 0.9), rgba(9, 9, 11, 0.8));
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   border: 1px solid rgba(255, 255, 255, 0.08);
