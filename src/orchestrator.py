@@ -3,7 +3,9 @@
 import asyncio
 import logging
 import time
-from typing import Dict, Any, Optional, Callable
+from typing import Dict, Any, Optional, Callable, List
+
+import aiohttp
 from datetime import datetime
 
 from .config import Config
@@ -14,16 +16,31 @@ from .agents.market_agent import MarketAgent
 from .agents.technical_agent import TechnicalAgent
 from .agents.solution_agent import SolutionAgent
 from .database import DatabaseManager
+from .av_rate_limiter import AVRateLimiter
+from .av_cache import AVCache
 
 
 class Orchestrator:
     """Coordinates execution of all market research agents."""
 
+    # Agent registry: maps agent name to class and dependencies
+    AGENT_REGISTRY = {
+        "news": {"class": NewsAgent, "requires": []},
+        "market": {"class": MarketAgent, "requires": []},
+        "fundamentals": {"class": FundamentalsAgent, "requires": []},
+        "technical": {"class": TechnicalAgent, "requires": []},
+        "sentiment": {"class": SentimentAgent, "requires": ["news"]},
+    }
+
+    DEFAULT_AGENTS = ["news", "market", "fundamentals", "technical", "sentiment"]
+
     def __init__(
         self,
         config: Optional[Dict[str, Any]] = None,
         db_manager: Optional[DatabaseManager] = None,
-        progress_callback: Optional[Callable] = None
+        progress_callback: Optional[Callable] = None,
+        rate_limiter: Optional[AVRateLimiter] = None,
+        av_cache: Optional[AVCache] = None,
     ):
         """
         Initialize orchestrator.
@@ -32,6 +49,8 @@ class Orchestrator:
             config: Configuration dictionary (uses Config class if not provided)
             db_manager: Database manager instance
             progress_callback: Optional callback for progress updates
+            rate_limiter: Shared AV rate limiter (persists across requests via app.state)
+            av_cache: Shared AV response cache (persists across requests via app.state)
         """
         self.config = config or self._get_config_dict()
         self.db_manager = db_manager or DatabaseManager(
@@ -39,6 +58,14 @@ class Orchestrator:
         )
         self.progress_callback = progress_callback
         self.logger = logging.getLogger(__name__)
+
+        # Shared AV infrastructure
+        self._rate_limiter = rate_limiter or AVRateLimiter(
+            requests_per_minute=self.config.get("AV_RATE_LIMIT_PER_MINUTE", 5),
+            requests_per_day=self.config.get("AV_RATE_LIMIT_PER_DAY", 25),
+        )
+        self._av_cache = av_cache or AVCache()
+        self._shared_session: Optional[aiohttp.ClientSession] = None
 
     def _get_config_dict(self) -> Dict[str, Any]:
         """Convert Config class to dictionary."""
@@ -54,12 +81,67 @@ class Orchestrator:
 
         return config_dict
 
-    async def analyze_ticker(self, ticker: str) -> Dict[str, Any]:
+    async def _create_shared_session(self) -> aiohttp.ClientSession:
+        """Create a shared aiohttp session for all agents in this analysis."""
+        connector = aiohttp.TCPConnector(
+            limit=10,
+            limit_per_host=5,
+            ttl_dns_cache=300,
+        )
+        self._shared_session = aiohttp.ClientSession(
+            connector=connector,
+            timeout=aiohttp.ClientTimeout(total=15),
+        )
+        return self._shared_session
+
+    async def _close_shared_session(self):
+        """Close the shared session and its connector."""
+        if self._shared_session and not self._shared_session.closed:
+            await self._shared_session.close()
+            self._shared_session = None
+
+    def _inject_shared_resources(self, agent):
+        """Inject shared AV resources into an agent instance."""
+        agent._shared_session = self._shared_session
+        agent._rate_limiter = self._rate_limiter
+        agent._av_cache = self._av_cache
+
+    def _resolve_agents(self, requested: Optional[List[str]] = None) -> List[str]:
+        """
+        Resolve the final list of agents to run, enforcing dependencies.
+
+        Args:
+            requested: User-requested agents, or None for all defaults
+
+        Returns:
+            List of agent names to run
+        """
+        if not requested:
+            return list(self.DEFAULT_AGENTS)
+
+        agents = set(requested)
+
+        # Add dependencies automatically
+        for agent_name in list(agents):
+            deps = self.AGENT_REGISTRY.get(agent_name, {}).get("requires", [])
+            for dep in deps:
+                if dep not in agents:
+                    self.logger.info(f"Auto-adding '{dep}' agent (dependency of '{agent_name}')")
+                    agents.add(dep)
+
+        return list(agents)
+
+    async def analyze_ticker(
+        self,
+        ticker: str,
+        requested_agents: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
         """
         Run full analysis on a ticker symbol.
 
         Args:
             ticker: Stock ticker symbol
+            requested_agents: Optional list of agent names to run (default: all)
 
         Returns:
             Complete analysis result
@@ -67,14 +149,20 @@ class Orchestrator:
         start_time = time.time()
         ticker = ticker.upper()
 
-        self.logger.info(f"Starting analysis for {ticker}")
+        # Resolve which agents to run
+        agents_to_run = self._resolve_agents(requested_agents)
+
+        self.logger.info(f"Starting analysis for {ticker} (agents: {', '.join(sorted(agents_to_run))})")
         self._notify_progress("starting", ticker, 0)
 
+        # Create shared session for this analysis run
+        await self._create_shared_session()
+
         try:
-            # Phase 1: Run data gathering agents in parallel
+            # Phase 1: Run data gathering agents
             self._notify_progress("gathering_data", ticker, 10)
 
-            agent_results = await self._run_agents_parallel(ticker)
+            agent_results = await self._run_agents(ticker, agents_to_run)
 
             # Phase 2: Run solution agent with aggregated results
             self._notify_progress("synthesizing", ticker, 80)
@@ -109,53 +197,57 @@ class Orchestrator:
                 "duration_seconds": time.time() - start_time
             }
 
-    async def _run_agents_parallel(self, ticker: str) -> Dict[str, Any]:
+        finally:
+            await self._close_shared_session()
+
+    async def _run_agents(self, ticker: str, agents_to_run: List[str]) -> Dict[str, Any]:
         """
-        Run all data-gathering agents in parallel.
+        Run data-gathering agents, optionally in parallel.
 
         Args:
             ticker: Stock ticker
+            agents_to_run: List of agent names to run
 
         Returns:
             Dictionary of agent results
         """
-        # Create agent instances
-        news_agent = NewsAgent(ticker, self.config)
-        fundamentals_agent = FundamentalsAgent(ticker, self.config)
-        market_agent = MarketAgent(ticker, self.config)
-        technical_agent = TechnicalAgent(ticker, self.config)
+        # Separate data agents from sentiment (which depends on news/market)
+        data_agent_names = [a for a in agents_to_run if a != "sentiment"]
+        run_sentiment = "sentiment" in agents_to_run
 
-        # Run agents in parallel with timeout
+        # Create data agent instances
+        progress_map = {"news": 20, "fundamentals": 40, "market": 50, "technical": 60}
+        agents = {}
+        for name in data_agent_names:
+            agent_info = self.AGENT_REGISTRY.get(name)
+            if agent_info:
+                agent = agent_info["class"](ticker, self.config)
+                self._inject_shared_resources(agent)
+                agents[name] = agent
+
         timeout = self.config.get("AGENT_TIMEOUT", 30)
+        use_parallel = self.config.get("PARALLEL_AGENTS", True)
 
-        try:
-            results = await asyncio.wait_for(
-                asyncio.gather(
-                    self._run_agent_with_progress(news_agent, "news", ticker, 20),
-                    self._run_agent_with_progress(fundamentals_agent, "fundamentals", ticker, 40),
-                    self._run_agent_with_progress(market_agent, "market", ticker, 50),
-                    self._run_agent_with_progress(technical_agent, "technical", ticker, 60),
-                    return_exceptions=True
-                ),
-                timeout=timeout
-            )
+        if use_parallel:
+            results = await self._run_data_agents_parallel(agents, ticker, timeout, progress_map)
+        else:
+            results = await self._run_data_agents_sequential(agents, ticker, timeout, progress_map)
 
-            # Unpack results
-            news_result, fundamentals_result, market_result, technical_result = results
-
-            # Now run sentiment agent (depends on news and market data)
+        # Run sentiment agent if requested (depends on news + market data)
+        if run_sentiment:
             sentiment_agent = SentimentAgent(ticker, self.config)
+            self._inject_shared_resources(sentiment_agent)
 
-            # Extract news articles and market data for sentiment
             news_articles = []
+            news_result = results.get("news")
             if isinstance(news_result, dict) and news_result.get("success"):
                 news_articles = news_result.get("data", {}).get("articles", [])
 
             market_data = {}
+            market_result = results.get("market")
             if isinstance(market_result, dict) and market_result.get("success"):
                 market_data = market_result.get("data", {})
 
-            # Set context for sentiment agent
             sentiment_agent.set_context_data(news_articles, market_data)
 
             self._notify_progress("analyzing_sentiment", ticker, 70)
@@ -164,21 +256,65 @@ class Orchestrator:
                     sentiment_agent.execute(),
                     timeout=timeout
                 )
+                results["sentiment"] = sentiment_result if isinstance(sentiment_result, dict) else {"success": False, "error": str(sentiment_result)}
             except Exception as e:
                 self.logger.error(f"Sentiment agent failed: {e}")
-                sentiment_result = {"success": False, "error": str(e), "data": None, "agent_type": "sentiment", "duration_seconds": 0}
+                results["sentiment"] = {"success": False, "error": str(e), "data": None, "agent_type": "sentiment", "duration_seconds": 0}
 
-            return {
-                "news": news_result if isinstance(news_result, dict) else {"success": False, "error": str(news_result)},
-                "sentiment": sentiment_result if isinstance(sentiment_result, dict) else {"success": False, "error": str(sentiment_result)},
-                "fundamentals": fundamentals_result if isinstance(fundamentals_result, dict) else {"success": False, "error": str(fundamentals_result)},
-                "market": market_result if isinstance(market_result, dict) else {"success": False, "error": str(market_result)},
-                "technical": technical_result if isinstance(technical_result, dict) else {"success": False, "error": str(technical_result)}
-            }
+        return results
 
+    async def _run_data_agents_parallel(
+        self,
+        agents: Dict[str, Any],
+        ticker: str,
+        timeout: int,
+        progress_map: Dict[str, int],
+    ) -> Dict[str, Any]:
+        """Run data agents in parallel using asyncio.gather."""
+        tasks = []
+        agent_order = []
+        for name, agent in agents.items():
+            progress_pct = progress_map.get(name, 30)
+            tasks.append(self._run_agent_with_progress(agent, name, ticker, progress_pct))
+            agent_order.append(name)
+
+        try:
+            raw_results = await asyncio.wait_for(
+                asyncio.gather(*tasks, return_exceptions=True),
+                timeout=timeout,
+            )
         except asyncio.TimeoutError:
             self.logger.error(f"Agent execution timed out for {ticker}")
             raise Exception(f"Analysis timed out after {timeout} seconds")
+
+        results = {}
+        for i, name in enumerate(agent_order):
+            r = raw_results[i]
+            results[name] = r if isinstance(r, dict) else {"success": False, "error": str(r)}
+        return results
+
+    async def _run_data_agents_sequential(
+        self,
+        agents: Dict[str, Any],
+        ticker: str,
+        timeout: int,
+        progress_map: Dict[str, int],
+    ) -> Dict[str, Any]:
+        """Run data agents sequentially."""
+        results = {}
+        for name, agent in agents.items():
+            progress_pct = progress_map.get(name, 30)
+            try:
+                r = await asyncio.wait_for(
+                    self._run_agent_with_progress(agent, name, ticker, progress_pct),
+                    timeout=timeout,
+                )
+                results[name] = r if isinstance(r, dict) else {"success": False, "error": str(r)}
+            except asyncio.TimeoutError:
+                results[name] = {"success": False, "error": f"{name} agent timed out"}
+            except Exception as e:
+                results[name] = {"success": False, "error": str(e)}
+        return results
 
     async def _run_agent_with_progress(
         self,
@@ -194,7 +330,7 @@ class Orchestrator:
     async def _run_solution_agent(
         self,
         ticker: str,
-        agent_results: Dict[str, Any]
+        agent_results: Dict[str, Any],
     ) -> Dict[str, Any]:
         """
         Run solution agent to synthesize results.

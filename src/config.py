@@ -81,9 +81,13 @@ class Config:
     CACHE_TTL_NEWS = int(os.getenv("CACHE_TTL_NEWS", "3600"))  # 1 hour
     CACHE_TTL_FUNDAMENTALS = int(os.getenv("CACHE_TTL_FUNDAMENTALS", "86400"))  # 1 day
 
-    # API Rate Limiting
+    # API Rate Limiting (general)
     RATE_LIMIT_REQUESTS = int(os.getenv("RATE_LIMIT_REQUESTS", "100"))
     RATE_LIMIT_WINDOW = int(os.getenv("RATE_LIMIT_WINDOW", "3600"))  # 1 hour
+
+    # Alpha Vantage Rate Limiting
+    AV_RATE_LIMIT_PER_MINUTE = int(os.getenv("AV_RATE_LIMIT_PER_MINUTE", "5"))
+    AV_RATE_LIMIT_PER_DAY = int(os.getenv("AV_RATE_LIMIT_PER_DAY", "25"))
 
     # FastAPI Configuration
     API_HOST = os.getenv("API_HOST", "0.0.0.0")

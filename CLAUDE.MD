@@ -39,9 +39,11 @@ All data-fetching agents follow a **primary → fallback** pattern:
 | **Technical Agent** | `RSI` + `MACD` + `BBANDS` + `SMA` (×3 periods) + `TIME_SERIES_DAILY` | yfinance + local indicator calculation |
 | **Sentiment Agent** | N/A (LLM-powered) | N/A |
 
-Each agent has:
-- `_av_request()` method for generic Alpha Vantage API calls with error/rate-limit handling
-- `_fetch_av_*()` methods for specific AV endpoints
+Each agent inherits from `BaseAgent` which provides:
+- `_av_request()` method for Alpha Vantage API calls with error handling, rate limiting, and response caching
+- `_retry_fetch()` method for synchronous fallback calls with exponential backoff
+- Shared `aiohttp` session (injected by orchestrator) for connection pooling
+- Each agent adds `_fetch_av_*()` methods for specific AV endpoints
 - Graceful fallback when `ALPHA_VANTAGE_API_KEY` is missing or AV returns incomplete data
 - `data_source` tracking in analysis output (`"alpha_vantage"` or fallback source name)
 
@@ -52,15 +54,17 @@ Each agent has:
 - **`src/api.py`** - FastAPI application with REST and WebSocket endpoints
 
 ### Core Logic
-- **`src/orchestrator.py`** - Coordinates all agents in parallel, manages workflow
+- **`src/orchestrator.py`** - Coordinates agents (configurable pipeline), manages shared session/cache/rate limiter
 - **`src/database.py`** - SQLite operations, caching, data persistence
 - **`src/config.py`** - Environment variable management, configuration
 - **`src/models.py`** - Pydantic models for data validation
+- **`src/av_rate_limiter.py`** - Sliding-window rate limiter for AV API (per-minute + per-day)
+- **`src/av_cache.py`** - In-memory TTL cache for AV API responses
 
 ### Agent Directory Structure
 ```
 src/agents/
-├── base_agent.py         # Abstract base class for all agents
+├── base_agent.py         # Abstract base class with _av_request(), _retry_fetch(), shared session support
 ├── news_agent.py         # News gathering (AV NEWS_SENTIMENT → NewsAPI)
 ├── sentiment_agent.py    # Sentiment analysis (LLM-powered)
 ├── fundamentals_agent.py # Company fundamentals (AV 5-endpoint → yfinance + SEC EDGAR)
@@ -137,6 +141,9 @@ TWITTER_BEARER_TOKEN=...
 - `NEWS_LOOKBACK_DAYS` - Days of news history (default: 7)
 - `MAX_NEWS_ARTICLES` - Max articles to fetch (default: 20)
 - `FUNDAMENTALS_LLM_ENABLED` - Enable LLM equity research in fundamentals agent (default: true)
+- `PARALLEL_AGENTS` - Run data agents in parallel vs sequential (default: true)
+- `AV_RATE_LIMIT_PER_MINUTE` - Max AV API requests per minute (default: 5)
+- `AV_RATE_LIMIT_PER_DAY` - Max AV API requests per day (default: 25)
 - `RSI_PERIOD` - RSI calculation period (default: 14)
 - `MACD_FAST` / `MACD_SLOW` / `MACD_SIGNAL` - MACD parameters (default: 12/26/9)
 - `BB_PERIOD` / `BB_STD` - Bollinger Bands parameters (default: 20/2)
@@ -167,8 +174,13 @@ Frontend runs on `http://localhost:5173`
 
 **Analyze Stock**
 ```bash
-POST /api/analyze/{ticker}
+POST /api/analyze/{ticker}?agents={comma-separated agent names}
+
+# All agents (default)
 curl -X POST http://localhost:8000/api/analyze/NVDA
+
+# Specific agents only
+curl -X POST "http://localhost:8000/api/analyze/NVDA?agents=market,technical"
 ```
 
 **Get Latest Analysis**
@@ -223,8 +235,9 @@ curl http://localhost:8000/health
 2. Inherit from `BaseAgent` in `src/agents/base_agent.py`
 3. Implement `async def fetch_data(self) -> Dict[str, Any]`
 4. Implement `async def analyze(self, raw_data: Dict[str, Any]) -> Dict[str, Any]`
-5. Register agent in `src/orchestrator.py`
-6. Update database schema if needed
+5. Register agent in `src/orchestrator.py` `AGENT_REGISTRY` dict (include dependencies in `requires`)
+6. Add agent name to `DEFAULT_AGENTS` list if it should run by default
+7. Update database schema if needed
 
 Example:
 ```python
@@ -232,7 +245,8 @@ from src.agents.base_agent import BaseAgent
 
 class NewAgent(BaseAgent):
     async def fetch_data(self) -> Dict[str, Any]:
-        # Fetch raw data (try AV first, fallback to other sources)
+        # Fetch raw data — use self._av_request() for AV endpoints (inherited from BaseAgent)
+        # Session, rate limiter, and cache are injected automatically by orchestrator
         return {"ticker": self.ticker, "data": {...}}
 
     async def analyze(self, raw_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -243,12 +257,12 @@ class NewAgent(BaseAgent):
 ### Adding Alpha Vantage to a New Agent
 
 Follow the established pattern:
-1. Add `AV_BASE_URL` class constant
-2. Add `_av_request()` method (same across all agents)
-3. Add `_fetch_av_*()` methods for each AV endpoint
-4. Update `fetch_data()` to try AV first, then fallback
-5. Normalize AV data to match existing dict key formats
-6. Add `data_source` field to track which source was used
+1. `_av_request()` and `AV_BASE_URL` are inherited from `BaseAgent` — no duplication needed
+2. Add `_fetch_av_*()` methods for each AV endpoint that call `self._av_request(params)`
+3. Update `fetch_data()` to try AV first, then fallback
+4. Normalize AV data to match existing dict key formats
+5. Add `data_source` field to track which source was used
+6. The shared session, rate limiter, and cache are injected by the orchestrator automatically
 
 ### Modifying API Endpoints
 
@@ -294,28 +308,40 @@ curl "https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=AAPL&apikey
 
 ### Orchestrator Pattern
 The `Orchestrator` class coordinates all agents:
-1. Runs 5 agents in parallel using `asyncio.gather()`
-2. Collects results
-3. Passes to Solution Agent for synthesis
-4. Saves to database
-5. Returns final recommendation
+1. Creates a shared `aiohttp.ClientSession` for connection pooling
+2. Resolves which agents to run (from `AGENT_REGISTRY`, with dependency enforcement)
+3. Injects shared resources (session, rate limiter, cache) into each agent
+4. Runs data agents in parallel (or sequential if `PARALLEL_AGENTS=false`) using `asyncio.gather()`
+5. Runs sentiment agent (depends on news + market results)
+6. Passes all results to Solution Agent for synthesis
+7. Saves to database
+8. Closes shared session in `finally` block
 
 ### Agent Base Class
 All agents inherit from `BaseAgent` which provides:
-- Error handling
-- Timeout management
-- Logging
-- Result validation
+- Error handling and timeout management
+- Logging and result validation
 - `execute()` method that orchestrates: `fetch_data()` → `analyze()` → return result dict
+- `_av_request(params)` — shared AV API method with session pooling, rate limiting, and response caching
+- `_retry_fetch(func)` — exponential backoff with jitter for synchronous fallback calls
+- `_shared_session`, `_rate_limiter`, `_av_cache` — injected by orchestrator, used automatically by `_av_request()`
 
 ### Alpha Vantage Integration Pattern
 All data agents follow the same pattern:
 1. `fetch_data()` checks for `ALPHA_VANTAGE_API_KEY`
 2. If present, fetches from AV endpoints concurrently via `asyncio.gather()`
-3. Handles exceptions per-endpoint (partial success is OK)
-4. If AV provides sufficient data, returns immediately with `source: "alpha_vantage"`
-5. If AV fails or is incomplete, falls through to fallback sources
-6. Data is normalized to match existing dict key formats so `analyze()` methods work unchanged
+3. Each `_fetch_av_*()` method calls `self._av_request(params)` — cache, rate limiter, and session are handled automatically
+4. Handles exceptions per-endpoint (partial success is OK)
+5. If AV provides sufficient data, returns immediately with `source: "alpha_vantage"`
+6. If AV fails or is incomplete, falls through to fallback sources
+7. Data is normalized to match existing dict key formats so `analyze()` methods work unchanged
+
+### Configurable Agent Pipeline
+The API accepts a `?agents=` query parameter to select which agents to run:
+- Valid agents: `news`, `sentiment`, `fundamentals`, `market`, `technical`
+- Dependencies are auto-resolved (e.g., `sentiment` auto-adds `news`)
+- Solution agent always runs to synthesize available results
+- The `AGENT_REGISTRY` in `orchestrator.py` maps agent names to classes and dependencies
 
 ### Data Flow
 ```
@@ -388,12 +414,14 @@ python run.py
 - Verify external API keys are working
 
 ### Alpha Vantage Rate Limiting
-- Free tier: 25 requests/day, 5 requests/minute
-- Premium tier: higher limits
-- Agents automatically fall back to yfinance/NewsAPI when rate-limited
-- The fundamentals agent makes 5 concurrent AV requests per analysis — plan accordingly
+- Built-in `AVRateLimiter` enforces per-minute and per-day limits (configurable via `AV_RATE_LIMIT_PER_MINUTE` / `AV_RATE_LIMIT_PER_DAY`)
+- Free tier defaults: 5 requests/minute, 25 requests/day
+- The rate limiter queues excess requests automatically; agents fall back when daily limit is exhausted
+- The fundamentals agent makes 5 concurrent AV requests per analysis
 - The technical agent makes 7 concurrent AV requests per analysis
-- Check logs for `"Alpha Vantage rate limited"` messages
+- Total per full analysis: ~15 AV requests (queued through the shared rate limiter)
+- Check logs for `"Rate limiter: waiting"` or `"AV daily limit reached"` messages
+- `AVCache` deduplicates repeated requests for the same endpoint+ticker within TTL windows
 
 ### Alpha Vantage Returns No Data
 - Verify the ticker symbol is valid on Alpha Vantage (some international tickers differ)
@@ -451,8 +479,11 @@ The frontend is in `frontend/` directory (React + Vite + Tailwind CSS v4).
 
 ## Performance Considerations
 
-- Agents run in **parallel** for speed
+- Agents run in **parallel** for speed (configurable via `PARALLEL_AGENTS`)
 - Within each agent, AV endpoints are fetched **concurrently** via `asyncio.gather()`
+- **Shared `aiohttp` session** with connection pooling across all agents per analysis
+- **AV response caching** deduplicates repeated requests (in-memory TTL cache shared across agents)
+- **AV rate limiter** queues requests to stay within API limits instead of getting rejected
 - Database **caching** reduces API calls
 - News and price data **cached** with TTL
 - Agent **timeout** prevents hanging

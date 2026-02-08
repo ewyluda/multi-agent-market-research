@@ -1,7 +1,6 @@
 """Technical analysis agent for calculating indicators and signals."""
 
 import asyncio
-import aiohttp
 import yfinance as yf
 import pandas as pd
 import numpy as np
@@ -18,49 +17,9 @@ class TechnicalAgent(BaseAgent):
         2. yfinance + local calculation (fallback)
     """
 
-    AV_BASE_URL = "https://www.alphavantage.co/query"
-
     # ──────────────────────────────────────────────
     # Alpha Vantage Data Fetching
     # ──────────────────────────────────────────────
-
-    async def _av_request(self, params: Dict[str, str]) -> Optional[Dict]:
-        """
-        Make a request to Alpha Vantage API.
-
-        Args:
-            params: Query parameters (function, symbol, etc.)
-
-        Returns:
-            JSON response dict, or None on failure
-        """
-        api_key = self.config.get("ALPHA_VANTAGE_API_KEY", "")
-        if not api_key:
-            return None
-
-        params["apikey"] = api_key
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    self.AV_BASE_URL,
-                    params=params,
-                    timeout=aiohttp.ClientTimeout(total=15)
-                ) as resp:
-                    if resp.status != 200:
-                        self.logger.warning(f"Alpha Vantage returned status {resp.status}")
-                        return None
-                    data = await resp.json(content_type=None)
-                    if "Error Message" in data or "Note" in data:
-                        msg = data.get("Error Message") or data.get("Note", "")
-                        self.logger.warning(f"Alpha Vantage API error: {msg}")
-                        return None
-                    if "Information" in data and "rate limit" in data.get("Information", "").lower():
-                        self.logger.warning(f"Alpha Vantage rate limited: {data['Information']}")
-                        return None
-                    return data
-        except Exception as e:
-            self.logger.warning(f"Alpha Vantage request failed: {e}")
-            return None
 
     async def _fetch_av_rsi(self) -> Optional[float]:
         """

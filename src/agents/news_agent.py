@@ -2,7 +2,6 @@
 
 import aiohttp
 import asyncio
-import random
 import yfinance as yf
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
@@ -17,75 +16,7 @@ class NewsAgent(BaseAgent):
         2. NewsAPI (fallback)
     """
 
-    AV_BASE_URL = "https://www.alphavantage.co/query"
     RELEVANCE_THRESHOLD = 0.15  # Minimum score to keep an article (very permissive)
-
-    async def _retry_fetch(self, func, max_retries: int = None, label: str = ""):
-        """
-        Retry a synchronous function with exponential backoff + jitter.
-
-        Args:
-            func: Callable to execute
-            max_retries: Max retry attempts (defaults to config AGENT_MAX_RETRIES)
-            label: Label for logging
-
-        Returns:
-            Result of func, or None if all retries fail
-        """
-        retries = max_retries if max_retries is not None else self.config.get("AGENT_MAX_RETRIES", 2)
-        for attempt in range(retries + 1):
-            try:
-                return func()
-            except Exception as e:
-                if attempt == retries:
-                    self.logger.warning(f"Failed to fetch {label} after {retries + 1} attempts: {e}")
-                    return None
-                wait = (2 ** attempt) + random.uniform(0, 1)
-                self.logger.info(f"Retry {attempt + 1}/{retries} for {label} in {wait:.1f}s: {e}")
-                await asyncio.sleep(wait)
-        return None
-
-    # ──────────────────────────────────────────────
-    # Alpha Vantage News Fetching
-    # ──────────────────────────────────────────────
-
-    async def _av_request(self, params: Dict[str, str]) -> Optional[Dict]:
-        """
-        Make a request to Alpha Vantage API.
-
-        Args:
-            params: Query parameters (function, symbol, etc.)
-
-        Returns:
-            JSON response dict, or None on failure
-        """
-        api_key = self.config.get("ALPHA_VANTAGE_API_KEY", "")
-        if not api_key:
-            return None
-
-        params["apikey"] = api_key
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    self.AV_BASE_URL,
-                    params=params,
-                    timeout=aiohttp.ClientTimeout(total=15)
-                ) as resp:
-                    if resp.status != 200:
-                        self.logger.warning(f"Alpha Vantage returned status {resp.status}")
-                        return None
-                    data = await resp.json(content_type=None)
-                    if "Error Message" in data or "Note" in data:
-                        msg = data.get("Error Message") or data.get("Note", "")
-                        self.logger.warning(f"Alpha Vantage API error: {msg}")
-                        return None
-                    if "Information" in data and "rate limit" in data.get("Information", "").lower():
-                        self.logger.warning(f"Alpha Vantage rate limited: {data['Information']}")
-                        return None
-                    return data
-        except Exception as e:
-            self.logger.warning(f"Alpha Vantage request failed: {e}")
-            return None
 
     async def _fetch_av_news(self) -> Optional[List[Dict[str, Any]]]:
         """

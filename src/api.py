@@ -1,8 +1,8 @@
 """FastAPI application for multi-agent market research."""
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Query
 from fastapi.middleware.cors import CORSMiddleware
-from typing import Dict, List
+from typing import Dict, List, Optional
 import logging
 from datetime import datetime
 import asyncio
@@ -17,6 +17,8 @@ from .models import (
 from .orchestrator import Orchestrator
 from .config import Config
 from .database import DatabaseManager
+from .av_rate_limiter import AVRateLimiter
+from .av_cache import AVCache
 
 # Configure logging
 logging.basicConfig(
@@ -44,6 +46,13 @@ app.add_middleware(
 
 # Initialize database
 db_manager = DatabaseManager(Config.DATABASE_PATH)
+
+# Initialize shared AV infrastructure (persists across requests)
+av_rate_limiter = AVRateLimiter(
+    requests_per_minute=Config.AV_RATE_LIMIT_PER_MINUTE,
+    requests_per_day=Config.AV_RATE_LIMIT_PER_DAY,
+)
+av_cache = AVCache()
 
 # WebSocket connection manager
 class ConnectionManager:
@@ -126,12 +135,19 @@ async def health_check():
 
 
 @app.post("/api/analyze/{ticker}", response_model=AnalysisResponse)
-async def analyze_ticker(ticker: str):
+async def analyze_ticker(
+    ticker: str,
+    agents: Optional[str] = Query(
+        default=None,
+        description="Comma-separated list of agents to run: news,sentiment,fundamentals,market,technical. Default: all.",
+    ),
+):
     """
     Trigger analysis for a stock ticker.
 
     Args:
         ticker: Stock ticker symbol (e.g., NVDA, AAPL)
+        agents: Optional comma-separated agent names to run
 
     Returns:
         Complete analysis result
@@ -143,21 +159,35 @@ async def analyze_ticker(ticker: str):
     if not re.match(r'^[A-Z]{1,5}$', ticker):
         raise HTTPException(status_code=400, detail="Invalid ticker symbol format")
 
+    # Parse and validate agent list
+    requested_agents = None
+    if agents:
+        valid_agents = {"news", "sentiment", "fundamentals", "market", "technical"}
+        requested_agents = [a.strip().lower() for a in agents.split(",")]
+        invalid = set(requested_agents) - valid_agents
+        if invalid:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid agent names: {', '.join(sorted(invalid))}. Valid: {', '.join(sorted(valid_agents))}"
+            )
+
     logger.info(f"Starting analysis for {ticker}")
 
     # Create progress callback for WebSocket updates
     async def progress_callback(update: dict):
         await manager.send_update(ticker, update)
 
-    # Create orchestrator
+    # Create orchestrator with shared AV infrastructure
     orchestrator = Orchestrator(
         db_manager=db_manager,
-        progress_callback=progress_callback
+        progress_callback=progress_callback,
+        rate_limiter=av_rate_limiter,
+        av_cache=av_cache,
     )
 
     try:
         # Run analysis
-        result = await orchestrator.analyze_ticker(ticker)
+        result = await orchestrator.analyze_ticker(ticker, requested_agents=requested_agents)
 
         if result.get("success"):
             return AnalysisResponse(

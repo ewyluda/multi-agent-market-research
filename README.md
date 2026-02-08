@@ -16,7 +16,11 @@ A **Solution Agent** synthesizes all outputs using chain-of-thought reasoning to
 ## Features
 
 - Real-time multi-agent analysis with parallel execution
+- **Configurable agent pipeline** — select which agents to run per request via `?agents=` parameter
 - **Alpha Vantage as primary data source** across all data agents (15 endpoints)
+- **AV connection pooling** — shared `aiohttp` session across all agents per analysis
+- **AV rate limiting** — centralized sliding-window limiter (5/min, 25/day configurable)
+- **AV response caching** — in-memory TTL cache deduplicates repeated requests
 - Graceful fallback to yfinance, NewsAPI, and SEC EDGAR when AV is unavailable
 - `data_source` tracking in every agent output for transparency
 - LLM-powered equity research (Anthropic Claude / OpenAI / xAI Grok)
@@ -122,11 +126,19 @@ The UI will be available at `http://localhost:5173`
 
 ### Trigger Analysis
 ```bash
-POST /api/analyze/{ticker}
+POST /api/analyze/{ticker}?agents={comma-separated agent names}
 
-Example:
+# Run all agents (default)
 curl -X POST http://localhost:8000/api/analyze/NVDA
+
+# Run only specific agents
+curl -X POST "http://localhost:8000/api/analyze/NVDA?agents=market,technical"
+
+# Sentiment auto-adds news (dependency)
+curl -X POST "http://localhost:8000/api/analyze/NVDA?agents=sentiment"
 ```
+
+Valid agent names: `news`, `sentiment`, `fundamentals`, `market`, `technical`. The solution agent always runs.
 
 ### Get Latest Analysis
 ```bash
@@ -218,6 +230,9 @@ All configuration is in `.env` file. Key settings:
 | `NEWS_LOOKBACK_DAYS` | Days of news to fetch | `7` |
 | `MAX_NEWS_ARTICLES` | Max articles per request | `20` |
 | `FUNDAMENTALS_LLM_ENABLED` | Enable LLM equity research | `true` |
+| `PARALLEL_AGENTS` | Run agents in parallel | `true` |
+| `AV_RATE_LIMIT_PER_MINUTE` | AV requests allowed per minute | `5` |
+| `AV_RATE_LIMIT_PER_DAY` | AV requests allowed per day | `25` |
 | `RSI_PERIOD` | RSI calculation period | `14` |
 | `MACD_FAST` / `MACD_SLOW` / `MACD_SIGNAL` | MACD parameters | `12` / `26` / `9` |
 | `BB_PERIOD` / `BB_STD` | Bollinger Bands parameters | `20` / `2` |
@@ -311,9 +326,11 @@ multi-agent-market-research/
 │   ├── __init__.py
 │   ├── config.py              # Configuration management
 │   ├── database.py            # Database operations
-│   ├── orchestrator.py        # Agent coordination
+│   ├── orchestrator.py        # Agent coordination with configurable pipeline
 │   ├── models.py              # Pydantic models
 │   ├── api.py                 # FastAPI application
+│   ├── av_rate_limiter.py     # AV API rate limiter (sliding window)
+│   ├── av_cache.py            # AV response cache (in-memory TTL)
 │   └── agents/
 │       ├── __init__.py
 │       ├── base_agent.py      # Base agent class (ABC)
@@ -389,11 +406,12 @@ python run.py  # Will create fresh database
 ```
 
 **Alpha Vantage rate limiting**
-- Free tier allows 25 requests/day, 5 requests/minute
+- Built-in rate limiter enforces per-minute and per-day limits (configurable via `AV_RATE_LIMIT_PER_MINUTE` / `AV_RATE_LIMIT_PER_DAY`)
+- Free tier allows 25 requests/day, 5 requests/minute — the rate limiter queues excess requests automatically
 - Each full analysis uses ~15 AV requests (across all agents concurrently)
-- Agents automatically fall back to yfinance/NewsAPI when rate-limited
-- Check logs for `"Alpha Vantage rate limited"` messages
-- Consider upgrading to AV premium for production use
+- Agents automatically fall back to yfinance/NewsAPI when daily limit is exhausted
+- Check logs for `"Rate limiter: waiting"` or `"AV daily limit reached"` messages
+- Consider upgrading to AV premium for production use and adjusting rate limit config accordingly
 
 **Alpha Vantage returns empty data**
 - Verify ticker is valid on AV (some international tickers differ)
@@ -402,10 +420,6 @@ python run.py  # Will create fresh database
 
 ## Potential Future Improvements
 
-- **Shared AV session / connection pooling**: Each agent currently creates its own `aiohttp.ClientSession` per request. A shared session (or connection pool) across agents would reduce connection overhead and improve performance.
-- **AV request rate limiter**: Implement a centralized rate limiter (e.g., token bucket) to coordinate AV API calls across all agents and avoid hitting rate limits during concurrent analysis.
-- **Refactor `_av_request()` into base class**: The `_av_request()` method is duplicated across all 4 data agents. Extracting it into `BaseAgent` (or a mixin) would reduce duplication.
-- **AV response caching layer**: Cache AV responses (keyed by function + symbol + date) to avoid redundant API calls when analyzing the same ticker repeatedly within a short window.
 - **Light/dark theme toggle**: The frontend currently supports dark theme only. Adding a light theme variant with a toggle would improve accessibility.
 - **Historical data source comparison**: Track and display which data source was used per agent over time, allowing users to compare analysis quality between AV and fallback sources.
 - **Unit and integration tests**: Add pytest test suite for agent data parsing, AV response handling, fallback logic, and end-to-end analysis flow.
@@ -415,8 +429,8 @@ python run.py  # Will create fresh database
 - **Macroeconomic agent**: Add an agent for broader market context using AV endpoints like `FEDERAL_FUNDS_RATE`, `CPI`, `REAL_GDP`, and treasury yield data.
 - **News sentiment aggregation into sentiment agent**: The AV NEWS_SENTIMENT endpoint provides per-article sentiment scores. These could be forwarded to the sentiment agent to supplement its LLM-based analysis.
 - **Docker containerization**: Add Dockerfile and docker-compose for one-command deployment of both backend and frontend.
-- **Configurable agent pipeline**: Allow users to enable/disable specific agents or adjust their weights in the solution agent via API parameters.
 - **Export analysis as PDF/CSV**: Add endpoints to export analysis results in downloadable formats for reporting.
+- **In-flight request coalescing**: Deduplicate concurrent identical AV requests (e.g., market and technical agents both requesting TIME_SERIES_DAILY simultaneously).
 
 ## License
 
