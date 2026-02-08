@@ -83,18 +83,8 @@ class SentimentAgent(BaseAgent):
             self.logger.warning("No Anthropic API key provided, using simple analysis")
             return self._simple_sentiment_analysis(articles)
 
-        # Prepare article summaries for LLM
-        article_summaries = []
-        for i, article in enumerate(articles[:10], 1):  # Limit to 10 articles to save tokens
-            title = article.get("title", "")
-            description = article.get("description", "")
-            published = article.get("published_at", "")
-
-            article_summaries.append(
-                f"{i}. [{published}] {title}\n   {description}"
-            )
-
-        articles_text = "\n\n".join(article_summaries)
+        # Prepare article summaries for LLM (with AV sentiment enrichment)
+        articles_text, av_sentiment_section = self._build_article_summaries(articles)
 
         # Get sentiment factors config
         sentiment_factors = self.config.get("SENTIMENT_FACTORS", {})
@@ -103,7 +93,7 @@ class SentimentAgent(BaseAgent):
         prompt = f"""Analyze the market sentiment for {self.ticker} based on the following recent news articles:
 
 {articles_text}
-
+{av_sentiment_section}
 Market Context:
 - Current Price: {market_data.get('current_price', 'N/A')}
 - 1-Month Change: {market_data.get('price_change_1m', {}).get('change_pct', 'N/A')}%
@@ -200,24 +190,14 @@ Respond in JSON format:
             self.logger.warning("No API key provided for OpenAI-compatible provider, using simple analysis")
             return self._simple_sentiment_analysis(articles)
 
-        # Prepare article summaries for LLM
-        article_summaries = []
-        for i, article in enumerate(articles[:10], 1):
-            title = article.get("title", "")
-            description = article.get("description", "")
-            published = article.get("published_at", "")
-
-            article_summaries.append(
-                f"{i}. [{published}] {title}\n   {description}"
-            )
-
-        articles_text = "\n\n".join(article_summaries)
+        # Prepare article summaries for LLM (with AV sentiment enrichment)
+        articles_text, av_sentiment_section = self._build_article_summaries(articles)
 
         # Construct prompt (same as Anthropic version)
         prompt = f"""Analyze the market sentiment for {self.ticker} based on the following recent news articles:
 
 {articles_text}
-
+{av_sentiment_section}
 Market Context:
 - Current Price: {market_data.get('current_price', 'N/A')}
 - 1-Month Change: {market_data.get('price_change_1m', {}).get('change_pct', 'N/A')}%
@@ -336,19 +316,83 @@ Respond in JSON format:
         else:
             sentiment_score = (positive_count - negative_count) / total
 
+        # Blend in AV pre-computed sentiment scores when available
+        av_scores = [a.get("av_ticker_sentiment_score") for a in articles
+                     if a.get("av_ticker_sentiment_score") is not None]
+        if av_scores:
+            av_avg = sum(av_scores) / len(av_scores)
+            # Weight: 60% AV scores, 40% keyword score (AV is more reliable)
+            sentiment_score = max(-1.0, min(1.0, (0.6 * av_avg) + (0.4 * sentiment_score)))
+            confidence = 0.65
+            reasoning = (
+                f"Blended analysis: AV avg sentiment {av_avg:+.3f} ({len(av_scores)} articles), "
+                f"keywords: {positive_count} positive, {negative_count} negative"
+            )
+        else:
+            confidence = 0.5
+            reasoning = f"Basic keyword analysis: {positive_count} positive, {negative_count} negative mentions"
+
         return {
             "overall_sentiment": sentiment_score,
-            "confidence": 0.5,  # Low confidence for simple analysis
+            "confidence": confidence,
             "factors": {
                 "earnings": {"score": sentiment_score * 0.7, "weight": 0.3, "contribution": sentiment_score * 0.21},
                 "guidance": {"score": sentiment_score * 0.6, "weight": 0.4, "contribution": sentiment_score * 0.24},
                 "stock_reactions": {"score": sentiment_score * 0.8, "weight": 0.2, "contribution": sentiment_score * 0.16},
                 "strategic_news": {"score": sentiment_score * 0.5, "weight": 0.1, "contribution": sentiment_score * 0.05}
             },
-            "reasoning": f"Basic keyword analysis: {positive_count} positive, {negative_count} negative mentions",
+            "reasoning": reasoning,
             "key_themes": ["general market sentiment"],
-            "summary": f"Sentiment: {'Positive' if sentiment_score > 0 else 'Negative' if sentiment_score < 0 else 'Neutral'} (confidence: low)"
+            "summary": f"Sentiment: {'Positive' if sentiment_score > 0 else 'Negative' if sentiment_score < 0 else 'Neutral'} (confidence: {'medium' if av_scores else 'low'})"
         }
+
+    def _build_article_summaries(self, articles: List[Dict[str, Any]]) -> tuple:
+        """Build article summary text and AV sentiment section for LLM prompts.
+
+        Returns:
+            Tuple of (articles_text, av_sentiment_section)
+        """
+        article_summaries = []
+        for i, article in enumerate(articles[:10], 1):
+            title = article.get("title", "")
+            description = article.get("description", "")
+            published = article.get("published_at", "")
+
+            summary_line = f"{i}. [{published}] {title}\n   {description}"
+
+            # Append AV pre-computed sentiment if available
+            av_sentiment_score = article.get("av_ticker_sentiment_score")
+            av_sentiment_label = article.get("av_ticker_sentiment_label", "")
+            av_relevance = article.get("av_ticker_relevance")
+            if av_sentiment_score is not None:
+                summary_line += (
+                    f"\n   [AV Sentiment: {av_sentiment_label} ({av_sentiment_score:+.3f}), "
+                    f"Relevance: {av_relevance:.2f}]"
+                )
+
+            article_summaries.append(summary_line)
+
+        articles_text = "\n\n".join(article_summaries)
+
+        # Compute AV sentiment aggregate stats
+        av_scores = [a.get("av_ticker_sentiment_score") for a in articles[:10]
+                     if a.get("av_ticker_sentiment_score") is not None]
+        av_sentiment_section = ""
+        if av_scores:
+            avg_score = sum(av_scores) / len(av_scores)
+            bullish_count = sum(1 for a in articles[:10]
+                               if (a.get("av_ticker_sentiment_label") or "").lower().startswith("bull"))
+            bearish_count = sum(1 for a in articles[:10]
+                               if (a.get("av_ticker_sentiment_label") or "").lower().startswith("bear"))
+            neutral_count = len(av_scores) - bullish_count - bearish_count
+            av_sentiment_section = (
+                f"\nAlpha Vantage Pre-Computed Sentiment (for reference):\n"
+                f"- Average Ticker Sentiment Score: {avg_score:+.3f}\n"
+                f"- Distribution: {bullish_count} bullish, {neutral_count} neutral, {bearish_count} bearish\n"
+                f"- Note: These are machine-computed scores. Use them as one input alongside your own analysis.\n"
+            )
+
+        return articles_text, av_sentiment_section
 
     def _generate_summary_from_llm_result(self, result: Dict[str, Any]) -> str:
         """Generate summary from LLM analysis result."""

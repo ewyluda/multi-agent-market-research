@@ -14,6 +14,7 @@ from .agents.sentiment_agent import SentimentAgent
 from .agents.fundamentals_agent import FundamentalsAgent
 from .agents.market_agent import MarketAgent
 from .agents.technical_agent import TechnicalAgent
+from .agents.macro_agent import MacroAgent
 from .agents.solution_agent import SolutionAgent
 from .database import DatabaseManager
 from .av_rate_limiter import AVRateLimiter
@@ -29,10 +30,11 @@ class Orchestrator:
         "market": {"class": MarketAgent, "requires": []},
         "fundamentals": {"class": FundamentalsAgent, "requires": []},
         "technical": {"class": TechnicalAgent, "requires": []},
+        "macro": {"class": MacroAgent, "requires": []},
         "sentiment": {"class": SentimentAgent, "requires": ["news"]},
     }
 
-    DEFAULT_AGENTS = ["news", "market", "fundamentals", "technical", "sentiment"]
+    DEFAULT_AGENTS = ["news", "market", "fundamentals", "technical", "macro", "sentiment"]
 
     def __init__(
         self,
@@ -117,7 +119,10 @@ class Orchestrator:
             List of agent names to run
         """
         if not requested:
-            return list(self.DEFAULT_AGENTS)
+            agents = list(self.DEFAULT_AGENTS)
+            if not self.config.get("MACRO_AGENT_ENABLED", True):
+                agents = [a for a in agents if a != "macro"]
+            return agents
 
         agents = set(requested)
 
@@ -216,7 +221,7 @@ class Orchestrator:
         run_sentiment = "sentiment" in agents_to_run
 
         # Create data agent instances
-        progress_map = {"news": 20, "fundamentals": 40, "market": 50, "technical": 60}
+        progress_map = {"news": 20, "fundamentals": 40, "market": 50, "macro": 55, "technical": 60}
         agents = {}
         for name in data_agent_names:
             agent_info = self.AGENT_REGISTRY.get(name)

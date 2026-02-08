@@ -61,6 +61,15 @@ export const SparklesIcon = (props) => (
   </svg>
 );
 
+export const GlobeIcon = (props) => (
+  <svg {...iconProps} {...props}>
+    <circle cx="10" cy="10" r="7" />
+    <path d="M3 10h14" />
+    <path d="M10 3c2 2.5 2 11.5 0 14" />
+    <path d="M10 3c-2 2.5-2 11.5 0 14" />
+  </svg>
+);
+
 export const DocumentIcon = (props) => (
   <svg {...iconProps} {...props}>
     <path d="M5 3h7l4 4v10a1 1 0 01-1 1H5a1 1 0 01-1-1V4a1 1 0 011-1z" />

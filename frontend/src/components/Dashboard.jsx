@@ -43,6 +43,7 @@ const Dashboard = () => {
       running_fundamentals: 'Analyzing company fundamentals...',
       running_news: 'Fetching recent news...',
       running_technical: 'Running technical analysis...',
+      running_macro: 'Analyzing macroeconomic environment...',
       analyzing_sentiment: 'Analyzing market sentiment...',
       synthesizing: 'AI synthesizing all insights...',
       saving: 'Saving results...',
@@ -225,8 +226,8 @@ const Dashboard = () => {
                 <div className="w-9 h-9 rounded-lg bg-accent-blue/15 flex items-center justify-center mb-3">
                   <ChartBarIcon className="w-5 h-5 text-accent-blue" />
                 </div>
-                <div className="font-semibold text-sm mb-1">5 Specialized Agents</div>
-                <div className="text-xs text-gray-400 leading-relaxed">Market, Fundamentals, News, Sentiment, Technical</div>
+                <div className="font-semibold text-sm mb-1">6 Specialized Agents</div>
+                <div className="text-xs text-gray-400 leading-relaxed">Market, Fundamentals, News, Macro, Sentiment, Technical</div>
               </div>
               <div
                 className="glass-card rounded-xl p-5 text-left border-t-2 border-t-accent-green animate-fade-in"

@@ -2,14 +2,14 @@
 
 ## Project Overview
 
-This is a **Multi-Agent Market Research Platform** that analyzes stocks using 5 specialized AI agents working in parallel, followed by a solution agent that synthesizes their outputs into a final recommendation.
+This is a **Multi-Agent Market Research Platform** that analyzes stocks using 6 specialized AI agents working in parallel, followed by a solution agent that synthesizes their outputs into a final recommendation.
 
-**Key Concept**: Real-time stock analysis powered by distributed AI agents, each with a specific domain of expertise (news, sentiment, fundamentals, market data, technical analysis).
+**Key Concept**: Real-time stock analysis powered by distributed AI agents, each with a specific domain of expertise (news, sentiment, fundamentals, market data, technical analysis, macroeconomics).
 
 ## Architecture
 
 ```
-User → FastAPI API → Orchestrator → [5 Agents Run in Parallel]
+User → FastAPI API → Orchestrator → [6 Agents Run in Parallel]
                                           ↓
                                     Solution Agent (Synthesizer)
                                           ↓
@@ -21,11 +21,12 @@ User → FastAPI API → Orchestrator → [5 Agents Run in Parallel]
 ### Agent Roles
 
 1. **News Agent** (`src/agents/news_agent.py`) - Fetches financial news with relevance filtering
-2. **Sentiment Agent** (`src/agents/sentiment_agent.py`) - LLM-based sentiment analysis on news
+2. **Sentiment Agent** (`src/agents/sentiment_agent.py`) - LLM-based sentiment analysis on news (enriched with AV per-article sentiment scores)
 3. **Fundamentals Agent** (`src/agents/fundamentals_agent.py`) - Company financials, health metrics, and LLM equity research
 4. **Market Agent** (`src/agents/market_agent.py`) - Price trends and market conditions
 5. **Technical Agent** (`src/agents/technical_agent.py`) - RSI, MACD, Bollinger Bands, SMA
-6. **Solution Agent** (`src/agents/solution_agent.py`) - Synthesizes all outputs with chain-of-thought reasoning
+6. **Macro Agent** (`src/agents/macro_agent.py`) - US macroeconomic indicators (fed funds rate, CPI, GDP, treasury yields, unemployment, inflation)
+7. **Solution Agent** (`src/agents/solution_agent.py`) - Synthesizes all outputs with chain-of-thought reasoning
 
 ### Data Source Priority (per agent)
 
@@ -37,7 +38,8 @@ All data-fetching agents follow a **primary → fallback** pattern:
 | **Fundamentals Agent** | `COMPANY_OVERVIEW` + `EARNINGS` + `BALANCE_SHEET` + `CASH_FLOW` + `INCOME_STATEMENT` | yfinance + SEC EDGAR XBRL |
 | **News Agent** | `NEWS_SENTIMENT` (includes ticker-specific relevance & sentiment scores) | NewsAPI |
 | **Technical Agent** | `RSI` + `MACD` + `BBANDS` + `SMA` (×3 periods) + `TIME_SERIES_DAILY` | yfinance + local indicator calculation |
-| **Sentiment Agent** | N/A (LLM-powered) | N/A |
+| **Macro Agent** | `FEDERAL_FUNDS_RATE` + `CPI` + `REAL_GDP` + `TREASURY_YIELD` (10Y & 2Y) + `UNEMPLOYMENT` + `INFLATION` | None (supplementary) |
+| **Sentiment Agent** | N/A (LLM-powered, enriched with AV per-article scores) | N/A |
 
 Each agent inherits from `BaseAgent` which provides:
 - `_av_request()` method for Alpha Vantage API calls with error handling, rate limiting, and response caching
@@ -70,6 +72,7 @@ src/agents/
 ├── fundamentals_agent.py # Company fundamentals (AV 5-endpoint → yfinance + SEC EDGAR)
 ├── market_agent.py       # Market data (AV GLOBAL_QUOTE + DAILY → yfinance)
 ├── technical_agent.py    # Technical indicators (AV RSI/MACD/BBANDS/SMA → yfinance + local calc)
+├── macro_agent.py        # US macroeconomic indicators (AV 7-endpoint, no fallback)
 └── solution_agent.py     # Final synthesis (LLM-powered)
 ```
 
@@ -106,7 +109,7 @@ frontend/
 - **aiohttp** - Async HTTP client for Alpha Vantage API calls
 - **Pydantic** - Data validation and models
 - **yfinance** - Stock market data (fallback source)
-- **Alpha Vantage** - Primary market data API (15 endpoints used across 4 agents)
+- **Alpha Vantage** - Primary market data API (22 endpoints used across 5 agents)
 - **NewsAPI** - News aggregation (fallback for news agent)
 - **React + Tailwind CSS v4** - Frontend UI with Hero UI dark theme
 - **Vite** - Frontend build tool
@@ -147,6 +150,7 @@ TWITTER_BEARER_TOKEN=...
 - `RSI_PERIOD` - RSI calculation period (default: 14)
 - `MACD_FAST` / `MACD_SLOW` / `MACD_SIGNAL` - MACD parameters (default: 12/26/9)
 - `BB_PERIOD` / `BB_STD` - Bollinger Bands parameters (default: 20/2)
+- `MACRO_AGENT_ENABLED` - Enable/disable macroeconomic agent (default: true)
 
 ## Running the Application
 
@@ -198,6 +202,17 @@ curl http://localhost:8000/api/analysis/NVDA/history
 **WebSocket (Real-time Updates)**
 ```javascript
 ws://localhost:8000/ws/analysis/{ticker}
+```
+
+**Export Analysis as CSV**
+```bash
+GET /api/analysis/{ticker}/export/csv?analysis_id={optional_id}
+
+# Latest analysis
+curl -O http://localhost:8000/api/analysis/NVDA/export/csv
+
+# Specific analysis
+curl -O "http://localhost:8000/api/analysis/NVDA/export/csv?analysis_id=3"
 ```
 
 **Health Check**
@@ -338,7 +353,7 @@ All data agents follow the same pattern:
 
 ### Configurable Agent Pipeline
 The API accepts a `?agents=` query parameter to select which agents to run:
-- Valid agents: `news`, `sentiment`, `fundamentals`, `market`, `technical`
+- Valid agents: `news`, `sentiment`, `fundamentals`, `market`, `technical`, `macro`
 - Dependencies are auto-resolved (e.g., `sentiment` auto-adds `news`)
 - Solution agent always runs to synthesize available results
 - The `AGENT_REGISTRY` in `orchestrator.py` maps agent names to classes and dependencies
@@ -419,7 +434,8 @@ python run.py
 - The rate limiter queues excess requests automatically; agents fall back when daily limit is exhausted
 - The fundamentals agent makes 5 concurrent AV requests per analysis
 - The technical agent makes 7 concurrent AV requests per analysis
-- Total per full analysis: ~15 AV requests (queued through the shared rate limiter)
+- The macro agent makes 7 concurrent AV requests per analysis (cached 1 day, shared across tickers)
+- Total per full analysis: ~22 AV requests (queued through the shared rate limiter; macro data cached for 1 day)
 - Check logs for `"Rate limiter: waiting"` or `"AV daily limit reached"` messages
 - `AVCache` deduplicates repeated requests for the same endpoint+ticker within TTL windows
 

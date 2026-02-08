@@ -29,6 +29,7 @@ class Config:
     AGENT_TIMEOUT = int(os.getenv("AGENT_TIMEOUT", "30"))  # seconds
     AGENT_MAX_RETRIES = int(os.getenv("AGENT_MAX_RETRIES", "2"))
     FUNDAMENTALS_LLM_ENABLED = os.getenv("FUNDAMENTALS_LLM_ENABLED", "true").lower() == "true"
+    MACRO_AGENT_ENABLED = os.getenv("MACRO_AGENT_ENABLED", "true").lower() == "true"
     PARALLEL_AGENTS = os.getenv("PARALLEL_AGENTS", "true").lower() == "true"
 
     # Database Configuration

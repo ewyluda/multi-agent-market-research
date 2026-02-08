@@ -2,8 +2,11 @@
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from typing import Dict, List, Optional
 import logging
+import io
+import csv
 from datetime import datetime
 import asyncio
 
@@ -107,6 +110,7 @@ async def root():
             "analyze": "POST /api/analyze/{ticker}",
             "latest": "GET /api/analysis/{ticker}/latest",
             "history": "GET /api/analysis/{ticker}/history",
+            "export_csv": "GET /api/analysis/{ticker}/export/csv",
             "health": "GET /health",
             "websocket": "WS /ws/analysis/{ticker}"
         }
@@ -162,7 +166,7 @@ async def analyze_ticker(
     # Parse and validate agent list
     requested_agents = None
     if agents:
-        valid_agents = {"news", "sentiment", "fundamentals", "market", "technical"}
+        valid_agents = {"news", "sentiment", "fundamentals", "market", "technical", "macro"}
         requested_agents = [a.strip().lower() for a in agents.split(",")]
         invalid = set(requested_agents) - valid_agents
         if invalid:
@@ -274,6 +278,93 @@ async def get_analysis_history(ticker: str, limit: int = 10):
 
     except Exception as e:
         logger.error(f"Failed to retrieve history for {ticker}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/analysis/{ticker}/export/csv")
+async def export_analysis_csv(
+    ticker: str,
+    analysis_id: Optional[int] = Query(default=None, description="Specific analysis ID to export. Default: latest."),
+):
+    """
+    Export an analysis as a downloadable CSV file.
+
+    Args:
+        ticker: Stock ticker symbol
+        analysis_id: Optional analysis ID; defaults to the most recent analysis
+
+    Returns:
+        CSV file download
+    """
+    ticker = ticker.upper()
+
+    try:
+        if analysis_id is None:
+            latest = db_manager.get_latest_analysis(ticker)
+            if not latest:
+                raise HTTPException(status_code=404, detail=f"No analysis found for {ticker}")
+            analysis_id = latest["id"]
+
+        full = db_manager.get_analysis_with_agents(analysis_id)
+        if not full:
+            raise HTTPException(status_code=404, detail=f"Analysis {analysis_id} not found")
+
+        if full["ticker"] != ticker:
+            raise HTTPException(status_code=400, detail=f"Analysis {analysis_id} does not belong to {ticker}")
+
+        output = io.StringIO()
+        writer = csv.writer(output)
+
+        # --- Section 1: Analysis Summary ---
+        writer.writerow(["Section", "Field", "Value"])
+        writer.writerow(["Summary", "Ticker", full["ticker"]])
+        writer.writerow(["Summary", "Timestamp", full["timestamp"]])
+        writer.writerow(["Summary", "Recommendation", full.get("recommendation", "")])
+        writer.writerow(["Summary", "Confidence Score", full.get("confidence_score", "")])
+        writer.writerow(["Summary", "Sentiment Score", full.get("overall_sentiment_score", "")])
+        writer.writerow(["Summary", "Duration (s)", full.get("duration_seconds", "")])
+        writer.writerow(["Summary", "Reasoning", full.get("solution_agent_reasoning", "")])
+
+        # --- Section 2: Agent Results ---
+        writer.writerow([])
+        writer.writerow(["Agent", "Success", "Duration (s)", "Data Source", "Error"])
+        for agent in full.get("agents", []):
+            data = agent.get("data") or {}
+            data_source = data.get("data_source", "")
+            writer.writerow([
+                agent.get("agent_type", ""),
+                agent.get("success", ""),
+                agent.get("duration_seconds", ""),
+                data_source,
+                agent.get("error", ""),
+            ])
+
+        # --- Section 3: Sentiment Factors ---
+        sentiment_factors = full.get("sentiment_factors", {})
+        if sentiment_factors:
+            writer.writerow([])
+            writer.writerow(["Sentiment Factor", "Score", "Weight", "Contribution"])
+            for factor, vals in sentiment_factors.items():
+                writer.writerow([
+                    factor,
+                    vals.get("score", ""),
+                    vals.get("weight", ""),
+                    vals.get("contribution", ""),
+                ])
+
+        output.seek(0)
+        filename = f"{ticker}_analysis_{full['timestamp'][:10]}.csv"
+
+        return StreamingResponse(
+            iter([output.getvalue()]),
+            media_type="text/csv",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to export CSV for {ticker}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

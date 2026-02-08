@@ -3,7 +3,7 @@
 import anthropic
 from openai import OpenAI
 import json
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from .base_agent import BaseAgent
 
 
@@ -47,6 +47,7 @@ class SolutionAgent(BaseAgent):
         fundamentals_data = (raw_data.get("fundamentals") or {}).get("data") or {}
         market_data = (raw_data.get("market") or {}).get("data") or {}
         technical_data = (raw_data.get("technical") or {}).get("data") or {}
+        macro_data = (raw_data.get("macro") or {}).get("data") or {}
 
         # Use LLM for chain-of-thought reasoning
         llm_config = self.config.get("llm_config", {})
@@ -55,18 +56,18 @@ class SolutionAgent(BaseAgent):
         if provider == "anthropic" and llm_config.get("api_key"):
             analysis = await self._synthesize_with_llm(
                 news_data, sentiment_data, fundamentals_data,
-                market_data, technical_data, llm_config
+                market_data, technical_data, macro_data, llm_config
             )
         elif provider in ("xai", "openai") and llm_config.get("api_key"):
             analysis = await self._synthesize_with_openai(
                 news_data, sentiment_data, fundamentals_data,
-                market_data, technical_data, llm_config
+                market_data, technical_data, macro_data, llm_config
             )
         else:
             # Fallback to rule-based synthesis
             analysis = self._simple_synthesis(
                 news_data, sentiment_data, fundamentals_data,
-                market_data, technical_data
+                market_data, technical_data, macro_data
             )
 
         return analysis
@@ -78,6 +79,7 @@ class SolutionAgent(BaseAgent):
         fundamentals_data: Dict[str, Any],
         market_data: Dict[str, Any],
         technical_data: Dict[str, Any],
+        macro_data: Dict[str, Any],
         llm_config: Dict[str, Any]
     ) -> Dict[str, Any]:
         """
@@ -89,6 +91,7 @@ class SolutionAgent(BaseAgent):
             fundamentals_data: Fundamentals agent output
             market_data: Market agent output
             technical_data: Technical agent output
+            macro_data: Macroeconomic agent output
             llm_config: LLM configuration
 
         Returns:
@@ -149,6 +152,19 @@ class SolutionAgent(BaseAgent):
 - Signal Strength: {technical_data.get('signals', {}).get('strength', 'N/A')}
 - Summary: {technical_data.get('summary', '')}
 
+## MACROECONOMIC ENVIRONMENT
+- Federal Funds Rate: {macro_data.get('indicators', {}).get('federal_funds_rate', {}).get('current', 'N/A')} (Trend: {macro_data.get('indicators', {}).get('federal_funds_rate', {}).get('trend', 'N/A')})
+- CPI: {macro_data.get('indicators', {}).get('cpi', {}).get('current', 'N/A')} (Trend: {macro_data.get('indicators', {}).get('cpi', {}).get('trend', 'N/A')})
+- Real GDP: {macro_data.get('indicators', {}).get('real_gdp', {}).get('current', 'N/A')} (Trend: {macro_data.get('indicators', {}).get('real_gdp', {}).get('trend', 'N/A')})
+- Unemployment: {macro_data.get('indicators', {}).get('unemployment', {}).get('current', 'N/A')}% (Trend: {macro_data.get('indicators', {}).get('unemployment', {}).get('trend', 'N/A')})
+- Inflation: {macro_data.get('indicators', {}).get('inflation', {}).get('current', 'N/A')}% (Trend: {macro_data.get('indicators', {}).get('inflation', {}).get('trend', 'N/A')})
+- 10Y Treasury Yield: {macro_data.get('indicators', {}).get('treasury_yield_10y', {}).get('current', 'N/A')}%
+- 2Y Treasury Yield: {macro_data.get('indicators', {}).get('treasury_yield_2y', {}).get('current', 'N/A')}%
+- Yield Curve: {macro_data.get('yield_curve', {}).get('status', 'N/A')} (Spread: {macro_data.get('yield_curve', {}).get('spread', 'N/A')}%)
+- Economic Cycle: {macro_data.get('economic_cycle', 'N/A')}
+- Risk Environment: {macro_data.get('risk_environment', 'N/A')}
+- Summary: {macro_data.get('summary', 'No macro data available')}
+
 ## SENTIMENT ANALYSIS
 - Overall Sentiment: {sentiment_data.get('overall_sentiment', 'N/A')}
 - Confidence: {sentiment_data.get('confidence', 'N/A')}
@@ -172,10 +188,11 @@ Using chain-of-thought reasoning and first principles:
 3. Evaluate market conditions and price action
 4. Consider sentiment and news impact
 5. Synthesize technical signals
-6. Analyze earnings trends (beat rate, EPS/revenue trajectory from SEC filings)
-7. Weigh concerning metrics and existential risks identified
-8. Determine risk/reward ratio
-9. Provide final recommendation
+6. Factor in macroeconomic environment (interest rates, yield curve, economic cycle)
+7. Analyze earnings trends (beat rate, EPS/revenue trajectory from SEC filings)
+8. Weigh concerning metrics and existential risks identified
+9. Determine risk/reward ratio
+10. Provide final recommendation
 
 Respond in JSON format:
 {{
@@ -236,7 +253,7 @@ Respond in JSON format:
             # Fallback
             return self._simple_synthesis(
                 news_data, sentiment_data, fundamentals_data,
-                market_data, technical_data
+                market_data, technical_data, macro_data
             )
 
     async def _synthesize_with_openai(
@@ -246,6 +263,7 @@ Respond in JSON format:
         fundamentals_data: Dict[str, Any],
         market_data: Dict[str, Any],
         technical_data: Dict[str, Any],
+        macro_data: Dict[str, Any],
         llm_config: Dict[str, Any]
     ) -> Dict[str, Any]:
         """
@@ -257,6 +275,7 @@ Respond in JSON format:
             fundamentals_data: Fundamentals agent output
             market_data: Market agent output
             technical_data: Technical agent output
+            macro_data: Macroeconomic agent output
             llm_config: LLM configuration
 
         Returns:
@@ -317,6 +336,19 @@ Respond in JSON format:
 - Signal Strength: {technical_data.get('signals', {}).get('strength', 'N/A')}
 - Summary: {technical_data.get('summary', '')}
 
+## MACROECONOMIC ENVIRONMENT
+- Federal Funds Rate: {macro_data.get('indicators', {}).get('federal_funds_rate', {}).get('current', 'N/A')} (Trend: {macro_data.get('indicators', {}).get('federal_funds_rate', {}).get('trend', 'N/A')})
+- CPI: {macro_data.get('indicators', {}).get('cpi', {}).get('current', 'N/A')} (Trend: {macro_data.get('indicators', {}).get('cpi', {}).get('trend', 'N/A')})
+- Real GDP: {macro_data.get('indicators', {}).get('real_gdp', {}).get('current', 'N/A')} (Trend: {macro_data.get('indicators', {}).get('real_gdp', {}).get('trend', 'N/A')})
+- Unemployment: {macro_data.get('indicators', {}).get('unemployment', {}).get('current', 'N/A')}% (Trend: {macro_data.get('indicators', {}).get('unemployment', {}).get('trend', 'N/A')})
+- Inflation: {macro_data.get('indicators', {}).get('inflation', {}).get('current', 'N/A')}% (Trend: {macro_data.get('indicators', {}).get('inflation', {}).get('trend', 'N/A')})
+- 10Y Treasury Yield: {macro_data.get('indicators', {}).get('treasury_yield_10y', {}).get('current', 'N/A')}%
+- 2Y Treasury Yield: {macro_data.get('indicators', {}).get('treasury_yield_2y', {}).get('current', 'N/A')}%
+- Yield Curve: {macro_data.get('yield_curve', {}).get('status', 'N/A')} (Spread: {macro_data.get('yield_curve', {}).get('spread', 'N/A')}%)
+- Economic Cycle: {macro_data.get('economic_cycle', 'N/A')}
+- Risk Environment: {macro_data.get('risk_environment', 'N/A')}
+- Summary: {macro_data.get('summary', 'No macro data available')}
+
 ## SENTIMENT ANALYSIS
 - Overall Sentiment: {sentiment_data.get('overall_sentiment', 'N/A')}
 - Confidence: {sentiment_data.get('confidence', 'N/A')}
@@ -340,10 +372,11 @@ Using chain-of-thought reasoning and first principles:
 3. Evaluate market conditions and price action
 4. Consider sentiment and news impact
 5. Synthesize technical signals
-6. Analyze earnings trends (beat rate, EPS/revenue trajectory from SEC filings)
-7. Weigh concerning metrics and existential risks identified
-8. Determine risk/reward ratio
-9. Provide final recommendation
+6. Factor in macroeconomic environment (interest rates, yield curve, economic cycle)
+7. Analyze earnings trends (beat rate, EPS/revenue trajectory from SEC filings)
+8. Weigh concerning metrics and existential risks identified
+9. Determine risk/reward ratio
+10. Provide final recommendation
 
 Respond in JSON format:
 {{
@@ -407,7 +440,7 @@ Respond in JSON format:
             # Fallback
             return self._simple_synthesis(
                 news_data, sentiment_data, fundamentals_data,
-                market_data, technical_data
+                market_data, technical_data, macro_data
             )
 
     def _simple_synthesis(
@@ -416,7 +449,8 @@ Respond in JSON format:
         sentiment_data: Dict[str, Any],
         fundamentals_data: Dict[str, Any],
         market_data: Dict[str, Any],
-        technical_data: Dict[str, Any]
+        technical_data: Dict[str, Any],
+        macro_data: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
         Simple rule-based synthesis as fallback.
@@ -448,6 +482,15 @@ Respond in JSON format:
             score += 20
         elif "downtrend" in trend:
             score -= 20
+
+        # Macro environment (10% weight) - if available
+        if macro_data:
+            yield_status = macro_data.get("yield_curve", {}).get("status", "")
+            cycle = macro_data.get("economic_cycle", "")
+            if yield_status == "normal" and cycle == "expansion":
+                score += 10
+            elif yield_status == "inverted" or cycle == "contraction":
+                score -= 10
 
         # Determine recommendation
         if score > 30:

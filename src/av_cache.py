@@ -37,6 +37,14 @@ class AVCache:
         "BALANCE_SHEET": 86400,
         "CASH_FLOW": 86400,
         "INCOME_STATEMENT": 86400,
+
+        # Macroeconomic data: 1 day (changes slowly)
+        "FEDERAL_FUNDS_RATE": 86400,
+        "CPI": 86400,
+        "REAL_GDP": 86400,
+        "TREASURY_YIELD": 86400,
+        "UNEMPLOYMENT": 86400,
+        "INFLATION": 86400,
     }
 
     def __init__(self, ttl_overrides: Optional[Dict[str, int]] = None):

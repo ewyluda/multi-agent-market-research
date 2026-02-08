@@ -1,10 +1,10 @@
 /**
- * AgentStatus - Displays status of all 6 agents in the analysis pipeline
+ * AgentStatus - Displays status of all 7 agents in the analysis pipeline
  */
 
 import React from 'react';
 import { useAnalysisContext } from '../context/AnalysisContext';
-import { ChartBarIcon, BuildingIcon, NewspaperIcon, ChartLineIcon, BrainIcon, SparklesIcon, CheckCircleIcon, XCircleIcon, ClockIcon } from './Icons';
+import { ChartBarIcon, BuildingIcon, NewspaperIcon, ChartLineIcon, GlobeIcon, BrainIcon, SparklesIcon, CheckCircleIcon, XCircleIcon, ClockIcon } from './Icons';
 
 const AgentStatus = () => {
   const { analysis, loading, stage } = useAnalysisContext();
@@ -14,6 +14,7 @@ const AgentStatus = () => {
     { id: 'fundamentals', label: 'Fundamentals', icon: BuildingIcon, description: 'Company health metrics' },
     { id: 'news', label: 'News', icon: NewspaperIcon, description: 'Recent articles & headlines' },
     { id: 'technical', label: 'Technical', icon: ChartLineIcon, description: 'RSI, MACD, Bollinger' },
+    { id: 'macro', label: 'Macro', icon: GlobeIcon, description: 'Economic environment' },
     { id: 'sentiment', label: 'Sentiment', icon: BrainIcon, description: 'Market mood analysis' },
     { id: 'solution', label: 'Synthesis', icon: SparklesIcon, description: 'AI final analysis' },
   ];
@@ -23,11 +24,12 @@ const AgentStatus = () => {
     running_fundamentals: 'fundamentals',
     running_news: 'news',
     running_technical: 'technical',
+    running_macro: 'macro',
     analyzing_sentiment: 'sentiment',
     synthesizing: 'solution',
   };
 
-  const agentOrder = ['market', 'fundamentals', 'news', 'technical', 'sentiment', 'solution'];
+  const agentOrder = ['market', 'fundamentals', 'news', 'technical', 'macro', 'sentiment', 'solution'];
 
   const getAgentStatus = (agentId) => {
     if (!loading && !analysis) return 'idle';

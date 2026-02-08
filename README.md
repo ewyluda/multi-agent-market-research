@@ -166,6 +166,17 @@ ws.onmessage = (event) => {
 };
 ```
 
+### Export Analysis as CSV
+```bash
+GET /api/analysis/{ticker}/export/csv?analysis_id={optional_id}
+
+# Export latest analysis
+curl -O http://localhost:8000/api/analysis/NVDA/export/csv
+
+# Export specific analysis by ID
+curl -O http://localhost:8000/api/analysis/NVDA/export/csv?analysis_id=3
+```
+
 ### Health Check
 ```bash
 GET /health
@@ -418,7 +429,7 @@ python run.py  # Will create fresh database
 - Agents gracefully fall back to alternative sources
 - Check `data_source` field in agent results to confirm which source was used
 
-## Potential Future Improvements
+## Potential Future Improvements (To-Do List)
 
 - **Light/dark theme toggle**: The frontend currently supports dark theme only. Adding a light theme variant with a toggle would improve accessibility.
 - **Historical data source comparison**: Track and display which data source was used per agent over time, allowing users to compare analysis quality between AV and fallback sources.
@@ -426,10 +437,10 @@ python run.py  # Will create fresh database
 - **Real-time streaming via SSE**: Replace WebSocket polling pattern with Server-Sent Events for simpler one-way streaming of agent progress updates.
 - **Multi-ticker batch analysis**: Support analyzing multiple tickers in a single request with shared AV rate budget.
 - **Options flow / unusual activity agent**: Add a new agent that monitors options market data for unusual volume, put/call ratios, and large block trades.
-- **Macroeconomic agent**: Add an agent for broader market context using AV endpoints like `FEDERAL_FUNDS_RATE`, `CPI`, `REAL_GDP`, and treasury yield data.
-- **News sentiment aggregation into sentiment agent**: The AV NEWS_SENTIMENT endpoint provides per-article sentiment scores. These could be forwarded to the sentiment agent to supplement its LLM-based analysis.
+- ~~**Macroeconomic agent**: Add an agent for broader market context using AV endpoints like `FEDERAL_FUNDS_RATE`, `CPI`, `REAL_GDP`, and treasury yield data.~~ *(Done — `MacroAgent` fetches 7 AV macro endpoints with yield curve, economic cycle, and risk environment analysis)*
+- ~~**News sentiment aggregation into sentiment agent**: The AV NEWS_SENTIMENT endpoint provides per-article sentiment scores. These could be forwarded to the sentiment agent to supplement its LLM-based analysis.~~ *(Done — AV per-article sentiment scores are now included in the LLM prompt and blended into the keyword fallback)*
 - **Docker containerization**: Add Dockerfile and docker-compose for one-command deployment of both backend and frontend.
-- **Export analysis as PDF/CSV**: Add endpoints to export analysis results in downloadable formats for reporting.
+- ~~**Export analysis as PDF/CSV**: Add endpoints to export analysis results in downloadable formats for reporting.~~ *(Done — CSV export available at `GET /api/analysis/{ticker}/export/csv`)*
 - **In-flight request coalescing**: Deduplicate concurrent identical AV requests (e.g., market and technical agents both requesting TIME_SERIES_DAILY simultaneously).
 
 ## License
