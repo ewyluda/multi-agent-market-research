@@ -81,24 +81,41 @@ src/agents/
 frontend/
 ├── src/
 │   ├── components/
-│   │   ├── Dashboard.jsx       # Main layout and orchestration
-│   │   ├── Recommendation.jsx  # SVG gauge with BUY/HOLD/SELL
-│   │   ├── AgentStatus.jsx     # Real-time agent progress
-│   │   ├── PriceChart.jsx      # Price history and indicators
-│   │   ├── SentimentReport.jsx # Sentiment breakdown
-│   │   ├── Summary.jsx         # Price targets, risks, opportunities
-│   │   ├── NewsFeed.jsx        # News article list
-│   │   └── Icons.jsx           # SVG icon components
+│   │   ├── Dashboard.jsx       # Main layout (2-7-3 grid, vertical sections, no tabs)
+│   │   ├── Recommendation.jsx  # SVG gauge with BUY/HOLD/SELL + agent consensus strip
+│   │   ├── AgentStatus.jsx     # Real-time agent progress pipeline
+│   │   ├── PriceChart.jsx      # TradingView chart, indicators, data source badges
+│   │   ├── SentimentReport.jsx # Sentiment meter, factor bars, key themes
+│   │   ├── Summary.jsx         # Verdict banner, sectioned chain-of-thought, price targets range bar
+│   │   ├── MacroSnapshot.jsx   # Macro indicators sidebar widget (fed rate, yields, inflation, GDP)
+│   │   ├── NewsFeed.jsx        # Relevance-scored news article list
+│   │   └── Icons.jsx           # SVG icon components (20+ icons including ChevronDown, Target)
+│   ├── context/
+│   │   └── AnalysisContext.jsx # React context for analysis state
+│   ├── hooks/
+│   │   ├── useAnalysis.js     # Analysis data fetching hook
+│   │   └── useSSE.js          # SSE streaming hook
+│   ├── utils/
+│   │   └── api.js             # API client utilities
 │   ├── index.css               # Theme system (Tailwind v4 @theme + CSS custom properties)
 │   └── App.jsx                 # Root component
 ├── tailwind.config.js          # Tailwind color configuration
 └── package.json
 ```
 
+**Frontend Layout**: 2-7-3 grid (AgentStatus | Content | Recommendation+Macro). All analysis sections (Summary, Sentiment, News) render vertically in the center column — no tab navigation.
+
 **Frontend Theme**: Hero UI dark theme variant (zinc-based). Three color layers:
 1. `tailwind.config.js` - Custom color values
 2. `@theme` block in `index.css` - Semantic tokens (`--color-primary`, `--color-success`, etc.)
 3. `:root` block in `index.css` - CSS custom properties for backgrounds, borders, glows
+
+**Key Frontend Patterns**:
+- `Summary.jsx` parses the LLM's 10-step chain-of-thought into domain-specific expandable sections (maps to solution agent prompt steps 1-10), each with icon, color, one-line headline, and collapsible detail
+- `Recommendation.jsx` includes an agent consensus strip showing per-agent signal direction (bullish/bearish/neutral dots derived from each agent's output data)
+- `MacroSnapshot.jsx` surfaces macro data (fed funds, yields, inflation, GDP) that otherwise only feeds the LLM reasoning
+- `PriceChart.jsx` shows data source provenance badges (`AV` / `YF`) from `data_source` fields
+- Glass cards have hover transitions (`border-color 0.2s`) defined in `index.css`
 
 ## Key Technologies
 
@@ -449,6 +466,8 @@ python run.py
 
 The frontend is in `frontend/` directory (React + Vite + Tailwind CSS v4).
 
+**Layout**: 2-7-3 grid with vertical stacked sections (no tabs). Left sidebar: agent pipeline. Center: chart → executive overview → sentiment → news. Right sidebar: recommendation gauge + macro snapshot.
+
 **Theme**: Hero UI dark variant (zinc-based palette)
 - Primary: `#006fee` (blue)
 - Success: `#17c964` (green)
@@ -456,6 +475,17 @@ The frontend is in `frontend/` directory (React + Vite + Tailwind CSS v4).
 - Warning: `#f5a524` (amber)
 - Background: `#000000` (pure black)
 - Content surfaces: `#18181b` → `#27272a` → `#3f3f46` → `#52525b` (zinc scale)
+
+**Summary.jsx Chain-of-Thought Parsing**: The component maps the LLM's numbered reasoning (1-10) to domain-specific sections using `SECTION_META` — each step gets an icon, accent color, and one-line headline extracted from the first sentence. Sections 1 (Fundamentals) and 10 (Final Recommendation) are expanded by default; others are collapsed.
+
+**Agent Data Surfaced in UI**:
+- `agent_results.market.data` → PriceChart (price, volume, trend, change %)
+- `agent_results.technical.data` → PriceChart (RSI, MACD, signal strength)
+- `agent_results.sentiment.data` → SentimentReport (score, factors, themes)
+- `agent_results.news.data` → NewsFeed (articles, headlines)
+- `agent_results.macro.data` → MacroSnapshot (indicators, yield curve, economic cycle, risk environment)
+- `agent_results.*.data.data_source` → PriceChart source badges (AV/YF)
+- All agent signals → Recommendation consensus strip (bullish/bearish/neutral dots)
 
 **Backend provides**:
 - REST API for historical data
@@ -587,7 +617,8 @@ cd frontend && npm install
     "sentiment": {"...": "..."},
     "fundamentals": {"data_source": "alpha_vantage", "...": "..."},
     "market": {"data_source": "alpha_vantage", "...": "..."},
-    "technical": {"data_source": "alpha_vantage", "...": "..."}
+    "technical": {"data_source": "alpha_vantage", "...": "..."},
+    "macro": {"data_source": "alpha_vantage", "...": "..."}
   },
   "duration_seconds": 32.5
 }

@@ -11,11 +11,11 @@ import SentimentReport from './SentimentReport';
 import PriceChart from './PriceChart';
 import Summary from './Summary';
 import NewsFeed from './NewsFeed';
+import MacroSnapshot from './MacroSnapshot';
 import { DocumentIcon, NewspaperIcon, BrainIcon, PulseIcon, SparklesIcon, ChartBarIcon, LoadingSpinner } from './Icons';
 
 const Dashboard = () => {
   const [tickerInput, setTickerInput] = useState('');
-  const [activeTab, setActiveTab] = useState('summary');
   const { runAnalysis, loading, error } = useAnalysis();
   const { analysis, progress, stage } = useAnalysisContext();
 
@@ -52,12 +52,6 @@ const Dashboard = () => {
     };
     return stages[stage] || stage;
   };
-
-  const tabs = [
-    { id: 'summary', label: 'Summary', icon: DocumentIcon },
-    { id: 'news', label: 'News', icon: NewspaperIcon },
-    { id: 'sentiment', label: 'Sentiment', icon: BrainIcon },
-  ];
 
   return (
     <div className="min-h-screen bg-dark-bg text-white">
@@ -145,49 +139,34 @@ const Dashboard = () => {
         {analysis || loading ? (
           <div className="grid grid-cols-12 gap-6 animate-fade-in">
             {/* Left Sidebar - Agents */}
-            <div className="col-span-3 animate-slide-left">
+            <div className="col-span-2 animate-slide-left">
               <AgentStatus />
             </div>
 
-            {/* Center - Chart & Tabs */}
-            <div className="col-span-6">
+            {/* Center - Chart & Stacked Sections */}
+            <div className="col-span-7">
               <PriceChart analysis={analysis} />
 
-              {/* Tabs */}
+              {/* Executive Overview */}
               <div className="mt-6">
-                <div className="flex space-x-2 mb-5">
-                  {tabs.map((tab) => {
-                    const Icon = tab.icon;
-                    const isActive = activeTab === tab.id;
-                    return (
-                      <button
-                        key={tab.id}
-                        className={`flex items-center space-x-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                          isActive
-                            ? 'bg-accent-blue/15 text-accent-blue border border-accent-blue/30'
-                            : 'text-gray-400 hover:text-gray-200 hover:bg-white/5 border border-transparent'
-                        }`}
-                        onClick={() => setActiveTab(tab.id)}
-                      >
-                        <Icon className="w-4 h-4" />
-                        <span>{tab.label}</span>
-                      </button>
-                    );
-                  })}
-                </div>
+                <Summary analysis={analysis} />
+              </div>
 
-                {/* Tab Content */}
-                <div className="animate-fade-in">
-                  {activeTab === 'summary' && <Summary analysis={analysis} />}
-                  {activeTab === 'news' && <NewsFeed analysis={analysis} />}
-                  {activeTab === 'sentiment' && <SentimentReport analysis={analysis} />}
-                </div>
+              {/* Sentiment Analysis */}
+              <div className="mt-6">
+                <SentimentReport analysis={analysis} />
+              </div>
+
+              {/* News Feed */}
+              <div className="mt-6">
+                <NewsFeed analysis={analysis} />
               </div>
             </div>
 
-            {/* Right Sidebar - Recommendation */}
-            <div className="col-span-3 animate-slide-right">
+            {/* Right Sidebar - Recommendation + Macro */}
+            <div className="col-span-3 animate-slide-right space-y-6">
               <Recommendation analysis={analysis} />
+              <MacroSnapshot analysis={analysis} />
             </div>
           </div>
         ) : (

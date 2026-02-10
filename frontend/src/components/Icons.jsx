@@ -152,6 +152,20 @@ export const TrendingDownIcon = (props) => (
   </svg>
 );
 
+export const ChevronDownIcon = (props) => (
+  <svg {...iconProps} {...props}>
+    <path d="M5 7.5l5 5 5-5" />
+  </svg>
+);
+
+export const TargetIcon = (props) => (
+  <svg {...iconProps} {...props}>
+    <circle cx="10" cy="10" r="7" />
+    <circle cx="10" cy="10" r="4" />
+    <circle cx="10" cy="10" r="1" fill="currentColor" stroke="none" />
+  </svg>
+);
+
 export const LoadingSpinner = ({ className = '', size = 20 }) => (
   <svg
     width={size}

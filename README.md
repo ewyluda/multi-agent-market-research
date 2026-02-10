@@ -4,12 +4,13 @@ Real-time AI-powered stock market analysis using specialized agents.
 
 ## Overview
 
-This application uses 5 specialized AI agents to analyze stocks from different perspectives:
+This application uses 6 specialized AI agents to analyze stocks from different perspectives:
 - **News Agent**: Gathers financial news with ticker-specific relevance filtering
-- **Sentiment Agent**: LLM-based sentiment analysis on news articles
+- **Sentiment Agent**: LLM-based sentiment analysis on news articles (enriched with AV per-article sentiment scores)
 - **Fundamentals Agent**: Company financial metrics, health scoring, and LLM equity research
 - **Market Agent**: Price trends, moving averages, and market conditions
 - **Technical Agent**: RSI, MACD, Bollinger Bands, SMA analysis
+- **Macro Agent**: US macroeconomic indicators (fed funds rate, CPI, GDP, treasury yields, unemployment, inflation)
 
 A **Solution Agent** synthesizes all outputs using chain-of-thought reasoning to provide a final BUY/HOLD/SELL recommendation with price targets and risk assessment.
 
@@ -17,7 +18,7 @@ A **Solution Agent** synthesizes all outputs using chain-of-thought reasoning to
 
 - Real-time multi-agent analysis with parallel execution
 - **Configurable agent pipeline** — select which agents to run per request via `?agents=` parameter
-- **Alpha Vantage as primary data source** across all data agents (15 endpoints)
+- **Alpha Vantage as primary data source** across all data agents (22 endpoints)
 - **AV connection pooling** — shared `aiohttp` session across all agents per analysis
 - **AV rate limiting** — centralized sliding-window limiter (5/min, 25/day configurable)
 - **AV response caching** — in-memory TTL cache deduplicates repeated requests
@@ -27,12 +28,12 @@ A **Solution Agent** synthesizes all outputs using chain-of-thought reasoning to
 - Server-Sent Events (SSE) for live progress streaming
 - Historical analysis tracking with SQLite
 - RESTful API built with FastAPI
-- React frontend with Hero UI dark theme
+- React frontend with Hero UI dark theme, structured executive overview, and macro sidebar widget
 
 ## Architecture
 
 ```
-User Request → FastAPI → Orchestrator → [5 Agents in Parallel]
+User Request → FastAPI → Orchestrator → [6 Agents in Parallel]
                                               ↓
                                         Solution Agent
                                               ↓
@@ -51,6 +52,7 @@ Each data agent tries Alpha Vantage first and falls back gracefully:
 | Fundamentals | `COMPANY_OVERVIEW` + `EARNINGS` + `BALANCE_SHEET` + `CASH_FLOW` + `INCOME_STATEMENT` | yfinance + SEC EDGAR |
 | News | `NEWS_SENTIMENT` | NewsAPI |
 | Technical | `RSI` + `MACD` + `BBANDS` + `SMA` (x3) + `TIME_SERIES_DAILY` | yfinance + local calculation |
+| Macro | `FEDERAL_FUNDS_RATE` + `CPI` + `REAL_GDP` + `TREASURY_YIELD` (10Y & 2Y) + `UNEMPLOYMENT` + `INFLATION` | None |
 
 ## Setup
 
@@ -138,7 +140,7 @@ curl -X POST "http://localhost:8000/api/analyze/NVDA?agents=market,technical"
 curl -X POST "http://localhost:8000/api/analyze/NVDA?agents=sentiment"
 ```
 
-Valid agent names: `news`, `sentiment`, `fundamentals`, `market`, `technical`. The solution agent always runs.
+Valid agent names: `news`, `sentiment`, `fundamentals`, `market`, `technical`, `macro`. The solution agent always runs.
 
 ### Get Latest Analysis
 ```bash
@@ -229,7 +231,8 @@ curl http://localhost:8000/health
     "sentiment": { "..." : "..." },
     "fundamentals": { "data_source": "alpha_vantage", "..." : "..." },
     "market": { "data_source": "alpha_vantage", "..." : "..." },
-    "technical": { "data_source": "alpha_vantage", "..." : "..." }
+    "technical": { "data_source": "alpha_vantage", "..." : "..." },
+    "macro": { "data_source": "alpha_vantage", "..." : "..." }
   },
   "duration_seconds": 32.5
 }
@@ -256,6 +259,7 @@ All configuration is in `.env` file. Key settings:
 | `RSI_PERIOD` | RSI calculation period | `14` |
 | `MACD_FAST` / `MACD_SLOW` / `MACD_SIGNAL` | MACD parameters | `12` / `26` / `9` |
 | `BB_PERIOD` / `BB_STD` | Bollinger Bands parameters | `20` / `2` |
+| `MACRO_AGENT_ENABLED` | Enable/disable macroeconomic agent | `true` |
 
 See `.env.example` for all available options.
 
@@ -344,47 +348,70 @@ SELECT * FROM sentiment_scores WHERE analysis_id = 1;
 multi-agent-market-research/
 ├── src/
 │   ├── __init__.py
+│   ├── api.py                 # FastAPI application (REST + SSE endpoints)
 │   ├── config.py              # Configuration management
-│   ├── database.py            # Database operations
-│   ├── orchestrator.py        # Agent coordination with configurable pipeline
+│   ├── database.py            # Database operations (SQLite)
 │   ├── models.py              # Pydantic models
-│   ├── api.py                 # FastAPI application
-│   ├── av_rate_limiter.py     # AV API rate limiter (sliding window)
+│   ├── orchestrator.py        # Agent coordination with configurable pipeline
 │   ├── av_cache.py            # AV response cache (in-memory TTL)
+│   ├── av_rate_limiter.py     # AV API rate limiter (sliding window)
 │   └── agents/
 │       ├── __init__.py
-│       ├── base_agent.py      # Base agent class (ABC)
-│       ├── news_agent.py      # News gathering (AV → NewsAPI)
-│       ├── sentiment_agent.py # Sentiment analysis (LLM)
-│       ├── fundamentals_agent.py  # Fundamentals (AV → yfinance + SEC)
-│       ├── market_agent.py    # Market data (AV → yfinance)
-│       ├── technical_agent.py # Technical indicators (AV → yfinance + local)
-│       └── solution_agent.py  # Final synthesis (LLM)
+│       ├── base_agent.py          # Base agent class (ABC) with shared AV infrastructure
+│       ├── news_agent.py          # News gathering (AV NEWS_SENTIMENT → NewsAPI)
+│       ├── sentiment_agent.py     # Sentiment analysis (LLM + AV per-article scores)
+│       ├── fundamentals_agent.py  # Company fundamentals (AV 5-endpoint → yfinance + SEC EDGAR)
+│       ├── market_agent.py        # Market data (AV GLOBAL_QUOTE + DAILY → yfinance)
+│       ├── technical_agent.py     # Technical indicators (AV RSI/MACD/BBANDS/SMA → yfinance + local)
+│       ├── macro_agent.py         # US macroeconomic indicators (AV 7-endpoint, no fallback)
+│       └── solution_agent.py      # Final synthesis (LLM chain-of-thought)
 ├── frontend/
 │   ├── src/
-│   │   ├── components/        # React components
-│   │   │   ├── Dashboard.jsx
-│   │   │   ├── Recommendation.jsx
-│   │   │   ├── AgentStatus.jsx
-│   │   │   ├── PriceChart.jsx
-│   │   │   ├── SentimentReport.jsx
-│   │   │   ├── Summary.jsx
-│   │   │   ├── NewsFeed.jsx
-│   │   │   └── Icons.jsx
-│   │   ├── index.css          # Hero UI dark theme (Tailwind v4)
-│   │   └── App.jsx
+│   │   ├── components/
+│   │   │   ├── Dashboard.jsx      # Main layout (2-7-3 grid, vertical sections)
+│   │   │   ├── Recommendation.jsx # SVG gauge with agent consensus strip
+│   │   │   ├── AgentStatus.jsx    # Real-time agent progress pipeline
+│   │   │   ├── PriceChart.jsx     # Price history, indicators, data source badges
+│   │   │   ├── SentimentReport.jsx# Sentiment breakdown with factor bars
+│   │   │   ├── Summary.jsx        # Verdict banner, sectioned analysis, price targets
+│   │   │   ├── MacroSnapshot.jsx  # Macro indicators sidebar widget
+│   │   │   ├── NewsFeed.jsx       # News article list
+│   │   │   └── Icons.jsx          # SVG icon components (20 icons)
+│   │   ├── context/
+│   │   │   └── AnalysisContext.jsx # React context for analysis state
+│   │   ├── hooks/
+│   │   │   ├── useAnalysis.js     # Analysis data fetching hook
+│   │   │   └── useSSE.js          # SSE streaming hook
+│   │   ├── utils/
+│   │   │   └── api.js             # API client utilities
+│   │   ├── assets/
+│   │   │   └── react.svg
+│   │   ├── App.jsx
+│   │   ├── main.jsx
+│   │   └── index.css              # Hero UI dark theme (Tailwind v4)
+│   ├── index.html
+│   ├── vite.config.js
 │   ├── tailwind.config.js
+│   ├── postcss.config.js
+│   ├── eslint.config.js
 │   └── package.json
-├── requirements.txt           # Python dependencies
-├── .env.example              # Environment template
-├── run.py                    # Startup script
-├── CLAUDE.md                 # AI assistant guide
-└── README.md                 # This file
+├── tests/                         # Test directory
+├── test_api.py                    # API test script
+├── requirements.txt               # Python dependencies
+├── .env.example                   # Environment template
+├── run.py                         # Startup script
+├── CLAUDE.md                      # AI assistant guide
+└── README.md                      # This file
 ```
 
 ## Frontend
 
 The frontend is a React application with a Hero UI-inspired dark theme built on Tailwind CSS v4.
+
+### Layout
+- **2-7-3 grid** layout: narrow agent pipeline (left), wide content area (center), recommendation + macro sidebar (right)
+- **No tabs** — all analysis sections (Summary, Sentiment, News) render vertically for full scannability
+- Glass card effects with hover state transitions and subtle backdrop blur
 
 ### Theme
 - **Dark-only** design with zinc-based color palette
@@ -393,13 +420,19 @@ The frontend is a React application with a Hero UI-inspired dark theme built on 
 - Three-layer color system: Tailwind config, `@theme` CSS tokens, and `:root` CSS custom properties
 
 ### Components
-- **Dashboard** - Main layout with search, agent orchestration, and SSE streaming
-- **Recommendation** - SVG gauge component showing BUY/HOLD/SELL with score
-- **AgentStatus** - Real-time progress indicators for each agent
-- **PriceChart** - Price history, moving averages, and technical indicator display
-- **SentimentReport** - Sentiment breakdown with factor bars and gradient visualization
-- **Summary** - Price targets, risks/opportunities, and position sizing
-- **NewsFeed** - Relevance-scored news article list with source attribution
+- **Dashboard** — Main layout with 2-7-3 grid, search, agent orchestration, and SSE streaming
+- **Summary** — Structured executive overview with:
+  - Verdict banner (colored BUY/HOLD/SELL with score and summary)
+  - At-a-glance metric pills (score, confidence, position, horizon)
+  - 10 expandable chain-of-thought sections with domain icons and one-line insights
+  - Price targets range bar visualization + 3-column grid
+  - Risks and opportunities with numbered lists
+- **Recommendation** — SVG gauge showing BUY/HOLD/SELL with score, confidence bar, position/horizon, and agent consensus strip (per-agent signal dots)
+- **MacroSnapshot** — Compact sidebar widget showing fed funds rate, treasury yields, yield curve status, inflation, unemployment, GDP, economic cycle, and risk environment
+- **PriceChart** — TradingView chart with metric cards, technical indicators (RSI, MACD, signal strength), and data source provenance badges
+- **SentimentReport** — Sentiment meter, factor breakdown with centered bars, and key themes
+- **AgentStatus** — Real-time progress pipeline for 7 agents with status indicators and duration tracking
+- **NewsFeed** — Relevance-scored news article list with source attribution
 
 ## Troubleshooting
 
@@ -428,7 +461,7 @@ python run.py  # Will create fresh database
 **Alpha Vantage rate limiting**
 - Built-in rate limiter enforces per-minute and per-day limits (configurable via `AV_RATE_LIMIT_PER_MINUTE` / `AV_RATE_LIMIT_PER_DAY`)
 - Free tier allows 25 requests/day, 5 requests/minute — the rate limiter queues excess requests automatically
-- Each full analysis uses ~15 AV requests (across all agents concurrently)
+- Each full analysis uses ~22 AV requests (across all agents concurrently; macro data cached for 1 day)
 - Agents automatically fall back to yfinance/NewsAPI when daily limit is exhausted
 - Check logs for `"Rate limiter: waiting"` or `"AV daily limit reached"` messages
 - Consider upgrading to AV premium for production use and adjusting rate limit config accordingly

@@ -1,8 +1,85 @@
 /**
- * Recommendation - BUY/HOLD/SELL gauge with score and confidence
+ * Recommendation - BUY/HOLD/SELL gauge with score, confidence, and agent consensus
  */
 
 import React from 'react';
+import { BuildingIcon, ChartBarIcon, BrainIcon, ChartLineIcon, GlobeIcon } from './Icons';
+
+/**
+ * AgentConsensus — shows per-agent signal direction as colored dots.
+ */
+const AgentConsensus = ({ agentResults }) => {
+  const getSignal = (agentName) => {
+    const data = agentResults?.[agentName]?.data;
+    if (!data) return null;
+
+    switch (agentName) {
+      case 'fundamentals': {
+        const health = data.health_score;
+        if (health == null) return null;
+        if (health > 60) return 'bullish';
+        if (health < 40) return 'bearish';
+        return 'neutral';
+      }
+      case 'technical': {
+        return data.signals?.overall || null;
+      }
+      case 'sentiment': {
+        const score = data.overall_sentiment;
+        if (score == null) return null;
+        if (score > 0.3) return 'bullish';
+        if (score < -0.3) return 'bearish';
+        return 'neutral';
+      }
+      case 'market': {
+        const trend = data.trend;
+        if (!trend) return null;
+        if (trend.includes('up') || trend.includes('bullish')) return 'bullish';
+        if (trend.includes('down') || trend.includes('bearish')) return 'bearish';
+        return 'neutral';
+      }
+      case 'macro': {
+        const risk = data.risk_environment;
+        if (risk === 'dovish') return 'bullish';
+        if (risk === 'hawkish') return 'bearish';
+        return 'neutral';
+      }
+      default:
+        return null;
+    }
+  };
+
+  const agents = [
+    { id: 'fundamentals', label: 'Fund', icon: BuildingIcon },
+    { id: 'technical', label: 'Tech', icon: ChartLineIcon },
+    { id: 'sentiment', label: 'Sent', icon: BrainIcon },
+    { id: 'market', label: 'Mkt', icon: ChartBarIcon },
+    { id: 'macro', label: 'Macro', icon: GlobeIcon },
+  ];
+
+  const signals = agents.map(a => ({ ...a, signal: getSignal(a.id) })).filter(a => a.signal);
+  if (signals.length === 0) return null;
+
+  const signalColor = (signal) => {
+    if (signal === 'bullish') return 'bg-success border-success/40';
+    if (signal === 'bearish') return 'bg-danger border-danger/40';
+    return 'bg-warning border-warning/40';
+  };
+
+  return (
+    <div className="mt-5 pt-4 border-t border-white/5">
+      <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-2.5">Agent Signals</div>
+      <div className="flex justify-between">
+        {signals.map(({ id, label, icon: Icon, signal }) => (
+          <div key={id} className="flex flex-col items-center space-y-1">
+            <div className={`w-3 h-3 rounded-full border ${signalColor(signal)}`} style={{ opacity: 0.8 }} />
+            <span className="text-[9px] text-gray-500">{label}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
 
 const Recommendation = ({ analysis }) => {
   if (!analysis) {
@@ -132,6 +209,11 @@ const Recommendation = ({ analysis }) => {
             </span>
           </div>
         </div>
+      )}
+
+      {/* Agent Consensus */}
+      {analysis.agent_results && (
+        <AgentConsensus agentResults={analysis.agent_results} />
       )}
     </div>
   );

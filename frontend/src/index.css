@@ -164,6 +164,11 @@ code {
   -webkit-backdrop-filter: blur(16px);
   border: 1px solid rgba(255, 255, 255, 0.08);
   box-shadow: var(--shadow-elevated);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.glass-card-elevated:hover {
+  border-color: rgba(255, 255, 255, 0.12);
 }
 
 /* ============================================

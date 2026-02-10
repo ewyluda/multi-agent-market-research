@@ -24,6 +24,8 @@ const PriceChart = ({ analysis }) => {
 
   const marketData = analysis.agent_results?.market?.data || {};
   const technicalData = analysis.agent_results?.technical?.data || {};
+  const marketSource = analysis.agent_results?.market?.data?.data_source;
+  const technicalSource = analysis.agent_results?.technical?.data?.data_source;
 
   const priceChange = marketData.price_change_1m?.change_pct;
   const isPositive = priceChange > 0;
@@ -31,14 +33,30 @@ const PriceChart = ({ analysis }) => {
   // TradingView symbol — bare ticker works for US equities
   const tvSymbol = analysis.ticker || 'AAPL';
 
+  // Data source badge helper
+  const SourceBadge = ({ source }) => {
+    if (!source) return null;
+    const isAV = source === 'alpha_vantage';
+    return (
+      <span className={`text-[9px] px-1.5 py-0.5 rounded font-medium ml-2 ${
+        isAV ? 'bg-accent-blue/10 text-accent-blue/70' : 'bg-gray-500/10 text-gray-500'
+      }`}>
+        {isAV ? 'AV' : 'YF'}
+      </span>
+    );
+  };
+
   return (
     <div className="glass-card-elevated rounded-xl p-5">
       {/* Header */}
       <div className="flex justify-between items-center mb-4">
         <div>
-          <h3 className="text-lg font-bold tracking-tight">
-            {analysis.ticker || 'Chart'}
-          </h3>
+          <div className="flex items-center">
+            <h3 className="text-lg font-bold tracking-tight">
+              {analysis.ticker || 'Chart'}
+            </h3>
+            <SourceBadge source={marketSource} />
+          </div>
           {marketData.current_price && (
             <div className="flex items-center space-x-2 mt-0.5">
               <span className="text-2xl font-bold tabular-nums">${marketData.current_price.toFixed(2)}</span>
