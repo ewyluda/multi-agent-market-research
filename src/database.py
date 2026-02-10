@@ -112,6 +112,28 @@ class DatabaseManager:
                 )
             """)
 
+            # Watchlists
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS watchlists (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL UNIQUE,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+            """)
+
+            # Watchlist tickers (many-to-many)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS watchlist_tickers (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    watchlist_id INTEGER NOT NULL,
+                    ticker TEXT NOT NULL,
+                    added_at TEXT NOT NULL,
+                    FOREIGN KEY(watchlist_id) REFERENCES watchlists(id),
+                    UNIQUE(watchlist_id, ticker)
+                )
+            """)
+
             # Create indexes for performance
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_analyses_ticker_timestamp
@@ -124,6 +146,10 @@ class DatabaseManager:
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_news_cache_ticker
                 ON news_cache(ticker, published_at DESC)
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_watchlist_tickers_watchlist
+                ON watchlist_tickers(watchlist_id)
             """)
 
     def insert_analysis(
@@ -408,6 +434,245 @@ class DatabaseManager:
 
             rows = cursor.fetchall()
             return [dict(row) for row in rows]
+
+    def get_analysis_history_with_filters(
+        self,
+        ticker: str,
+        limit: int = 50,
+        offset: int = 0,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        recommendation: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Get paginated, filtered analysis history for a ticker.
+
+        Args:
+            ticker: Stock ticker symbol
+            limit: Maximum number of records per page
+            offset: Number of records to skip
+            start_date: Optional start date filter (ISO format)
+            end_date: Optional end date filter (ISO format)
+            recommendation: Optional recommendation filter (BUY, HOLD, SELL)
+
+        Returns:
+            Dict with items, total_count, and has_more
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+
+            conditions = ["ticker = ?"]
+            params: list = [ticker]
+
+            if start_date:
+                conditions.append("timestamp >= ?")
+                params.append(start_date)
+            if end_date:
+                conditions.append("timestamp <= ?")
+                params.append(end_date)
+            if recommendation:
+                conditions.append("recommendation = ?")
+                params.append(recommendation.upper())
+
+            where_clause = " AND ".join(conditions)
+
+            cursor.execute(f"SELECT COUNT(*) FROM analyses WHERE {where_clause}", params)
+            total_count = cursor.fetchone()[0]
+
+            cursor.execute(
+                f"""
+                SELECT * FROM analyses
+                WHERE {where_clause}
+                ORDER BY timestamp DESC
+                LIMIT ? OFFSET ?
+                """,
+                params + [limit, offset],
+            )
+            rows = cursor.fetchall()
+            items = [dict(row) for row in rows]
+
+            return {
+                "items": items,
+                "total_count": total_count,
+                "has_more": (offset + limit) < total_count,
+            }
+
+    def delete_analysis(self, analysis_id: int) -> bool:
+        """
+        Delete an analysis and its associated agent_results and sentiment_scores.
+
+        Args:
+            analysis_id: ID of the analysis to delete
+
+        Returns:
+            True if deleted, False if not found
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("SELECT id FROM analyses WHERE id = ?", (analysis_id,))
+            if not cursor.fetchone():
+                return False
+
+            cursor.execute("DELETE FROM agent_results WHERE analysis_id = ?", (analysis_id,))
+            cursor.execute("DELETE FROM sentiment_scores WHERE analysis_id = ?", (analysis_id,))
+            cursor.execute("DELETE FROM analyses WHERE id = ?", (analysis_id,))
+            return True
+
+    def get_all_analyzed_tickers(self) -> List[Dict[str, Any]]:
+        """
+        Return all tickers that have at least one analysis.
+
+        Returns:
+            List of dicts with ticker, analysis_count, latest_timestamp, latest_recommendation
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT
+                    ticker,
+                    COUNT(*) as analysis_count,
+                    MAX(timestamp) as latest_timestamp,
+                    (SELECT recommendation FROM analyses a2
+                     WHERE a2.ticker = a1.ticker
+                     ORDER BY a2.timestamp DESC LIMIT 1) as latest_recommendation
+                FROM analyses a1
+                GROUP BY ticker
+                ORDER BY latest_timestamp DESC
+            """)
+            rows = cursor.fetchall()
+            return [dict(row) for row in rows]
+
+    # ─── Watchlist Methods ─────────────────────────────────────────────
+
+    def create_watchlist(self, name: str) -> Dict[str, Any]:
+        """Create a new watchlist."""
+        now = datetime.utcnow().isoformat()
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT INTO watchlists (name, created_at, updated_at) VALUES (?, ?, ?)",
+                (name, now, now),
+            )
+            return {"id": cursor.lastrowid, "name": name, "created_at": now, "updated_at": now, "tickers": []}
+
+    def get_watchlists(self) -> List[Dict[str, Any]]:
+        """Get all watchlists with their tickers."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM watchlists ORDER BY updated_at DESC")
+            watchlists = [dict(row) for row in cursor.fetchall()]
+
+            for wl in watchlists:
+                cursor.execute(
+                    "SELECT ticker, added_at FROM watchlist_tickers WHERE watchlist_id = ? ORDER BY added_at DESC",
+                    (wl["id"],),
+                )
+                wl["tickers"] = [dict(row) for row in cursor.fetchall()]
+
+            return watchlists
+
+    def get_watchlist(self, watchlist_id: int) -> Optional[Dict[str, Any]]:
+        """Get a single watchlist with tickers."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM watchlists WHERE id = ?", (watchlist_id,))
+            row = cursor.fetchone()
+            if not row:
+                return None
+            wl = dict(row)
+            cursor.execute(
+                "SELECT ticker, added_at FROM watchlist_tickers WHERE watchlist_id = ? ORDER BY added_at DESC",
+                (watchlist_id,),
+            )
+            wl["tickers"] = [dict(r) for r in cursor.fetchall()]
+            return wl
+
+    def rename_watchlist(self, watchlist_id: int, new_name: str) -> bool:
+        """Rename a watchlist."""
+        now = datetime.utcnow().isoformat()
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT id FROM watchlists WHERE id = ?", (watchlist_id,))
+            if not cursor.fetchone():
+                return False
+            cursor.execute(
+                "UPDATE watchlists SET name = ?, updated_at = ? WHERE id = ?",
+                (new_name, now, watchlist_id),
+            )
+            return True
+
+    def delete_watchlist(self, watchlist_id: int) -> bool:
+        """Delete a watchlist and its ticker associations."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT id FROM watchlists WHERE id = ?", (watchlist_id,))
+            if not cursor.fetchone():
+                return False
+            cursor.execute("DELETE FROM watchlist_tickers WHERE watchlist_id = ?", (watchlist_id,))
+            cursor.execute("DELETE FROM watchlists WHERE id = ?", (watchlist_id,))
+            return True
+
+    def add_ticker_to_watchlist(self, watchlist_id: int, ticker: str) -> bool:
+        """Add a ticker to a watchlist. Returns False if watchlist doesn't exist."""
+        now = datetime.utcnow().isoformat()
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT id FROM watchlists WHERE id = ?", (watchlist_id,))
+            if not cursor.fetchone():
+                return False
+            try:
+                cursor.execute(
+                    "INSERT INTO watchlist_tickers (watchlist_id, ticker, added_at) VALUES (?, ?, ?)",
+                    (watchlist_id, ticker.upper(), now),
+                )
+            except sqlite3.IntegrityError:
+                pass  # Already exists
+            cursor.execute(
+                "UPDATE watchlists SET updated_at = ? WHERE id = ?",
+                (now, watchlist_id),
+            )
+            return True
+
+    def remove_ticker_from_watchlist(self, watchlist_id: int, ticker: str) -> bool:
+        """Remove a ticker from a watchlist."""
+        now = datetime.utcnow().isoformat()
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "DELETE FROM watchlist_tickers WHERE watchlist_id = ? AND ticker = ?",
+                (watchlist_id, ticker.upper()),
+            )
+            if cursor.rowcount == 0:
+                return False
+            cursor.execute(
+                "UPDATE watchlists SET updated_at = ? WHERE id = ?",
+                (now, watchlist_id),
+            )
+            return True
+
+    def get_watchlist_latest_analyses(self, watchlist_id: int) -> List[Dict[str, Any]]:
+        """Get the latest analysis for each ticker in a watchlist."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT ticker FROM watchlist_tickers WHERE watchlist_id = ? ORDER BY added_at DESC",
+                (watchlist_id,),
+            )
+            tickers = [row["ticker"] for row in cursor.fetchall()]
+
+            results = []
+            for ticker in tickers:
+                cursor.execute(
+                    "SELECT * FROM analyses WHERE ticker = ? ORDER BY timestamp DESC LIMIT 1",
+                    (ticker,),
+                )
+                row = cursor.fetchone()
+                results.append({
+                    "ticker": ticker,
+                    "latest_analysis": dict(row) if row else None,
+                })
+            return results
 
     def get_cached_news(
         self,

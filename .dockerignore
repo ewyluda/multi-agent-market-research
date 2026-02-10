@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.coverage
+htmlcov/
+venv/
+.venv/
+env/
+*.egg-info/
+
+# Node (frontend has its own build context)
+frontend/node_modules/
+frontend/dist/
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+
+# Database
+*.db
+*.db-journal
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.cursor/
+
+# Git
+.git/
+.gitignore
+
+# Documentation (not needed in image)
+CLAUDE.md
+AGENTS.md
+
+# Tests (not needed in production image)
+tests/
+test_api.py

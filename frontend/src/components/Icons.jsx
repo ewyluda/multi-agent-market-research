@@ -166,6 +166,45 @@ export const TargetIcon = (props) => (
   </svg>
 );
 
+export const HistoryIcon = (props) => (
+  <svg {...iconProps} {...props}>
+    <circle cx="10" cy="10" r="7" />
+    <path d="M10 6v4l2 2" />
+    <path d="M3 10H1M10 3V1" />
+  </svg>
+);
+
+export const FilterIcon = (props) => (
+  <svg {...iconProps} {...props}>
+    <path d="M3 4h14M5 8h10M7 12h6M9 16h2" />
+  </svg>
+);
+
+export const TrashIcon = (props) => (
+  <svg {...iconProps} {...props}>
+    <path d="M5 5h10M8 5V3h4v2M6 5v10a1 1 0 001 1h6a1 1 0 001-1V5" />
+    <path d="M8 8v5M12 8v5" />
+  </svg>
+);
+
+export const ChevronLeftIcon = (props) => (
+  <svg {...iconProps} {...props}>
+    <path d="M12.5 5l-5 5 5 5" />
+  </svg>
+);
+
+export const ChevronRightIcon = (props) => (
+  <svg {...iconProps} {...props}>
+    <path d="M7.5 5l5 5-5 5" />
+  </svg>
+);
+
+export const ArrowLeftIcon = (props) => (
+  <svg {...iconProps} {...props}>
+    <path d="M17 10H3M8 5l-5 5 5 5" />
+  </svg>
+);
+
 export const LoadingSpinner = ({ className = '', size = 20 }) => (
   <svg
     width={size}

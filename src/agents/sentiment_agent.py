@@ -1,5 +1,6 @@
 """Sentiment agent for analyzing market sentiment using LLM."""
 
+import asyncio
 import anthropic
 from openai import OpenAI
 from typing import Dict, Any, List
@@ -127,17 +128,20 @@ Respond in JSON format:
         try:
             client = anthropic.Anthropic(api_key=api_key)
 
-            message = client.messages.create(
-                model=llm_config.get("model", "claude-3-5-sonnet-20241022"),
-                max_tokens=llm_config.get("max_tokens", 2048),
-                temperature=llm_config.get("temperature", 0.3),
-                messages=[
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
-                ]
-            )
+            def _call_anthropic():
+                return client.messages.create(
+                    model=llm_config.get("model", "claude-3-5-sonnet-20241022"),
+                    max_tokens=llm_config.get("max_tokens", 2048),
+                    temperature=llm_config.get("temperature", 0.3),
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": prompt
+                        }
+                    ]
+                )
+
+            message = await asyncio.to_thread(_call_anthropic)
 
             # Extract JSON from response
             response_text = message.content[0].text
@@ -234,17 +238,20 @@ Respond in JSON format:
                 base_url=llm_config.get("base_url")
             )
 
-            response = client.chat.completions.create(
-                model=llm_config.get("model", "grok-4-1-fast-reasoning"),
-                max_tokens=llm_config.get("max_tokens", 2048),
-                temperature=llm_config.get("temperature", 0.3),
-                messages=[
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
-                ]
-            )
+            def _call_openai():
+                return client.chat.completions.create(
+                    model=llm_config.get("model", "grok-4-1-fast-reasoning"),
+                    max_tokens=llm_config.get("max_tokens", 2048),
+                    temperature=llm_config.get("temperature", 0.3),
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": prompt
+                        }
+                    ]
+                )
+
+            response = await asyncio.to_thread(_call_openai)
 
             # Extract JSON from response
             response_text = response.choices[0].message.content

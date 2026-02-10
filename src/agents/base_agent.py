@@ -73,7 +73,7 @@ class BaseAgent(ABC):
         retries = max_retries if max_retries is not None else self.config.get("AGENT_MAX_RETRIES", 2)
         for attempt in range(retries + 1):
             try:
-                return func()
+                return await self._run_blocking(func)
             except Exception as e:
                 if attempt == retries:
                     self.logger.warning(f"Failed to fetch {label} after {retries + 1} attempts: {e}")
@@ -82,6 +82,10 @@ class BaseAgent(ABC):
                 self.logger.info(f"Retry {attempt + 1}/{retries} for {label} in {wait:.1f}s: {e}")
                 await asyncio.sleep(wait)
         return None
+
+    async def _run_blocking(self, func):
+        """Run a blocking callable in a thread to avoid event loop stalls."""
+        return await asyncio.to_thread(func)
 
     async def _av_request(self, params: Dict[str, str]) -> Optional[Dict]:
         """

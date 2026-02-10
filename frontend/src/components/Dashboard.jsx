@@ -1,5 +1,5 @@
 /**
- * Dashboard - Main application layout
+ * Dashboard - Main application layout with view mode support
  */
 
 import React, { useState } from 'react';
@@ -12,16 +12,28 @@ import PriceChart from './PriceChart';
 import Summary from './Summary';
 import NewsFeed from './NewsFeed';
 import MacroSnapshot from './MacroSnapshot';
-import { DocumentIcon, NewspaperIcon, BrainIcon, PulseIcon, SparklesIcon, ChartBarIcon, LoadingSpinner } from './Icons';
+import HistoryDashboard from './HistoryDashboard';
+import WatchlistPanel from './WatchlistPanel';
+import { DocumentIcon, NewspaperIcon, BrainIcon, PulseIcon, SparklesIcon, ChartBarIcon, HistoryIcon, LoadingSpinner } from './Icons';
+
+const VIEW_MODES = {
+  ANALYSIS: 'analysis',
+  HISTORY: 'history',
+  WATCHLIST: 'watchlist',
+};
 
 const Dashboard = () => {
   const [tickerInput, setTickerInput] = useState('');
+  const [viewMode, setViewMode] = useState(VIEW_MODES.ANALYSIS);
   const { runAnalysis, loading, error } = useAnalysis();
-  const { analysis, progress, stage } = useAnalysisContext();
+  const { analysis, progress, stage, currentTicker } = useAnalysisContext();
 
   const handleAnalyze = async (e) => {
     e.preventDefault();
     if (!tickerInput.trim()) return;
+
+    // Switch to analysis view when running an analysis
+    setViewMode(VIEW_MODES.ANALYSIS);
 
     try {
       await runAnalysis(tickerInput.trim().toUpperCase());
@@ -32,6 +44,7 @@ const Dashboard = () => {
 
   const handleQuickTicker = (ticker) => {
     setTickerInput(ticker);
+    setViewMode(VIEW_MODES.ANALYSIS);
     runAnalysis(ticker).catch((err) => console.error('Analysis failed:', err));
   };
 
@@ -68,6 +81,43 @@ const Dashboard = () => {
                 <h1 className="text-lg font-bold tracking-tight">AI Trading Analyst</h1>
                 <p className="text-xs text-gray-500">Multi-agent research platform</p>
               </div>
+            </div>
+
+            {/* Center - View Mode Toggle */}
+            <div className="flex items-center space-x-1 bg-dark-inset rounded-lg p-0.5 border border-white/5">
+              <button
+                onClick={() => setViewMode(VIEW_MODES.ANALYSIS)}
+                className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                  viewMode === VIEW_MODES.ANALYSIS
+                    ? 'bg-primary/15 text-white border border-primary/30'
+                    : 'text-gray-400 hover:text-white border border-transparent'
+                }`}
+              >
+                <PulseIcon className="w-3.5 h-3.5" />
+                <span>Analysis</span>
+              </button>
+              <button
+                onClick={() => setViewMode(VIEW_MODES.HISTORY)}
+                className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                  viewMode === VIEW_MODES.HISTORY
+                    ? 'bg-primary/15 text-white border border-primary/30'
+                    : 'text-gray-400 hover:text-white border border-transparent'
+                }`}
+              >
+                <HistoryIcon className="w-3.5 h-3.5" />
+                <span>History</span>
+              </button>
+              <button
+                onClick={() => setViewMode(VIEW_MODES.WATCHLIST)}
+                className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                  viewMode === VIEW_MODES.WATCHLIST
+                    ? 'bg-primary/15 text-white border border-primary/30'
+                    : 'text-gray-400 hover:text-white border border-transparent'
+                }`}
+              >
+                <ChartBarIcon className="w-3.5 h-3.5" />
+                <span>Watchlist</span>
+              </button>
             </div>
 
             {/* Ticker Search */}
@@ -122,7 +172,7 @@ const Dashboard = () => {
           )}
 
           {/* Error Display */}
-          {error && (
+          {error && viewMode === VIEW_MODES.ANALYSIS && (
             <div className="mt-4 p-3 bg-danger/10 border border-danger/30 rounded-lg text-danger-400 text-sm flex items-center space-x-2 animate-fade-in">
               <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
                 <circle cx="10" cy="10" r="7" />
@@ -136,100 +186,131 @@ const Dashboard = () => {
 
       {/* Main Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        {analysis || loading ? (
-          <div className="grid grid-cols-12 gap-6 animate-fade-in">
-            {/* Left Sidebar - Agents */}
-            <div className="col-span-2 animate-slide-left">
-              <AgentStatus />
-            </div>
+        {/* ─── History View ─── */}
+        {viewMode === VIEW_MODES.HISTORY && (
+          <HistoryDashboard
+            onBack={() => setViewMode(VIEW_MODES.ANALYSIS)}
+            initialTicker={currentTicker || null}
+          />
+        )}
 
-            {/* Center - Chart & Stacked Sections */}
-            <div className="col-span-7">
-              <PriceChart analysis={analysis} />
+        {/* ─── Watchlist View ─── */}
+        {viewMode === VIEW_MODES.WATCHLIST && (
+          <WatchlistPanel
+            onBack={() => setViewMode(VIEW_MODES.ANALYSIS)}
+          />
+        )}
 
-              {/* Executive Overview */}
-              <div className="mt-6">
-                <Summary analysis={analysis} />
-              </div>
-
-              {/* Sentiment Analysis */}
-              <div className="mt-6">
-                <SentimentReport analysis={analysis} />
-              </div>
-
-              {/* News Feed */}
-              <div className="mt-6">
-                <NewsFeed analysis={analysis} />
-              </div>
-            </div>
-
-            {/* Right Sidebar - Recommendation + Macro */}
-            <div className="col-span-3 animate-slide-right space-y-6">
-              <Recommendation analysis={analysis} />
-              <MacroSnapshot analysis={analysis} />
-            </div>
-          </div>
-        ) : (
-          /* Welcome Screen */
-          <div className="mt-16 text-center animate-fade-in">
-            {/* Animated Chart Icon */}
-            <div className="w-20 h-20 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-primary/20 to-primary-300/20 border border-primary/20 flex items-center justify-center">
-              <PulseIcon className="w-10 h-10 text-primary-400" />
-            </div>
-
-            <h2 className="text-3xl font-bold mb-2 tracking-tight">AI Trading Analyst</h2>
-            <p className="text-gray-400 text-lg max-w-md mx-auto">
-              Enter a stock ticker to get multi-agent AI analysis with real-time insights
-            </p>
-
-            {/* Quick Start Tickers */}
-            <div className="mt-6 flex items-center justify-center space-x-2">
-              <span className="text-xs text-gray-500 mr-1">Quick start:</span>
-              {['AAPL', 'NVDA', 'TSLA', 'MSFT'].map((ticker) => (
-                <button
-                  key={ticker}
-                  onClick={() => handleQuickTicker(ticker)}
-                  className="px-3 py-1 text-xs font-mono font-medium text-accent-blue bg-accent-blue/10 border border-accent-blue/20 rounded-md hover:bg-accent-blue/20 hover:border-accent-blue/40 transition-all"
-                >
-                  {ticker}
-                </button>
-              ))}
-            </div>
-
-            {/* Feature Cards */}
-            <div className="mt-12 grid grid-cols-3 gap-5 max-w-2xl mx-auto">
-              <div
-                className="glass-card rounded-xl p-5 text-left border-t-2 border-t-accent-blue animate-fade-in"
-                style={{ animationDelay: '0.1s', opacity: 0 }}
-              >
-                <div className="w-9 h-9 rounded-lg bg-accent-blue/15 flex items-center justify-center mb-3">
-                  <ChartBarIcon className="w-5 h-5 text-accent-blue" />
+        {/* ─── Analysis View ─── */}
+        {viewMode === VIEW_MODES.ANALYSIS && (
+          <>
+            {analysis || loading ? (
+              <div className="grid grid-cols-12 gap-6 animate-fade-in">
+                {/* Left Sidebar - Agents */}
+                <div className="col-span-2 animate-slide-left">
+                  <AgentStatus />
                 </div>
-                <div className="font-semibold text-sm mb-1">6 Specialized Agents</div>
-                <div className="text-xs text-gray-400 leading-relaxed">Market, Fundamentals, News, Macro, Sentiment, Technical</div>
-              </div>
-              <div
-                className="glass-card rounded-xl p-5 text-left border-t-2 border-t-accent-green animate-fade-in"
-                style={{ animationDelay: '0.2s', opacity: 0 }}
-              >
-                <div className="w-9 h-9 rounded-lg bg-accent-green/15 flex items-center justify-center mb-3">
-                  <PulseIcon className="w-5 h-5 text-accent-green" />
+
+                {/* Center - Chart & Stacked Sections */}
+                <div className="col-span-7">
+                  <PriceChart analysis={analysis} />
+
+                  {/* Executive Overview */}
+                  <div className="mt-6">
+                    <Summary analysis={analysis} />
+                  </div>
+
+                  {/* Sentiment Analysis */}
+                  <div className="mt-6">
+                    <SentimentReport analysis={analysis} />
+                  </div>
+
+                  {/* News Feed */}
+                  <div className="mt-6">
+                    <NewsFeed analysis={analysis} />
+                  </div>
                 </div>
-                <div className="font-semibold text-sm mb-1">Real-time Analysis</div>
-                <div className="text-xs text-gray-400 leading-relaxed">Live updates as agents complete their work</div>
-              </div>
-              <div
-                className="glass-card rounded-xl p-5 text-left border-t-2 border-t-accent-purple animate-fade-in"
-                style={{ animationDelay: '0.3s', opacity: 0 }}
-              >
-                <div className="w-9 h-9 rounded-lg bg-accent-purple/15 flex items-center justify-center mb-3">
-                  <SparklesIcon className="w-5 h-5 text-accent-purple" />
+
+                {/* Right Sidebar - Recommendation + Macro */}
+                <div className="col-span-3 animate-slide-right space-y-6">
+                  <Recommendation analysis={analysis} />
+                  <MacroSnapshot analysis={analysis} />
                 </div>
-                <div className="font-semibold text-sm mb-1">AI-Powered Insights</div>
-                <div className="text-xs text-gray-400 leading-relaxed">LLM reasoning for final recommendations</div>
               </div>
-            </div>
-          </div>
+            ) : (
+              /* Welcome Screen */
+              <div className="mt-16 text-center animate-fade-in">
+                {/* Animated Chart Icon */}
+                <div className="w-20 h-20 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-primary/20 to-primary-300/20 border border-primary/20 flex items-center justify-center">
+                  <PulseIcon className="w-10 h-10 text-primary-400" />
+                </div>
+
+                <h2 className="text-3xl font-bold mb-2 tracking-tight">AI Trading Analyst</h2>
+                <p className="text-gray-400 text-lg max-w-md mx-auto">
+                  Enter a stock ticker to get multi-agent AI analysis with real-time insights
+                </p>
+
+                {/* Quick Start Tickers */}
+                <div className="mt-6 flex items-center justify-center space-x-2">
+                  <span className="text-xs text-gray-500 mr-1">Quick start:</span>
+                  {['AAPL', 'NVDA', 'TSLA', 'MSFT'].map((ticker) => (
+                    <button
+                      key={ticker}
+                      onClick={() => handleQuickTicker(ticker)}
+                      className="px-3 py-1 text-xs font-mono font-medium text-accent-blue bg-accent-blue/10 border border-accent-blue/20 rounded-md hover:bg-accent-blue/20 hover:border-accent-blue/40 transition-all"
+                    >
+                      {ticker}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Feature Cards */}
+                <div className="mt-12 grid grid-cols-3 gap-5 max-w-2xl mx-auto">
+                  <div
+                    className="glass-card rounded-xl p-5 text-left border-t-2 border-t-accent-blue animate-fade-in"
+                    style={{ animationDelay: '0.1s', opacity: 0 }}
+                  >
+                    <div className="w-9 h-9 rounded-lg bg-accent-blue/15 flex items-center justify-center mb-3">
+                      <ChartBarIcon className="w-5 h-5 text-accent-blue" />
+                    </div>
+                    <div className="font-semibold text-sm mb-1">6 Specialized Agents</div>
+                    <div className="text-xs text-gray-400 leading-relaxed">Market, Fundamentals, News, Macro, Sentiment, Technical</div>
+                  </div>
+                  <div
+                    className="glass-card rounded-xl p-5 text-left border-t-2 border-t-accent-green animate-fade-in"
+                    style={{ animationDelay: '0.2s', opacity: 0 }}
+                  >
+                    <div className="w-9 h-9 rounded-lg bg-accent-green/15 flex items-center justify-center mb-3">
+                      <PulseIcon className="w-5 h-5 text-accent-green" />
+                    </div>
+                    <div className="font-semibold text-sm mb-1">Real-time Analysis</div>
+                    <div className="text-xs text-gray-400 leading-relaxed">Live updates as agents complete their work</div>
+                  </div>
+                  <div
+                    className="glass-card rounded-xl p-5 text-left border-t-2 border-t-accent-purple animate-fade-in"
+                    style={{ animationDelay: '0.3s', opacity: 0 }}
+                  >
+                    <div className="w-9 h-9 rounded-lg bg-accent-purple/15 flex items-center justify-center mb-3">
+                      <SparklesIcon className="w-5 h-5 text-accent-purple" />
+                    </div>
+                    <div className="font-semibold text-sm mb-1">AI-Powered Insights</div>
+                    <div className="text-xs text-gray-400 leading-relaxed">LLM reasoning for final recommendations</div>
+                  </div>
+                </div>
+
+                {/* History link on welcome screen */}
+                <div className="mt-8">
+                  <button
+                    onClick={() => setViewMode(VIEW_MODES.HISTORY)}
+                    className="inline-flex items-center space-x-2 text-xs text-gray-500 hover:text-accent-blue transition-colors"
+                  >
+                    <HistoryIcon className="w-3.5 h-3.5" />
+                    <span>View analysis history</span>
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>

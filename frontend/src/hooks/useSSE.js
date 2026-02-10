@@ -4,7 +4,7 @@
 
 import { useRef, useCallback } from 'react';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000';
 
 /**
  * Hook to stream analysis via Server-Sent Events.

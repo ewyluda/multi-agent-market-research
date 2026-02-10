@@ -16,6 +16,9 @@ from .models import (
     AnalysisResponse,
     AnalysisHistoryResponse,
     HealthCheckResponse,
+    WatchlistCreate,
+    WatchlistTickerAdd,
+    WatchlistRename,
 )
 from .orchestrator import Orchestrator
 from .config import Config
@@ -63,13 +66,17 @@ async def root():
     """Root endpoint."""
     return {
         "message": "Multi-Agent Market Research API",
-        "version": "0.1.0",
+        "version": "0.2.0",
         "endpoints": {
             "analyze": "POST /api/analyze/{ticker}",
             "stream": "GET /api/analyze/{ticker}/stream",
             "latest": "GET /api/analysis/{ticker}/latest",
             "history": "GET /api/analysis/{ticker}/history",
+            "history_detailed": "GET /api/analysis/{ticker}/history/detailed",
+            "tickers": "GET /api/analysis/tickers",
             "export_csv": "GET /api/analysis/{ticker}/export/csv",
+            "watchlists": "GET /api/watchlists",
+            "watchlist_analyze": "POST /api/watchlists/{id}/analyze",
             "health": "GET /health"
         }
     }
@@ -320,6 +327,241 @@ async def export_analysis_csv(
     except Exception as e:
         logger.error(f"Failed to export CSV for {ticker}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/analysis/{ticker}/history/detailed")
+async def get_detailed_history(
+    ticker: str,
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    start_date: Optional[str] = Query(default=None, description="Start date filter (ISO format)"),
+    end_date: Optional[str] = Query(default=None, description="End date filter (ISO format)"),
+    recommendation: Optional[str] = Query(default=None, description="Filter by recommendation: BUY, HOLD, SELL"),
+):
+    """
+    Get paginated, filtered analysis history for a ticker.
+
+    Args:
+        ticker: Stock ticker symbol
+        limit: Max records per page (1-200)
+        offset: Records to skip
+        start_date: Optional start date filter
+        end_date: Optional end date filter
+        recommendation: Optional recommendation filter (BUY, HOLD, SELL)
+
+    Returns:
+        Paginated history with items, total_count, has_more
+    """
+    ticker = ticker.upper()
+
+    if recommendation and recommendation.upper() not in ("BUY", "HOLD", "SELL"):
+        raise HTTPException(status_code=400, detail="recommendation must be BUY, HOLD, or SELL")
+
+    try:
+        result = db_manager.get_analysis_history_with_filters(
+            ticker=ticker,
+            limit=limit,
+            offset=offset,
+            start_date=start_date,
+            end_date=end_date,
+            recommendation=recommendation,
+        )
+        return {"ticker": ticker, **result}
+    except Exception as e:
+        logger.error(f"Failed to retrieve detailed history for {ticker}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/analysis/{analysis_id}")
+async def delete_analysis(analysis_id: int):
+    """
+    Delete a specific analysis record and its associated data.
+
+    Args:
+        analysis_id: ID of the analysis to delete
+
+    Returns:
+        Success confirmation
+    """
+    try:
+        deleted = db_manager.delete_analysis(analysis_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail=f"Analysis {analysis_id} not found")
+        return {"success": True, "message": f"Analysis {analysis_id} deleted"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete analysis {analysis_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/analysis/tickers")
+async def get_analyzed_tickers():
+    """
+    List all tickers that have been analyzed, with counts and latest recommendation.
+
+    Returns:
+        List of analyzed tickers with metadata
+    """
+    try:
+        tickers = db_manager.get_all_analyzed_tickers()
+        return {"tickers": tickers, "total_count": len(tickers)}
+    except Exception as e:
+        logger.error(f"Failed to retrieve analyzed tickers: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─── Watchlist Endpoints ──────────────────────────────────────────────
+
+@app.post("/api/watchlists")
+async def create_watchlist(body: WatchlistCreate):
+    """Create a new watchlist."""
+    try:
+        wl = db_manager.create_watchlist(body.name)
+        return wl
+    except Exception as e:
+        if "UNIQUE" in str(e):
+            raise HTTPException(status_code=409, detail=f"Watchlist '{body.name}' already exists")
+        logger.error(f"Failed to create watchlist: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/watchlists")
+async def get_watchlists():
+    """Get all watchlists with their tickers."""
+    try:
+        watchlists = db_manager.get_watchlists()
+        return {"watchlists": watchlists, "total_count": len(watchlists)}
+    except Exception as e:
+        logger.error(f"Failed to get watchlists: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/watchlists/{watchlist_id}")
+async def get_watchlist(watchlist_id: int):
+    """Get a single watchlist with tickers and latest analyses."""
+    try:
+        wl = db_manager.get_watchlist(watchlist_id)
+        if not wl:
+            raise HTTPException(status_code=404, detail=f"Watchlist {watchlist_id} not found")
+        # Enrich with latest analysis data per ticker
+        analyses = db_manager.get_watchlist_latest_analyses(watchlist_id)
+        wl["analyses"] = analyses
+        return wl
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get watchlist {watchlist_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/api/watchlists/{watchlist_id}")
+async def rename_watchlist(watchlist_id: int, body: WatchlistRename):
+    """Rename a watchlist."""
+    try:
+        success = db_manager.rename_watchlist(watchlist_id, body.name)
+        if not success:
+            raise HTTPException(status_code=404, detail=f"Watchlist {watchlist_id} not found")
+        return {"success": True, "message": f"Watchlist renamed to '{body.name}'"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        if "UNIQUE" in str(e):
+            raise HTTPException(status_code=409, detail=f"Watchlist '{body.name}' already exists")
+        logger.error(f"Failed to rename watchlist {watchlist_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/watchlists/{watchlist_id}")
+async def delete_watchlist(watchlist_id: int):
+    """Delete a watchlist."""
+    try:
+        deleted = db_manager.delete_watchlist(watchlist_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail=f"Watchlist {watchlist_id} not found")
+        return {"success": True, "message": f"Watchlist {watchlist_id} deleted"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete watchlist {watchlist_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/watchlists/{watchlist_id}/tickers")
+async def add_ticker_to_watchlist(watchlist_id: int, body: WatchlistTickerAdd):
+    """Add a ticker to a watchlist."""
+    import re
+    ticker = body.ticker.upper()
+    if not re.match(r'^[A-Z]{1,5}$', ticker):
+        raise HTTPException(status_code=400, detail="Invalid ticker symbol format")
+
+    try:
+        success = db_manager.add_ticker_to_watchlist(watchlist_id, ticker)
+        if not success:
+            raise HTTPException(status_code=404, detail=f"Watchlist {watchlist_id} not found")
+        return {"success": True, "ticker": ticker, "watchlist_id": watchlist_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to add {ticker} to watchlist {watchlist_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/watchlists/{watchlist_id}/tickers/{ticker}")
+async def remove_ticker_from_watchlist(watchlist_id: int, ticker: str):
+    """Remove a ticker from a watchlist."""
+    ticker = ticker.upper()
+    try:
+        removed = db_manager.remove_ticker_from_watchlist(watchlist_id, ticker)
+        if not removed:
+            raise HTTPException(status_code=404, detail=f"Ticker {ticker} not in watchlist {watchlist_id}")
+        return {"success": True, "ticker": ticker, "watchlist_id": watchlist_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to remove {ticker} from watchlist {watchlist_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/watchlists/{watchlist_id}/analyze")
+async def analyze_watchlist(watchlist_id: int):
+    """
+    Run analysis for all tickers in a watchlist.
+    Returns results as they complete.
+    """
+    wl = db_manager.get_watchlist(watchlist_id)
+    if not wl:
+        raise HTTPException(status_code=404, detail=f"Watchlist {watchlist_id} not found")
+
+    tickers = [t["ticker"] for t in wl.get("tickers", [])]
+    if not tickers:
+        raise HTTPException(status_code=400, detail="Watchlist has no tickers")
+
+    async def batch_generator():
+        for ticker in tickers:
+            orchestrator = Orchestrator(
+                db_manager=db_manager,
+                rate_limiter=av_rate_limiter,
+                av_cache=av_cache,
+            )
+            try:
+                result = await orchestrator.analyze_ticker(ticker)
+                yield f"event: result\ndata: {json.dumps({'ticker': ticker, 'success': result.get('success', False), 'analysis_id': result.get('analysis_id'), 'recommendation': (result.get('analysis') or {}).get('recommendation'), 'score': (result.get('analysis') or {}).get('score'), 'confidence': (result.get('analysis') or {}).get('confidence'), 'duration_seconds': result.get('duration_seconds', 0)}, default=str)}\n\n"
+            except Exception as e:
+                logger.error(f"Watchlist analysis failed for {ticker}: {e}")
+                yield f"event: error\ndata: {json.dumps({'ticker': ticker, 'error': str(e)})}\n\n"
+
+        yield f"event: done\ndata: {json.dumps({'message': 'All analyses complete', 'ticker_count': len(tickers)})}\n\n"
+
+    return StreamingResponse(
+        batch_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @app.get("/api/analyze/{ticker}/stream")

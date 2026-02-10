@@ -86,6 +86,21 @@ class ProgressUpdate(BaseModel):
     timestamp: str
 
 
+class WatchlistCreate(BaseModel):
+    """Request model for creating a watchlist."""
+    name: str = Field(..., min_length=1, max_length=50, description="Watchlist name")
+
+
+class WatchlistTickerAdd(BaseModel):
+    """Request model for adding a ticker to a watchlist."""
+    ticker: str = Field(..., min_length=1, max_length=5, description="Stock ticker symbol")
+
+
+class WatchlistRename(BaseModel):
+    """Request model for renaming a watchlist."""
+    name: str = Field(..., min_length=1, max_length=50, description="New watchlist name")
+
+
 class HealthCheckResponse(BaseModel):
     """Health check response."""
     status: str

@@ -81,29 +81,35 @@ src/agents/
 frontend/
 ├── src/
 │   ├── components/
-│   │   ├── Dashboard.jsx       # Main layout (2-7-3 grid, vertical sections, no tabs)
-│   │   ├── Recommendation.jsx  # SVG gauge with BUY/HOLD/SELL + agent consensus strip
-│   │   ├── AgentStatus.jsx     # Real-time agent progress pipeline
-│   │   ├── PriceChart.jsx      # TradingView chart, indicators, data source badges
-│   │   ├── SentimentReport.jsx # Sentiment meter, factor bars, key themes
-│   │   ├── Summary.jsx         # Verdict banner, sectioned chain-of-thought, price targets range bar
-│   │   ├── MacroSnapshot.jsx   # Macro indicators sidebar widget (fed rate, yields, inflation, GDP)
-│   │   ├── NewsFeed.jsx        # Relevance-scored news article list
-│   │   └── Icons.jsx           # SVG icon components (20+ icons including ChevronDown, Target)
+│   │   ├── Dashboard.jsx          # Main layout (view mode: Analysis/History/Watchlist)
+│   │   ├── Recommendation.jsx     # SVG gauge with BUY/HOLD/SELL + agent consensus strip
+│   │   ├── AgentStatus.jsx        # Real-time agent progress pipeline
+│   │   ├── PriceChart.jsx         # TradingView chart, indicators, data source badges
+│   │   ├── SentimentReport.jsx    # Sentiment meter, factor bars, key themes
+│   │   ├── Summary.jsx            # Verdict banner, sectioned chain-of-thought, price targets range bar
+│   │   ├── MacroSnapshot.jsx      # Macro indicators sidebar widget (fed rate, yields, inflation, GDP)
+│   │   ├── NewsFeed.jsx           # Relevance-scored news article list
+│   │   ├── HistoryDashboard.jsx   # Analysis history browser (trend charts, filters, pagination)
+│   │   ├── WatchlistPanel.jsx     # Watchlist management + batch analyze + comparison table
+│   │   └── Icons.jsx              # SVG icon components (26+ icons)
 │   ├── context/
-│   │   └── AnalysisContext.jsx # React context for analysis state
+│   │   └── AnalysisContext.jsx    # React context for analysis state
 │   ├── hooks/
-│   │   ├── useAnalysis.js     # Analysis data fetching hook
-│   │   └── useSSE.js          # SSE streaming hook
+│   │   ├── useAnalysis.js         # Analysis data fetching hook
+│   │   ├── useHistory.js          # History state management (pagination, filters, tickers)
+│   │   └── useSSE.js              # SSE streaming hook
 │   ├── utils/
-│   │   └── api.js             # API client utilities
-│   ├── index.css               # Theme system (Tailwind v4 @theme + CSS custom properties)
-│   └── App.jsx                 # Root component
-├── tailwind.config.js          # Tailwind color configuration
+│   │   └── api.js                 # API client (analysis + history + watchlist endpoints)
+│   ├── index.css                  # Theme system (Tailwind v4 @theme + CSS custom properties)
+│   └── App.jsx                    # Root component
+├── Dockerfile                     # Production frontend (multi-stage: node build → nginx)
+├── Dockerfile.dev                 # Development frontend (Vite hot-reload)
+├── nginx.conf                     # Nginx reverse proxy with SSE support
+├── tailwind.config.js             # Tailwind color configuration
 └── package.json
 ```
 
-**Frontend Layout**: 2-7-3 grid (AgentStatus | Content | Recommendation+Macro). All analysis sections (Summary, Sentiment, News) render vertically in the center column — no tab navigation.
+**Frontend Layout**: 2-7-3 grid (AgentStatus | Content | Recommendation+Macro). All analysis sections (Summary, Sentiment, News) render vertically in the center column. Header has a view mode toggle switching between Analysis, History, and Watchlist views.
 
 **Frontend Theme**: Hero UI dark theme variant (zinc-based). Three color layers:
 1. `tailwind.config.js` - Custom color values
@@ -115,6 +121,9 @@ frontend/
 - `Recommendation.jsx` includes an agent consensus strip showing per-agent signal direction (bullish/bearish/neutral dots derived from each agent's output data)
 - `MacroSnapshot.jsx` surfaces macro data (fed funds, yields, inflation, GDP) that otherwise only feeds the LLM reasoning
 - `PriceChart.jsx` shows data source provenance badges (`AV` / `YF`) from `data_source` fields
+- `HistoryDashboard.jsx` uses `useHistory` hook for state; SVG `TrendChart` plots scores chronologically with color-coded recommendation dots; `FilterBar` toggles BUY/HOLD/SELL; `Pagination` handles offset-based pages
+- `WatchlistPanel.jsx` manages CRUD via `api.js` watchlist functions; SSE `EventSource` for batch analysis; `ComparisonTable` sorts by confidence
+- `Dashboard.jsx` has `VIEW_MODES` enum (ANALYSIS, HISTORY, WATCHLIST) — conditionally renders the appropriate panel
 - Glass cards have hover transitions (`border-color 0.2s`) defined in `index.css`
 
 ## Key Technologies
@@ -130,6 +139,8 @@ frontend/
 - **NewsAPI** - News aggregation (fallback for news agent)
 - **React + Tailwind CSS v4** - Frontend UI with Hero UI dark theme
 - **Vite** - Frontend build tool
+- **pytest** - Test framework (80 tests with pytest-asyncio, aioresponses, httpx)
+- **Docker** - Containerization (multi-stage builds, nginx reverse proxy)
 
 ## Environment Setup
 
@@ -149,7 +160,7 @@ ALPHA_VANTAGE_API_KEY=... # Primary data source for all data agents (strongly re
 
 ### Optional API Keys
 ```bash
-NEWSAPI_KEY=...           # Fallback news source (used when AV unavailable)
+NEWS_API_KEY=...          # Fallback news source (used when AV unavailable)
 TWITTER_BEARER_TOKEN=...
 ```
 
@@ -239,6 +250,33 @@ GET /health
 curl http://localhost:8000/health
 ```
 
+**Detailed History (Paginated + Filtered)**
+```bash
+GET /api/analysis/{ticker}/history/detailed?limit=20&offset=0&recommendation=BUY
+```
+
+**Analyzed Tickers**
+```bash
+GET /api/analysis/tickers
+```
+
+**Delete Analysis**
+```bash
+DELETE /api/analysis/{analysis_id}
+```
+
+**Watchlist CRUD**
+```bash
+POST   /api/watchlists                           # Create watchlist
+GET    /api/watchlists                            # List all watchlists
+GET    /api/watchlists/{id}                       # Get watchlist with latest analyses
+PUT    /api/watchlists/{id}                       # Rename watchlist
+DELETE /api/watchlists/{id}                       # Delete watchlist
+POST   /api/watchlists/{id}/tickers               # Add ticker
+DELETE /api/watchlists/{id}/tickers/{ticker}       # Remove ticker
+POST   /api/watchlists/{id}/analyze               # Batch analyze (SSE stream)
+```
+
 ## Database Schema
 
 **SQLite Database**: `market_research.db`
@@ -259,6 +297,12 @@ curl http://localhost:8000/health
 
 5. **`sentiment_scores`** - Sentiment factor breakdown
    - `analysis_id`, `overall_score`, `news_sentiment`, `social_sentiment`
+
+6. **`watchlists`** - User-created watchlists
+   - `id`, `name` (UNIQUE), `created_at`, `updated_at`
+
+7. **`watchlist_tickers`** - Many-to-many: watchlist ↔ ticker
+   - `id`, `watchlist_id`, `ticker`, `added_at`, UNIQUE(`watchlist_id`, `ticker`)
 
 ## Common Tasks
 
@@ -386,26 +430,39 @@ Per Agent:
 
 ## Testing
 
-### Test API
+### Run Test Suite (80 tests)
+```bash
+source venv/bin/activate
+
+# Run all tests
+python -m pytest tests/ -v
+
+# Run with coverage
+python -m pytest tests/ --cov=src --cov-report=term-missing
+
+# Run specific test module
+python -m pytest tests/test_database.py -v
+
+# Skip slow tests
+python -m pytest tests/ -v -m "not slow"
+```
+
+**Test structure:**
+- `tests/conftest.py` — Shared fixtures (temp DB, AV cache, rate limiter, mock responses, agent factory)
+- `tests/test_av_cache.py` — 14 tests (TTL, coalescing, key generation, stats)
+- `tests/test_av_rate_limiter.py` — 7 tests (limits, concurrency, exhaustion)
+- `tests/test_database.py` — 16 tests (CRUD, isolation, indexing)
+- `tests/test_agents/test_base_agent.py` — 18 tests (validation, execute flow, AV requests, retry)
+- `tests/test_orchestrator.py` — 11 tests (resolution, dependencies, parallel, progress)
+- `tests/test_api.py` — 14 tests (all endpoints, error handling, SSE)
+
+### Test API Manually
 ```bash
 # Health check
 curl http://localhost:8000/health
 
 # Analyze stock
 curl -X POST http://localhost:8000/api/analyze/AAPL
-```
-
-### Test Orchestrator Directly
-```python
-from src.orchestrator import Orchestrator
-import asyncio
-
-async def test():
-    orchestrator = Orchestrator()
-    result = await orchestrator.analyze_ticker("AAPL")
-    print(result)
-
-asyncio.run(test())
 ```
 
 ### Test Individual Agent
@@ -500,11 +557,13 @@ The frontend is in `frontend/` directory (React + Vite + Tailwind CSS v4).
 ## Development Workflow
 
 1. **Make changes** to agents or orchestrator
-2. **Test locally** with curl or Python
-3. **Check database** to verify data persistence
-4. **Run API tests** to ensure endpoints work
-5. **Test SSE stream** for real-time updates
-6. **Build frontend** to verify no build errors: `cd frontend && npm run build`
+2. **Run test suite**: `python -m pytest tests/ -v` (80 tests, ~25 seconds)
+3. **Test locally** with curl or Python
+4. **Check database** to verify data persistence
+5. **Run API tests** to ensure endpoints work
+6. **Test SSE stream** for real-time updates
+7. **Build frontend** to verify no build errors: `cd frontend && npm run build`
+8. **Docker build** (optional): `docker compose up --build`
 
 ## Code Style
 
@@ -576,12 +635,24 @@ cd frontend && npm run dev
 # Build frontend
 cd frontend && npm run build
 
+# Run test suite
+python -m pytest tests/ -v
+
+# Run tests with coverage
+python -m pytest tests/ --cov=src --cov-report=term-missing
+
 # Test API
 curl http://localhost:8000/health
 curl -X POST http://localhost:8000/api/analyze/AAPL
 
 # Check database
 sqlite3 market_research.db "SELECT * FROM analyses ORDER BY timestamp DESC LIMIT 1;"
+
+# Docker (production)
+docker compose up --build
+
+# Docker (development with hot-reload)
+docker compose -f docker-compose.dev.yml up --build
 
 # Install backend dependencies
 pip install -r requirements.txt

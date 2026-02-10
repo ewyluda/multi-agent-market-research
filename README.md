@@ -29,6 +29,10 @@ A **Solution Agent** synthesizes all outputs using chain-of-thought reasoning to
 - Historical analysis tracking with SQLite
 - RESTful API built with FastAPI
 - React frontend with Hero UI dark theme, structured executive overview, and macro sidebar widget
+- **Analysis history dashboard** — browse past analyses, score trend charts, filter by recommendation, paginated tables
+- **Multi-ticker watchlists** — create watchlists, batch-analyze all tickers via SSE, side-by-side comparison table
+- **Test suite** — 80 pytest tests covering agents, orchestrator, API, database, AV cache, and rate limiter
+- **Docker support** — Dockerfiles + docker-compose for one-command deployment (backend + nginx frontend)
 
 ## Architecture
 
@@ -158,6 +162,51 @@ Example:
 curl http://localhost:8000/api/analysis/NVDA/history
 ```
 
+### Get Detailed History (Paginated + Filtered)
+```bash
+GET /api/analysis/{ticker}/history/detailed?limit=20&offset=0&recommendation=BUY
+
+Example:
+curl "http://localhost:8000/api/analysis/NVDA/history/detailed?recommendation=BUY"
+```
+
+### List All Analyzed Tickers
+```bash
+GET /api/analysis/tickers
+
+Example:
+curl http://localhost:8000/api/analysis/tickers
+```
+
+### Delete an Analysis
+```bash
+DELETE /api/analysis/{analysis_id}
+
+Example:
+curl -X DELETE http://localhost:8000/api/analysis/5
+```
+
+### Watchlists
+```bash
+# Create a watchlist
+curl -X POST http://localhost:8000/api/watchlists -H "Content-Type: application/json" -d '{"name":"Tech"}'
+
+# List all watchlists
+curl http://localhost:8000/api/watchlists
+
+# Get watchlist with latest analyses
+curl http://localhost:8000/api/watchlists/1
+
+# Add ticker to watchlist
+curl -X POST http://localhost:8000/api/watchlists/1/tickers -H "Content-Type: application/json" -d '{"ticker":"NVDA"}'
+
+# Remove ticker from watchlist
+curl -X DELETE http://localhost:8000/api/watchlists/1/tickers/NVDA
+
+# Batch analyze all tickers (SSE stream)
+curl -N -X POST http://localhost:8000/api/watchlists/1/analyze
+```
+
 ### SSE Real-time Streaming
 ```bash
 GET /api/analyze/{ticker}/stream?agents={optional}
@@ -265,55 +314,51 @@ See `.env.example` for all available options.
 
 ## Testing
 
-### Test Single Analysis
+### Run Test Suite
 
 ```bash
-# Activate virtual environment
 source venv/bin/activate
 
+# Run all 80 tests
+python -m pytest tests/ -v
+
+# Run with coverage
+python -m pytest tests/ --cov=src --cov-report=term-missing
+
+# Run specific test file
+python -m pytest tests/test_database.py -v
+
+# Run only fast tests (skip slow/integration)
+python -m pytest tests/ -v -m "not slow"
+```
+
+Test suite covers:
+- **AV Cache** (14 tests) — TTL expiry, in-flight coalescing, key generation, stats
+- **AV Rate Limiter** (7 tests) — daily limits, concurrent serialization, exhaustion
+- **Database** (16 tests) — all CRUD operations, cross-ticker isolation, indexing
+- **Base Agent** (18 tests) — ticker validation, execute flow, AV requests, retry logic
+- **Orchestrator** (11 tests) — agent resolution, dependencies, parallel execution, progress callbacks
+- **API** (14 tests) — all endpoints, error handling, SSE streaming
+
+### Manual Testing
+
+```bash
 # Test via API
 curl -X POST http://localhost:8000/api/analyze/AAPL
 
-# Test orchestrator directly
+# Test individual agent
 python -c "
-from src.orchestrator import Orchestrator
-import asyncio
-
-async def test():
-    orchestrator = Orchestrator()
-    result = await orchestrator.analyze_ticker('AAPL')
-    print(result)
-
-asyncio.run(test())
-"
-```
-
-### Test Individual Agent
-
-```python
 from src.agents.market_agent import MarketAgent
 import asyncio
-
 async def test():
     agent = MarketAgent()
-    result = await agent.execute("NVDA")
-    print(f"Source: {result.get('data', {}).get('data_source', 'unknown')}")
+    result = await agent.execute('NVDA')
     print(result)
-
 asyncio.run(test())
-```
+"
 
-### Test API with curl
-
-```bash
 # Health check
 curl http://localhost:8000/health
-
-# Analyze stock
-curl -X POST http://localhost:8000/api/analyze/AAPL
-
-# Get latest analysis
-curl http://localhost:8000/api/analysis/AAPL/latest
 ```
 
 ## Database
@@ -326,6 +371,8 @@ The application uses SQLite by default. Database file: `market_research.db`
 - `price_history` - Cached price data
 - `news_cache` - Cached news articles
 - `sentiment_scores` - Sentiment factor breakdown
+- `watchlists` - User-created watchlists
+- `watchlist_tickers` - Many-to-many ticker associations for watchlists
 
 ### Query Examples
 
@@ -368,40 +415,58 @@ multi-agent-market-research/
 ├── frontend/
 │   ├── src/
 │   │   ├── components/
-│   │   │   ├── Dashboard.jsx      # Main layout (2-7-3 grid, vertical sections)
-│   │   │   ├── Recommendation.jsx # SVG gauge with agent consensus strip
-│   │   │   ├── AgentStatus.jsx    # Real-time agent progress pipeline
-│   │   │   ├── PriceChart.jsx     # Price history, indicators, data source badges
-│   │   │   ├── SentimentReport.jsx# Sentiment breakdown with factor bars
-│   │   │   ├── Summary.jsx        # Verdict banner, sectioned analysis, price targets
-│   │   │   ├── MacroSnapshot.jsx  # Macro indicators sidebar widget
-│   │   │   ├── NewsFeed.jsx       # News article list
-│   │   │   └── Icons.jsx          # SVG icon components (20 icons)
+│   │   │   ├── Dashboard.jsx         # Main layout (view mode toggle: Analysis/History/Watchlist)
+│   │   │   ├── Recommendation.jsx    # SVG gauge with agent consensus strip
+│   │   │   ├── AgentStatus.jsx       # Real-time agent progress pipeline
+│   │   │   ├── PriceChart.jsx        # Price history, indicators, data source badges
+│   │   │   ├── SentimentReport.jsx   # Sentiment breakdown with factor bars
+│   │   │   ├── Summary.jsx           # Verdict banner, sectioned analysis, price targets
+│   │   │   ├── MacroSnapshot.jsx     # Macro indicators sidebar widget
+│   │   │   ├── NewsFeed.jsx          # News article list
+│   │   │   ├── HistoryDashboard.jsx  # Analysis history browser with trend charts
+│   │   │   ├── WatchlistPanel.jsx    # Watchlist management + comparison table
+│   │   │   └── Icons.jsx             # SVG icon components (26+ icons)
 │   │   ├── context/
-│   │   │   └── AnalysisContext.jsx # React context for analysis state
+│   │   │   └── AnalysisContext.jsx    # React context for analysis state
 │   │   ├── hooks/
-│   │   │   ├── useAnalysis.js     # Analysis data fetching hook
-│   │   │   └── useSSE.js          # SSE streaming hook
+│   │   │   ├── useAnalysis.js        # Analysis data fetching hook
+│   │   │   ├── useHistory.js         # History state management hook
+│   │   │   └── useSSE.js             # SSE streaming hook
 │   │   ├── utils/
-│   │   │   └── api.js             # API client utilities
+│   │   │   └── api.js                # API client (analysis + watchlist endpoints)
 │   │   ├── assets/
 │   │   │   └── react.svg
 │   │   ├── App.jsx
 │   │   ├── main.jsx
-│   │   └── index.css              # Hero UI dark theme (Tailwind v4)
+│   │   └── index.css                 # Hero UI dark theme (Tailwind v4)
+│   ├── Dockerfile                    # Production frontend (nginx)
+│   ├── Dockerfile.dev                # Development frontend (Vite hot-reload)
+│   ├── nginx.conf                    # Nginx reverse proxy config
 │   ├── index.html
 │   ├── vite.config.js
 │   ├── tailwind.config.js
 │   ├── postcss.config.js
 │   ├── eslint.config.js
 │   └── package.json
-├── tests/                         # Test directory
-├── test_api.py                    # API test script
-├── requirements.txt               # Python dependencies
-├── .env.example                   # Environment template
-├── run.py                         # Startup script
-├── CLAUDE.md                      # AI assistant guide
-└── README.md                      # This file
+├── tests/
+│   ├── conftest.py                   # Shared fixtures (DB, cache, rate limiter, mock data)
+│   ├── test_av_cache.py              # AV cache tests (14 tests)
+│   ├── test_av_rate_limiter.py       # AV rate limiter tests (7 tests)
+│   ├── test_database.py              # Database CRUD tests (16 tests)
+│   ├── test_orchestrator.py          # Orchestrator tests (11 tests)
+│   ├── test_api.py                   # API endpoint tests (14 tests)
+│   └── test_agents/
+│       └── test_base_agent.py        # Base agent tests (18 tests)
+├── Dockerfile                        # Backend Docker image
+├── docker-compose.yml                # Production compose
+├── docker-compose.dev.yml            # Development compose (hot-reload)
+├── .dockerignore
+├── pyproject.toml                    # pytest configuration
+├── requirements.txt                  # Python dependencies
+├── .env.example                      # Environment template
+├── run.py                            # Startup script
+├── CLAUDE.md                         # AI assistant guide
+└── README.md                         # This file
 ```
 
 ## Frontend
@@ -420,7 +485,9 @@ The frontend is a React application with a Hero UI-inspired dark theme built on 
 - Three-layer color system: Tailwind config, `@theme` CSS tokens, and `:root` CSS custom properties
 
 ### Components
-- **Dashboard** — Main layout with 2-7-3 grid, search, agent orchestration, and SSE streaming
+- **Dashboard** — Main layout with view mode toggle (Analysis / History / Watchlist), 2-7-3 grid, search, agent orchestration, and SSE streaming
+- **HistoryDashboard** — Analysis history browser with ticker selector, SVG score trend chart, recommendation filter, paginated table, delete actions
+- **WatchlistPanel** — Watchlist CRUD, add/remove tickers, per-ticker analysis, batch "Analyze All" via SSE, comparison table sorted by confidence
 - **Summary** — Structured executive overview with:
   - Verdict banner (colored BUY/HOLD/SELL with score and summary)
   - At-a-glance metric pills (score, confidence, position, horizon)
@@ -433,6 +500,29 @@ The frontend is a React application with a Hero UI-inspired dark theme built on 
 - **SentimentReport** — Sentiment meter, factor breakdown with centered bars, and key themes
 - **AgentStatus** — Real-time progress pipeline for 7 agents with status indicators and duration tracking
 - **NewsFeed** — Relevance-scored news article list with source attribution
+
+## Docker
+
+### Production
+
+```bash
+# Build and run
+docker compose up --build
+
+# Backend: http://localhost:8000
+# Frontend: http://localhost:3000 (nginx proxies /api/* to backend)
+```
+
+### Development (with hot-reload)
+
+```bash
+docker compose -f docker-compose.dev.yml up --build
+
+# Backend: http://localhost:8000 (auto-reload on file changes)
+# Frontend: http://localhost:5173 (Vite HMR)
+```
+
+Environment variables are read from `.env` by docker-compose. The SQLite database is persisted in a Docker volume.
 
 ## Troubleshooting
 
@@ -471,18 +561,39 @@ python run.py  # Will create fresh database
 - Agents gracefully fall back to alternative sources
 - Check `data_source` field in agent results to confirm which source was used
 
-## Potential Future Improvements (To-Do List)
+## Roadmap
 
-- **Light/dark theme toggle**: The frontend currently supports dark theme only. Adding a light theme variant with a toggle would improve accessibility.
-- **Historical data source comparison**: Track and display which data source was used per agent over time, allowing users to compare analysis quality between AV and fallback sources.
-- **Unit and integration tests**: Add pytest test suite for agent data parsing, AV response handling, fallback logic, and end-to-end analysis flow.
+### Tier 2 — Meaningful Feature Expansions
+
+- **Options flow / unusual activity agent**: New agent monitoring options market data for unusual volume, put/call ratios, and large block trades.
+- **PDF export with branded report**: Generate downloadable PDF reports with charts, agent summaries, and recommendation branding.
+- **Scheduled / recurring analysis**: Cron-style or interval-based automatic re-analysis of watched tickers.
+- **Alert system**: Notify users when a ticker's recommendation changes or crosses a score threshold.
+
+### Tier 3 — Polish & Production Readiness
+
+- **TypeScript migration for frontend**: Convert React components to TypeScript for type safety across complex agent result structures.
+- **Light/dark theme toggle**: Add a light theme variant with a toggle in the header.
+- **Authentication & multi-user support**: User accounts, API key management, and per-user watchlists.
+- **Database optimization**: Additional indices on `agent_results.agent_type` and composite indices for cross-ticker queries.
+
+### Tier 4 — Ambitious / Differentiating
+
+- **Agent performance scoring**: Track prediction accuracy over time by comparing recommendations to actual price movements.
+- **Custom agent builder**: User-configurable agents with selectable data sources, LLM prompts, and weighting.
+- **Sector / industry heatmap**: Aggregate analysis results across tickers to visualize sector-level sentiment and momentum.
+- **Real-time market data streaming**: Continuous intraday data feeds replacing periodic snapshots.
+
+### Completed
+
+- ~~**Test suite (pytest)**: 80 unit and integration tests covering agents, orchestrator, API endpoints, AV cache, and rate limiter with full mocking infrastructure.~~ *(Done — `tests/` directory with conftest fixtures, 80 passing tests, pytest-asyncio + aioresponses)*
+- ~~**Multi-ticker watchlist & comparison**: Batch analysis across multiple tickers with watchlist persistence, SSE batch streaming, and side-by-side comparison UI.~~ *(Done — `watchlists` + `watchlist_tickers` tables, 8 CRUD endpoints, WatchlistPanel component with batch analyze + comparison)*
+- ~~**Analysis history dashboard**: Browse past analyses per ticker, visualize score trends over time, filter/paginate results, and delete records.~~ *(Done — HistoryDashboard with SVG trend chart, recommendation filter, paginated table, 3 new API endpoints)*
+- ~~**Docker containerization**: Dockerfile + docker-compose for one-command deployment of backend and frontend with persistent SQLite volume.~~ *(Done — multi-stage Dockerfiles, production + dev compose, nginx reverse proxy with SSE support)*
 - ~~**Real-time streaming via SSE**: Replace WebSocket polling pattern with Server-Sent Events for simpler one-way streaming of agent progress updates.~~ *(Done — `GET /api/analyze/{ticker}/stream` delivers progress + final result via SSE)*
-- **Multi-ticker batch analysis**: Support analyzing multiple tickers in a single request with shared AV rate budget.
-- **Options flow / unusual activity agent**: Add a new agent that monitors options market data for unusual volume, put/call ratios, and large block trades.
 - ~~**Macroeconomic agent**: Add an agent for broader market context using AV endpoints like `FEDERAL_FUNDS_RATE`, `CPI`, `REAL_GDP`, and treasury yield data.~~ *(Done — `MacroAgent` fetches 7 AV macro endpoints with yield curve, economic cycle, and risk environment analysis)*
 - ~~**News sentiment aggregation into sentiment agent**: The AV NEWS_SENTIMENT endpoint provides per-article sentiment scores. These could be forwarded to the sentiment agent to supplement its LLM-based analysis.~~ *(Done — AV per-article sentiment scores are now included in the LLM prompt and blended into the keyword fallback)*
-- **Docker containerization**: Add Dockerfile and docker-compose for one-command deployment of both backend and frontend.
-- ~~**Export analysis as PDF/CSV**: Add endpoints to export analysis results in downloadable formats for reporting.~~ *(Done — CSV export available at `GET /api/analysis/{ticker}/export/csv`)*
+- ~~**Export analysis as CSV**: Add endpoints to export analysis results in downloadable formats for reporting.~~ *(Done — CSV export available at `GET /api/analysis/{ticker}/export/csv`)*
 - ~~**In-flight request coalescing**: Deduplicate concurrent identical AV requests (e.g., market and technical agents both requesting TIME_SERIES_DAILY simultaneously).~~ *(Done — `AVCache` tracks in-flight requests via `asyncio.Future`; concurrent identical requests coalesce into a single HTTP call)*
 
 ## License

@@ -75,6 +75,32 @@ class FundamentalsAgent(BaseAgent):
             except (ValueError, TypeError):
                 return default
 
+        # Analyst rating counts (AV provides distribution, not a single recommendation)
+        strong_buy = _int("AnalystRatingStrongBuy", 0)
+        buy = _int("AnalystRatingBuy", 0)
+        hold = _int("AnalystRatingHold", 0)
+        sell = _int("AnalystRatingSell", 0)
+        strong_sell = _int("AnalystRatingStrongSell", 0)
+
+        analyst_total = strong_buy + buy + hold + sell + strong_sell
+        analyst_recommendation = None
+        if analyst_total > 0:
+            ratings = {
+                "strong_buy": strong_buy,
+                "buy": buy,
+                "hold": hold,
+                "sell": sell,
+                "strong_sell": strong_sell,
+            }
+            max_count = max(ratings.values())
+            top = [k for k, v in ratings.items() if v == max_count and v > 0]
+            if len(top) == 1:
+                analyst_recommendation = top[0]
+            elif "hold" in top:
+                analyst_recommendation = "hold"
+            else:
+                analyst_recommendation = top[0]
+
         # Map AV fields to yfinance-compatible dict keys
         return {
             "longName": data.get("Name", ""),
@@ -102,8 +128,8 @@ class FundamentalsAgent(BaseAgent):
             "targetLowPrice": None,
             "targetMeanPrice": _float("AnalystTargetPrice"),
             "targetMedianPrice": None,
-            "recommendationKey": data.get("AnalystRatingStrongBuy", None),
-            "numberOfAnalystOpinions": _int("AnalystRatingStrongBuy"),  # Partial
+            "recommendationKey": analyst_recommendation,
+            "numberOfAnalystOpinions": analyst_total if analyst_total > 0 else None,
             "currentRatio": None,  # Comes from balance sheet
             "debtToEquity": None,  # Comes from balance sheet
             "quickRatio": None,
@@ -1031,101 +1057,114 @@ class FundamentalsAgent(BaseAgent):
         """
         sections = []
 
+        def _fmt(val):
+            return "N/A" if val is None else str(val)
+
+        def _fmt_money(val):
+            return "N/A" if val is None else f"${val:,.0f}"
+
+        def _fmt_pct(val, decimals=1):
+            return "N/A" if val is None else f"{val * 100:.{decimals}f}%"
+
+        def _fmt_pct_value(val, decimals=2):
+            return "N/A" if val is None else f"{val:.{decimals}f}%"
+
         # Company overview
         sections.append(f"Company: {analysis.get('company_name', 'N/A')}")
         sections.append(f"Ticker: {self.ticker}")
         sections.append(f"Sector: {analysis.get('sector', 'N/A')}")
         sections.append(f"Industry: {analysis.get('industry', 'N/A')}")
         mc = analysis.get('market_cap')
-        sections.append(f"Market Cap: {'${:,.0f}'.format(mc) if mc else 'N/A'}")
+        sections.append(f"Market Cap: {_fmt_money(mc)}")
 
         # Valuation
         sections.append("\n--- VALUATION ---")
-        sections.append(f"P/E Ratio (TTM): {analysis.get('pe_ratio', 'N/A')}")
-        sections.append(f"Forward P/E: {analysis.get('forward_pe', 'N/A')}")
-        sections.append(f"PEG Ratio: {analysis.get('peg_ratio', 'N/A')}")
-        sections.append(f"Price/Book: {analysis.get('price_to_book', 'N/A')}")
-        sections.append(f"Price/Sales: {analysis.get('price_to_sales', 'N/A')}")
+        sections.append(f"P/E Ratio (TTM): {_fmt(analysis.get('pe_ratio'))}")
+        sections.append(f"Forward P/E: {_fmt(analysis.get('forward_pe'))}")
+        sections.append(f"PEG Ratio: {_fmt(analysis.get('peg_ratio'))}")
+        sections.append(f"Price/Book: {_fmt(analysis.get('price_to_book'))}")
+        sections.append(f"Price/Sales: {_fmt(analysis.get('price_to_sales'))}")
         ev = analysis.get('enterprise_value')
-        sections.append(f"Enterprise Value: {'${:,.0f}'.format(ev) if ev else 'N/A'}")
+        sections.append(f"Enterprise Value: {_fmt_money(ev)}")
 
         # Profitability
         sections.append("\n--- PROFITABILITY ---")
         pm = analysis.get('profit_margins')
-        sections.append(f"Profit Margins: {f'{pm*100:.1f}%' if pm else 'N/A'}")
+        sections.append(f"Profit Margins: {_fmt_pct(pm, 1)}")
         om = analysis.get('operating_margins')
-        sections.append(f"Operating Margins: {f'{om*100:.1f}%' if om else 'N/A'}")
+        sections.append(f"Operating Margins: {_fmt_pct(om, 1)}")
         roa = analysis.get('return_on_assets')
-        sections.append(f"ROA: {f'{roa*100:.1f}%' if roa else 'N/A'}")
+        sections.append(f"ROA: {_fmt_pct(roa, 1)}")
         roe = analysis.get('return_on_equity')
-        sections.append(f"ROE: {f'{roe*100:.1f}%' if roe else 'N/A'}")
+        sections.append(f"ROE: {_fmt_pct(roe, 1)}")
 
         # Cash Flow
         sections.append("\n--- CASH FLOW ---")
         fcf = analysis.get('free_cash_flow')
-        sections.append(f"Free Cash Flow: {'${:,.0f}'.format(fcf) if fcf else 'N/A'}")
+        sections.append(f"Free Cash Flow: {_fmt_money(fcf)}")
         ocf = analysis.get('operating_cash_flow')
-        sections.append(f"Operating Cash Flow: {'${:,.0f}'.format(ocf) if ocf else 'N/A'}")
+        sections.append(f"Operating Cash Flow: {_fmt_money(ocf)}")
 
         # Balance Sheet Health
         sections.append("\n--- BALANCE SHEET ---")
-        sections.append(f"Current Ratio: {analysis.get('current_ratio', 'N/A')}")
-        sections.append(f"Debt/Equity: {analysis.get('debt_to_equity', 'N/A')}")
-        sections.append(f"Quick Ratio: {analysis.get('quick_ratio', 'N/A')}")
+        sections.append(f"Current Ratio: {_fmt(analysis.get('current_ratio'))}")
+        sections.append(f"Debt/Equity: {_fmt(analysis.get('debt_to_equity'))}")
+        sections.append(f"Quick Ratio: {_fmt(analysis.get('quick_ratio'))}")
 
         # Growth
         sections.append("\n--- GROWTH ---")
         rg = analysis.get('revenue_growth')
-        sections.append(f"Revenue Growth: {f'{rg*100:.1f}%' if rg else 'N/A'}")
+        sections.append(f"Revenue Growth: {_fmt_pct(rg, 1)}")
         eg = analysis.get('earnings_growth')
-        sections.append(f"Earnings Growth: {f'{eg*100:.1f}%' if eg else 'N/A'}")
+        sections.append(f"Earnings Growth: {_fmt_pct(eg, 1)}")
 
         # Earnings
         sections.append("\n--- EARNINGS ---")
-        sections.append(f"EPS (TTM): {analysis.get('earnings_per_share', 'N/A')}")
-        sections.append(f"Forward EPS: {analysis.get('forward_eps', 'N/A')}")
+        sections.append(f"EPS (TTM): {_fmt(analysis.get('earnings_per_share'))}")
+        sections.append(f"Forward EPS: {_fmt(analysis.get('forward_eps'))}")
         re_data = analysis.get('recent_earnings', {})
-        sections.append(f"Earnings Beat Rate: {re_data.get('beat_rate', 'N/A')}% ({re_data.get('beats', 0)}/{re_data.get('total', 0)} quarters)")
-        sections.append(f"Earnings Trend: {re_data.get('trend', 'N/A')}")
+        beat_rate = re_data.get('beat_rate')
+        sections.append(f"Earnings Beat Rate: {_fmt_pct_value(beat_rate, 0)} ({re_data.get('beats', 0)}/{re_data.get('total', 0)} quarters)")
+        sections.append(f"Earnings Trend: {_fmt(re_data.get('trend'))}")
 
         # SEC EDGAR trends
         eps_trend = analysis.get('eps_trend', {})
         if eps_trend and eps_trend.get('trend') != 'insufficient_data':
             sections.append("\n--- SEC EDGAR EPS TREND ---")
-            sections.append(f"EPS Trend Direction: {eps_trend.get('trend', 'N/A')}")
-            sections.append(f"Latest EPS: {eps_trend.get('latest_eps', 'N/A')}")
-            sections.append(f"QoQ Change: {eps_trend.get('qoq_pct', 'N/A')}%")
-            sections.append(f"YoY Change: {eps_trend.get('yoy_pct', 'N/A')}%")
+            sections.append(f"EPS Trend Direction: {_fmt(eps_trend.get('trend'))}")
+            sections.append(f"Latest EPS: {_fmt(eps_trend.get('latest_eps'))}")
+            sections.append(f"QoQ Change: {_fmt_pct_value(eps_trend.get('qoq_pct'), 2)}")
+            sections.append(f"YoY Change: {_fmt_pct_value(eps_trend.get('yoy_pct'), 2)}")
 
         rev_trend = analysis.get('revenue_trend', {})
         if rev_trend and rev_trend.get('trend') != 'insufficient_data':
             sections.append("\n--- SEC EDGAR REVENUE TREND ---")
-            sections.append(f"Revenue Trend Direction: {rev_trend.get('trend', 'N/A')}")
+            sections.append(f"Revenue Trend Direction: {_fmt(rev_trend.get('trend'))}")
             latest_rev = rev_trend.get('latest_revenue')
-            sections.append(f"Latest Revenue: {'${:,.0f}'.format(latest_rev) if latest_rev else 'N/A'}")
-            sections.append(f"QoQ Change: {rev_trend.get('qoq_pct', 'N/A')}%")
-            sections.append(f"YoY Change: {rev_trend.get('yoy_pct', 'N/A')}%")
+            sections.append(f"Latest Revenue: {_fmt_money(latest_rev)}")
+            sections.append(f"QoQ Change: {_fmt_pct_value(rev_trend.get('qoq_pct'), 2)}")
+            sections.append(f"YoY Change: {_fmt_pct_value(rev_trend.get('yoy_pct'), 2)}")
 
         # Analyst targets
         sections.append("\n--- ANALYST CONSENSUS ---")
-        sections.append(f"Recommendation: {analysis.get('recommendation', 'N/A')}")
-        sections.append(f"Target High: {analysis.get('target_high_price', 'N/A')}")
-        sections.append(f"Target Mean: {analysis.get('target_mean_price', 'N/A')}")
-        sections.append(f"Target Low: {analysis.get('target_low_price', 'N/A')}")
-        sections.append(f"Analyst Count: {analysis.get('number_of_analyst_opinions', 'N/A')}")
+        sections.append(f"Recommendation: {_fmt(analysis.get('recommendation'))}")
+        sections.append(f"Target High: {_fmt(analysis.get('target_high_price'))}")
+        sections.append(f"Target Mean: {_fmt(analysis.get('target_mean_price'))}")
+        sections.append(f"Target Low: {_fmt(analysis.get('target_low_price'))}")
+        sections.append(f"Analyst Count: {_fmt(analysis.get('number_of_analyst_opinions'))}")
 
         # Dividends
         dy = analysis.get('dividend_yield')
-        if dy:
+        if dy is not None:
             sections.append("\n--- DIVIDENDS ---")
-            sections.append(f"Dividend Yield: {f'{dy*100:.2f}%' if dy else 'N/A'}")
-            sections.append(f"Dividend Rate: {analysis.get('dividend_rate', 'N/A')}")
+            sections.append(f"Dividend Yield: {_fmt_pct(dy, 2)}")
+            sections.append(f"Dividend Rate: {_fmt(analysis.get('dividend_rate'))}")
             pr = analysis.get('payout_ratio')
-            sections.append(f"Payout Ratio: {f'{pr*100:.1f}%' if pr else 'N/A'}")
+            sections.append(f"Payout Ratio: {_fmt_pct(pr, 1)}")
 
         # Health score
         sections.append(f"\n--- COMPUTED HEALTH SCORE ---")
-        sections.append(f"Health Score: {analysis.get('health_score', 'N/A')}/100")
+        sections.append(f"Health Score: {_fmt(analysis.get('health_score'))}/100")
 
         return "\n".join(sections)
 
@@ -1267,12 +1306,15 @@ Respond ONLY in the following JSON format:
             Response text string
         """
         client = anthropic.Anthropic(api_key=llm_config.get("api_key"))
-        message = client.messages.create(
-            model=llm_config.get("model", "claude-3-5-sonnet-20241022"),
-            max_tokens=llm_config.get("max_tokens", 4096),
-            temperature=llm_config.get("temperature", 0.3),
-            messages=[{"role": "user", "content": prompt}]
-        )
+        def _call_anthropic():
+            return client.messages.create(
+                model=llm_config.get("model", "claude-3-5-sonnet-20241022"),
+                max_tokens=llm_config.get("max_tokens", 4096),
+                temperature=llm_config.get("temperature", 0.3),
+                messages=[{"role": "user", "content": prompt}]
+            )
+
+        message = await asyncio.to_thread(_call_anthropic)
         return message.content[0].text
 
     async def _call_openai_compatible_llm(self, prompt: str, llm_config: Dict[str, Any]) -> str:
@@ -1290,10 +1332,13 @@ Respond ONLY in the following JSON format:
             api_key=llm_config.get("api_key"),
             base_url=llm_config.get("base_url")
         )
-        response = client.chat.completions.create(
-            model=llm_config.get("model", "grok-4-1-fast-reasoning"),
-            max_tokens=llm_config.get("max_tokens", 4096),
-            temperature=llm_config.get("temperature", 0.3),
-            messages=[{"role": "user", "content": prompt}]
-        )
+        def _call_openai():
+            return client.chat.completions.create(
+                model=llm_config.get("model", "grok-4-1-fast-reasoning"),
+                max_tokens=llm_config.get("max_tokens", 4096),
+                temperature=llm_config.get("temperature", 0.3),
+                messages=[{"role": "user", "content": prompt}]
+            )
+
+        response = await asyncio.to_thread(_call_openai)
         return response.choices[0].message.content
