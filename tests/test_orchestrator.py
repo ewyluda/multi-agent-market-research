@@ -46,10 +46,10 @@ class TestResolveAgents:
     """Tests for _resolve_agents() dependency resolution."""
 
     def test_default_includes_all_agents(self, test_config):
-        """Default resolution includes all 6 agents."""
+        """Default resolution includes all 7 agents."""
         orch = Orchestrator(config=test_config)
         agents = orch._resolve_agents(None)
-        assert set(agents) == {"news", "market", "fundamentals", "technical", "macro", "sentiment"}
+        assert set(agents) == {"news", "market", "fundamentals", "technical", "macro", "options", "sentiment"}
 
     def test_sentiment_auto_adds_news(self, test_config):
         """Requesting sentiment auto-adds news dependency."""
@@ -72,6 +72,14 @@ class TestResolveAgents:
         assert "macro" not in agents
         assert "news" in agents  # Others still present
 
+    def test_options_excluded_when_disabled(self, test_config):
+        """Options agent excluded when OPTIONS_AGENT_ENABLED is False."""
+        config = {**test_config, "OPTIONS_AGENT_ENABLED": False}
+        orch = Orchestrator(config=config)
+        agents = orch._resolve_agents(None)
+        assert "options" not in agents
+        assert "news" in agents  # Others still present
+
     def test_single_agent_no_dependencies(self, test_config):
         """A single agent with no deps returns just that agent."""
         orch = Orchestrator(config=test_config)
@@ -82,9 +90,9 @@ class TestResolveAgents:
         """Explicitly listing all agents works the same as None."""
         orch = Orchestrator(config=test_config)
         all_explicit = orch._resolve_agents(
-            ["news", "market", "fundamentals", "technical", "macro", "sentiment"]
+            ["news", "market", "fundamentals", "technical", "macro", "options", "sentiment"]
         )
-        assert set(all_explicit) == {"news", "market", "fundamentals", "technical", "macro", "sentiment"}
+        assert set(all_explicit) == {"news", "market", "fundamentals", "technical", "macro", "options", "sentiment"}
 
 
 class TestAnalyzeTicker:
@@ -101,6 +109,7 @@ class TestAnalyzeTicker:
             patch("src.orchestrator.FundamentalsAgent") as MockFund,
             patch("src.orchestrator.TechnicalAgent") as MockTech,
             patch("src.orchestrator.MacroAgent") as MockMacro,
+            patch("src.orchestrator.OptionsAgent") as MockOptions,
             patch("src.orchestrator.SentimentAgent") as MockSent,
             patch("src.orchestrator.SolutionAgent") as MockSolution,
         ):
@@ -111,6 +120,7 @@ class TestAnalyzeTicker:
                 (MockFund, "fundamentals"),
                 (MockTech, "technical"),
                 (MockMacro, "macro"),
+                (MockOptions, "options"),
             ]:
                 instance = mock_cls.return_value
                 instance.execute = AsyncMock(return_value=_make_agent_result(name))
@@ -155,6 +165,7 @@ class TestAnalyzeTicker:
             patch("src.orchestrator.FundamentalsAgent") as MockFund,
             patch("src.orchestrator.TechnicalAgent") as MockTech,
             patch("src.orchestrator.MacroAgent") as MockMacro,
+            patch("src.orchestrator.OptionsAgent") as MockOptions,
             patch("src.orchestrator.SentimentAgent") as MockSent,
             patch("src.orchestrator.SolutionAgent") as MockSolution,
         ):
@@ -164,6 +175,7 @@ class TestAnalyzeTicker:
                 (MockFund, "fundamentals"),
                 (MockTech, "technical"),
                 (MockMacro, "macro"),
+                (MockOptions, "options"),
             ]:
                 mock_cls.return_value.execute = AsyncMock(return_value=_make_agent_result(name))
 
@@ -232,6 +244,7 @@ class TestAnalyzeTicker:
             patch("src.orchestrator.FundamentalsAgent") as MockFund,
             patch("src.orchestrator.TechnicalAgent") as MockTech,
             patch("src.orchestrator.MacroAgent") as MockMacro,
+            patch("src.orchestrator.OptionsAgent") as MockOptions,
             patch("src.orchestrator.SentimentAgent") as MockSent,
             patch("src.orchestrator.SolutionAgent") as MockSolution,
         ):
@@ -241,6 +254,7 @@ class TestAnalyzeTicker:
                 (MockFund, "fundamentals"),
                 (MockTech, "technical"),
                 (MockMacro, "macro"),
+                (MockOptions, "options"),
             ]:
                 mock_cls.return_value.execute = AsyncMock(return_value=_make_agent_result(name))
 

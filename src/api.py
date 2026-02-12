@@ -1,5 +1,6 @@
 """FastAPI application for multi-agent market research."""
 
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
@@ -19,6 +20,10 @@ from .models import (
     WatchlistCreate,
     WatchlistTickerAdd,
     WatchlistRename,
+    ScheduleCreate,
+    ScheduleUpdate,
+    AlertRuleCreate,
+    AlertRuleUpdate,
 )
 from .orchestrator import Orchestrator
 from .config import Config
@@ -34,11 +39,31 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
+@asynccontextmanager
+async def lifespan(app):
+    """Startup/shutdown lifecycle for the FastAPI application."""
+    # Startup: start the scheduler if enabled
+    if Config.SCHEDULER_ENABLED:
+        from .scheduler import AnalysisScheduler
+        scheduler = AnalysisScheduler(
+            db_manager=db_manager,
+            rate_limiter=av_rate_limiter,
+            av_cache=av_cache,
+        )
+        app.state.scheduler = scheduler
+        await scheduler.start()
+    yield
+    # Shutdown: stop the scheduler if running
+    if hasattr(app.state, "scheduler"):
+        await app.state.scheduler.stop()
+
+
 # Create FastAPI app
 app = FastAPI(
     title="Multi-Agent Market Research API",
     description="AI-powered stock market analysis using specialized agents",
-    version="0.1.0"
+    version="0.1.0",
+    lifespan=lifespan,
 )
 
 # Configure CORS
@@ -75,8 +100,13 @@ async def root():
             "history_detailed": "GET /api/analysis/{ticker}/history/detailed",
             "tickers": "GET /api/analysis/tickers",
             "export_csv": "GET /api/analysis/{ticker}/export/csv",
+            "export_pdf": "GET /api/analysis/{ticker}/export/pdf",
             "watchlists": "GET /api/watchlists",
             "watchlist_analyze": "POST /api/watchlists/{id}/analyze",
+            "schedules": "POST/GET /api/schedules",
+            "schedule_runs": "GET /api/schedules/{id}/runs",
+            "alerts": "POST/GET /api/alerts",
+            "alert_notifications": "GET /api/alerts/notifications",
             "health": "GET /health"
         }
     }
@@ -131,7 +161,7 @@ async def analyze_ticker(
     # Parse and validate agent list
     requested_agents = None
     if agents:
-        valid_agents = {"news", "sentiment", "fundamentals", "market", "technical", "macro"}
+        valid_agents = {"news", "sentiment", "fundamentals", "market", "technical", "macro", "options"}
         requested_agents = [a.strip().lower() for a in agents.split(",")]
         invalid = set(requested_agents) - valid_agents
         if invalid:
@@ -326,6 +356,57 @@ async def export_analysis_csv(
         raise
     except Exception as e:
         logger.error(f"Failed to export CSV for {ticker}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/analysis/{ticker}/export/pdf")
+async def export_analysis_pdf(
+    ticker: str,
+    analysis_id: Optional[int] = Query(default=None, description="Specific analysis ID to export. Default: latest."),
+):
+    """
+    Export an analysis as a downloadable PDF report.
+
+    Args:
+        ticker: Stock ticker symbol
+        analysis_id: Optional analysis ID; defaults to the most recent analysis
+
+    Returns:
+        PDF file download
+    """
+    from .pdf_report import PDFReportGenerator
+
+    ticker = ticker.upper()
+
+    try:
+        if analysis_id is None:
+            latest = db_manager.get_latest_analysis(ticker)
+            if not latest:
+                raise HTTPException(status_code=404, detail=f"No analysis found for {ticker}")
+            analysis_id = latest["id"]
+
+        full = db_manager.get_analysis_with_agents(analysis_id)
+        if not full:
+            raise HTTPException(status_code=404, detail=f"Analysis {analysis_id} not found")
+
+        if full["ticker"] != ticker:
+            raise HTTPException(status_code=400, detail=f"Analysis {analysis_id} does not belong to {ticker}")
+
+        generator = PDFReportGenerator()
+        pdf_bytes = generator.generate(full)
+
+        filename = f"{ticker}_analysis_{full['timestamp'][:10]}.pdf"
+
+        return StreamingResponse(
+            io.BytesIO(pdf_bytes),
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to export PDF for {ticker}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -564,6 +645,194 @@ async def analyze_watchlist(watchlist_id: int):
     )
 
 
+# ─── Schedule Endpoints ─────────────────────────────────────────────
+
+@app.post("/api/schedules")
+async def create_schedule(body: ScheduleCreate):
+    """Create a new schedule for recurring analysis."""
+    import re
+    ticker = body.ticker.upper()
+    if not re.match(r'^[A-Z]{1,5}$', ticker):
+        raise HTTPException(status_code=400, detail="Invalid ticker symbol format")
+
+    try:
+        schedule = db_manager.create_schedule(ticker, body.interval_minutes, body.agents)
+        if hasattr(app.state, "scheduler"):
+            app.state.scheduler.add_schedule(schedule)
+        return schedule
+    except Exception as e:
+        if "UNIQUE" in str(e):
+            raise HTTPException(status_code=409, detail=f"Schedule for '{ticker}' already exists")
+        logger.error(f"Failed to create schedule: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/schedules")
+async def get_schedules():
+    """Get all schedules."""
+    try:
+        schedules = db_manager.get_schedules()
+        return {"schedules": schedules, "total_count": len(schedules)}
+    except Exception as e:
+        logger.error(f"Failed to get schedules: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/schedules/{schedule_id}")
+async def get_schedule(schedule_id: int):
+    """Get a schedule with recent runs."""
+    try:
+        schedule = db_manager.get_schedule(schedule_id)
+        if not schedule:
+            raise HTTPException(status_code=404, detail=f"Schedule {schedule_id} not found")
+        runs = db_manager.get_schedule_runs(schedule_id)
+        schedule["runs"] = runs
+        return schedule
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get schedule {schedule_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/api/schedules/{schedule_id}")
+async def update_schedule(schedule_id: int, body: ScheduleUpdate):
+    """Update a schedule."""
+    try:
+        update_fields = body.model_dump(exclude_none=True)
+        if not update_fields:
+            raise HTTPException(status_code=400, detail="No fields to update")
+
+        success = db_manager.update_schedule(schedule_id, **update_fields)
+        if not success:
+            raise HTTPException(status_code=404, detail=f"Schedule {schedule_id} not found")
+
+        updated = db_manager.get_schedule(schedule_id)
+        if hasattr(app.state, "scheduler"):
+            app.state.scheduler.update_schedule_job(updated)
+        return updated
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to update schedule {schedule_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/schedules/{schedule_id}")
+async def delete_schedule(schedule_id: int):
+    """Delete a schedule."""
+    try:
+        deleted = db_manager.delete_schedule(schedule_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail=f"Schedule {schedule_id} not found")
+        if hasattr(app.state, "scheduler"):
+            app.state.scheduler.remove_schedule(schedule_id)
+        return {"success": True, "message": f"Schedule {schedule_id} deleted"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete schedule {schedule_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/schedules/{schedule_id}/runs")
+async def get_schedule_runs(schedule_id: int, limit: int = Query(default=20, ge=1, le=100)):
+    """Get run history for a schedule."""
+    try:
+        schedule = db_manager.get_schedule(schedule_id)
+        if not schedule:
+            raise HTTPException(status_code=404, detail=f"Schedule {schedule_id} not found")
+        runs = db_manager.get_schedule_runs(schedule_id, limit=limit)
+        return {"schedule_id": schedule_id, "runs": runs, "total_count": len(runs)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get runs for schedule {schedule_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─── Alert Endpoints ────────────────────────────────────────────
+
+@app.post("/api/alerts")
+async def create_alert_rule(body: AlertRuleCreate):
+    """Create a new alert rule."""
+    ticker = body.ticker.upper()
+    valid_types = {"recommendation_change", "score_above", "score_below", "confidence_above", "confidence_below"}
+    if body.rule_type not in valid_types:
+        raise HTTPException(status_code=400, detail=f"Invalid rule_type. Valid: {', '.join(sorted(valid_types))}")
+    if body.rule_type != "recommendation_change" and body.threshold is None:
+        raise HTTPException(status_code=400, detail="threshold required for score/confidence rules")
+    try:
+        rule = db_manager.create_alert_rule(ticker, body.rule_type, body.threshold)
+        return rule
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/alerts")
+async def get_alert_rules(ticker: Optional[str] = Query(default=None)):
+    """Get all alert rules, optionally filtered by ticker."""
+    ticker = ticker.upper() if ticker else None
+    rules = db_manager.get_alert_rules(ticker=ticker)
+    return {"rules": rules, "total_count": len(rules)}
+
+
+@app.get("/api/alerts/notifications")
+async def get_alert_notifications(
+    unacknowledged: bool = Query(default=False),
+    limit: int = Query(default=50, ge=1, le=200),
+):
+    """Get alert notifications."""
+    notifications = db_manager.get_alert_notifications(unacknowledged_only=unacknowledged, limit=limit)
+    return {"notifications": notifications, "total_count": len(notifications)}
+
+
+@app.get("/api/alerts/notifications/count")
+async def get_unacknowledged_count():
+    """Get count of unacknowledged notifications (for badge)."""
+    count = db_manager.get_unacknowledged_count()
+    return {"count": count}
+
+
+@app.post("/api/alerts/notifications/{notification_id}/acknowledge")
+async def acknowledge_notification(notification_id: int):
+    """Acknowledge a notification."""
+    success = db_manager.acknowledge_alert(notification_id)
+    if not success:
+        raise HTTPException(status_code=404, detail=f"Notification {notification_id} not found")
+    return {"success": True}
+
+
+@app.get("/api/alerts/{rule_id}")
+async def get_alert_rule(rule_id: int):
+    """Get a specific alert rule."""
+    rule = db_manager.get_alert_rule(rule_id)
+    if not rule:
+        raise HTTPException(status_code=404, detail=f"Alert rule {rule_id} not found")
+    return rule
+
+
+@app.put("/api/alerts/{rule_id}")
+async def update_alert_rule(rule_id: int, body: AlertRuleUpdate):
+    """Update an alert rule."""
+    updates = {k: v for k, v in body.model_dump().items() if v is not None}
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    success = db_manager.update_alert_rule(rule_id, **updates)
+    if not success:
+        raise HTTPException(status_code=404, detail=f"Alert rule {rule_id} not found")
+    return db_manager.get_alert_rule(rule_id)
+
+
+@app.delete("/api/alerts/{rule_id}")
+async def delete_alert_rule(rule_id: int):
+    """Delete an alert rule."""
+    success = db_manager.delete_alert_rule(rule_id)
+    if not success:
+        raise HTTPException(status_code=404, detail=f"Alert rule {rule_id} not found")
+    return {"success": True, "deleted_id": rule_id}
+
+
 @app.get("/api/analyze/{ticker}/stream")
 async def analyze_ticker_stream(
     ticker: str,
@@ -592,7 +861,7 @@ async def analyze_ticker_stream(
 
     requested_agents = None
     if agents:
-        valid_agents = {"news", "sentiment", "fundamentals", "market", "technical", "macro"}
+        valid_agents = {"news", "sentiment", "fundamentals", "market", "technical", "macro", "options"}
         requested_agents = [a.strip().lower() for a in agents.split(",")]
         invalid = set(requested_agents) - valid_agents
         if invalid:

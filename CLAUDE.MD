@@ -2,14 +2,14 @@
 
 ## Project Overview
 
-This is a **Multi-Agent Market Research Platform** that analyzes stocks using 6 specialized AI agents working in parallel, followed by a solution agent that synthesizes their outputs into a final recommendation.
+This is a **Multi-Agent Market Research Platform** that analyzes stocks using 7 specialized AI agents working in parallel, followed by a solution agent that synthesizes their outputs into a final recommendation.
 
 **Key Concept**: Real-time stock analysis powered by distributed AI agents, each with a specific domain of expertise (news, sentiment, fundamentals, market data, technical analysis, macroeconomics).
 
 ## Architecture
 
 ```
-User → FastAPI API → Orchestrator → [6 Agents Run in Parallel]
+User → FastAPI API → Orchestrator → [7 Agents Run in Parallel]
                                           ↓
                                     Solution Agent (Synthesizer)
                                           ↓
@@ -26,7 +26,8 @@ User → FastAPI API → Orchestrator → [6 Agents Run in Parallel]
 4. **Market Agent** (`src/agents/market_agent.py`) - Price trends and market conditions
 5. **Technical Agent** (`src/agents/technical_agent.py`) - RSI, MACD, Bollinger Bands, SMA
 6. **Macro Agent** (`src/agents/macro_agent.py`) - US macroeconomic indicators (fed funds rate, CPI, GDP, treasury yields, unemployment, inflation)
-7. **Solution Agent** (`src/agents/solution_agent.py`) - Synthesizes all outputs with chain-of-thought reasoning
+7. **Options Agent** (`src/agents/options_agent.py`) - Options chain data, put/call ratios, unusual activity, max pain analysis
+8. **Solution Agent** (`src/agents/solution_agent.py`) - Synthesizes all outputs with chain-of-thought reasoning
 
 ### Data Source Priority (per agent)
 
@@ -40,6 +41,7 @@ All data-fetching agents follow a **primary → fallback** pattern:
 | **Technical Agent** | `RSI` + `MACD` + `BBANDS` + `SMA` (×3 periods) + `TIME_SERIES_DAILY` | yfinance + local indicator calculation |
 | **Macro Agent** | `FEDERAL_FUNDS_RATE` + `CPI` + `REAL_GDP` + `TREASURY_YIELD` (10Y & 2Y) + `UNEMPLOYMENT` + `INFLATION` | None (supplementary) |
 | **Sentiment Agent** | N/A (LLM-powered, enriched with AV per-article scores) | N/A |
+| **Options Agent** | `REALTIME_OPTIONS` + `HISTORICAL_OPTIONS` | yfinance options chain |
 
 Each agent inherits from `BaseAgent` which provides:
 - `_av_request()` method for Alpha Vantage API calls with error handling, rate limiting, and response caching
@@ -62,6 +64,9 @@ Each agent inherits from `BaseAgent` which provides:
 - **`src/models.py`** - Pydantic models for data validation
 - **`src/av_rate_limiter.py`** - Sliding-window rate limiter for AV API (per-minute + per-day)
 - **`src/av_cache.py`** - In-memory TTL cache for AV API responses
+- **`src/pdf_report.py`** - PDF report generation using ReportLab
+- **`src/scheduler.py`** - Background analysis scheduler using APScheduler
+- **`src/alert_engine.py`** - Alert rule evaluation engine for post-analysis notifications
 
 ### Agent Directory Structure
 ```
@@ -73,6 +78,7 @@ src/agents/
 ├── market_agent.py       # Market data (AV GLOBAL_QUOTE + DAILY → yfinance)
 ├── technical_agent.py    # Technical indicators (AV RSI/MACD/BBANDS/SMA → yfinance + local calc)
 ├── macro_agent.py        # US macroeconomic indicators (AV 7-endpoint, no fallback)
+├── options_agent.py      # Options flow & unusual activity (AV REALTIME_OPTIONS → yfinance)
 └── solution_agent.py     # Final synthesis (LLM-powered)
 ```
 
@@ -81,7 +87,7 @@ src/agents/
 frontend/
 ├── src/
 │   ├── components/
-│   │   ├── Dashboard.jsx          # Main layout (view mode: Analysis/History/Watchlist)
+│   │   ├── Dashboard.jsx          # Main layout (view mode: Analysis/History/Watchlist/Schedules/Alerts)
 │   │   ├── Recommendation.jsx     # SVG gauge with BUY/HOLD/SELL + agent consensus strip
 │   │   ├── AgentStatus.jsx        # Real-time agent progress pipeline
 │   │   ├── PriceChart.jsx         # TradingView chart, indicators, data source badges
@@ -91,7 +97,10 @@ frontend/
 │   │   ├── NewsFeed.jsx           # Relevance-scored news article list
 │   │   ├── HistoryDashboard.jsx   # Analysis history browser (trend charts, filters, pagination)
 │   │   ├── WatchlistPanel.jsx     # Watchlist management + batch analyze + comparison table
-│   │   └── Icons.jsx              # SVG icon components (26+ icons)
+│   │   ├── OptionsFlow.jsx        # Options flow display (P/C ratio, unusual activity, max pain)
+│   │   ├── SchedulePanel.jsx      # Schedule management for recurring analyses
+│   │   ├── AlertPanel.jsx         # Alert rules management and notification feed
+│   │   └── Icons.jsx              # SVG icon components (30+ icons)
 │   ├── context/
 │   │   └── AnalysisContext.jsx    # React context for analysis state
 │   ├── hooks/
@@ -99,7 +108,7 @@ frontend/
 │   │   ├── useHistory.js          # History state management (pagination, filters, tickers)
 │   │   └── useSSE.js              # SSE streaming hook
 │   ├── utils/
-│   │   └── api.js                 # API client (analysis + history + watchlist endpoints)
+│   │   └── api.js                 # API client (analysis + history + watchlist + schedule + alert endpoints)
 │   ├── index.css                  # Theme system (Tailwind v4 @theme + CSS custom properties)
 │   └── App.jsx                    # Root component
 ├── Dockerfile                     # Production frontend (multi-stage: node build → nginx)
@@ -109,7 +118,7 @@ frontend/
 └── package.json
 ```
 
-**Frontend Layout**: 2-7-3 grid (AgentStatus | Content | Recommendation+Macro). All analysis sections (Summary, Sentiment, News) render vertically in the center column. Header has a view mode toggle switching between Analysis, History, and Watchlist views.
+**Frontend Layout**: 2-7-3 grid (AgentStatus | Content | Recommendation+Macro). All analysis sections (Summary, Sentiment, News) render vertically in the center column. Header has a view mode toggle switching between Analysis, History, Watchlist, Schedules, and Alerts views. A notification bell with badge shows unacknowledged alert count.
 
 **Frontend Theme**: Hero UI dark theme variant (zinc-based). Three color layers:
 1. `tailwind.config.js` - Custom color values
@@ -117,13 +126,15 @@ frontend/
 3. `:root` block in `index.css` - CSS custom properties for backgrounds, borders, glows
 
 **Key Frontend Patterns**:
-- `Summary.jsx` parses the LLM's 10-step chain-of-thought into domain-specific expandable sections (maps to solution agent prompt steps 1-10), each with icon, color, one-line headline, and collapsible detail
+- `Summary.jsx` parses the LLM's 11-step chain-of-thought into domain-specific expandable sections (maps to solution agent prompt steps 1-11), each with icon, color, one-line headline, and collapsible detail
 - `Recommendation.jsx` includes an agent consensus strip showing per-agent signal direction (bullish/bearish/neutral dots derived from each agent's output data)
 - `MacroSnapshot.jsx` surfaces macro data (fed funds, yields, inflation, GDP) that otherwise only feeds the LLM reasoning
 - `PriceChart.jsx` shows data source provenance badges (`AV` / `YF`) from `data_source` fields
 - `HistoryDashboard.jsx` uses `useHistory` hook for state; SVG `TrendChart` plots scores chronologically with color-coded recommendation dots; `FilterBar` toggles BUY/HOLD/SELL; `Pagination` handles offset-based pages
 - `WatchlistPanel.jsx` manages CRUD via `api.js` watchlist functions; SSE `EventSource` for batch analysis; `ComparisonTable` sorts by confidence
-- `Dashboard.jsx` has `VIEW_MODES` enum (ANALYSIS, HISTORY, WATCHLIST) — conditionally renders the appropriate panel
+- `SchedulePanel.jsx` manages schedule CRUD via `api.js` schedule functions; create/edit/delete schedules with interval selection; enable/disable toggle; expandable run history
+- `AlertPanel.jsx` manages alert rules and notifications; create rules with 5 types (recommendation_change, score_above/below, confidence_above/below); notifications feed with acknowledge; unread filter toggle
+- `Dashboard.jsx` has `VIEW_MODES` enum (ANALYSIS, HISTORY, WATCHLIST, SCHEDULES, ALERTS) — conditionally renders the appropriate panel
 - Glass cards have hover transitions (`border-color 0.2s`) defined in `index.css`
 
 ## Key Technologies
@@ -139,7 +150,9 @@ frontend/
 - **NewsAPI** - News aggregation (fallback for news agent)
 - **React + Tailwind CSS v4** - Frontend UI with Hero UI dark theme
 - **Vite** - Frontend build tool
-- **pytest** - Test framework (80 tests with pytest-asyncio, aioresponses, httpx)
+- **pytest** - Test framework (157 tests with pytest-asyncio, aioresponses, httpx)
+- **ReportLab** - PDF report generation
+- **APScheduler** - Background job scheduling for recurring analyses
 - **Docker** - Containerization (multi-stage builds, nginx reverse proxy)
 
 ## Environment Setup
@@ -179,6 +192,10 @@ TWITTER_BEARER_TOKEN=...
 - `MACD_FAST` / `MACD_SLOW` / `MACD_SIGNAL` - MACD parameters (default: 12/26/9)
 - `BB_PERIOD` / `BB_STD` - Bollinger Bands parameters (default: 20/2)
 - `MACRO_AGENT_ENABLED` - Enable/disable macroeconomic agent (default: true)
+- `OPTIONS_AGENT_ENABLED` - Enable/disable options flow agent (default: true)
+- `SCHEDULER_ENABLED` - Enable/disable background scheduler (default: true)
+- `SCHEDULER_MIN_INTERVAL` - Minimum schedule interval in minutes (default: 30)
+- `ALERTS_ENABLED` - Enable/disable alert evaluation after analysis (default: true)
 
 ## Running the Application
 
@@ -277,6 +294,38 @@ DELETE /api/watchlists/{id}/tickers/{ticker}       # Remove ticker
 POST   /api/watchlists/{id}/analyze               # Batch analyze (SSE stream)
 ```
 
+**Export Analysis as PDF**
+```bash
+GET /api/analysis/{ticker}/export/pdf?analysis_id={optional_id}
+
+# Latest analysis
+curl -O http://localhost:8000/api/analysis/NVDA/export/pdf
+
+# Specific analysis
+curl -O "http://localhost:8000/api/analysis/NVDA/export/pdf?analysis_id=3"
+```
+
+**Schedule CRUD**
+```bash
+POST   /api/schedules                            # Create schedule (ticker, interval_minutes)
+GET    /api/schedules                             # List all schedules
+GET    /api/schedules/{id}                        # Get schedule with recent runs
+PUT    /api/schedules/{id}                        # Update schedule (interval, enabled)
+DELETE /api/schedules/{id}                        # Delete schedule
+```
+
+**Alert CRUD**
+```bash
+POST   /api/alerts                               # Create alert rule (ticker, rule_type, threshold)
+GET    /api/alerts                                # List all rules (?ticker=SYMBOL)
+GET    /api/alerts/{id}                           # Get specific rule
+PUT    /api/alerts/{id}                           # Update rule
+DELETE /api/alerts/{id}                           # Delete rule
+GET    /api/alerts/notifications                  # Get notifications (?unacknowledged=true)
+GET    /api/alerts/notifications/count            # Unacknowledged count (badge)
+POST   /api/alerts/notifications/{id}/acknowledge # Mark as read
+```
+
 ## Database Schema
 
 **SQLite Database**: `market_research.db`
@@ -303,6 +352,18 @@ POST   /api/watchlists/{id}/analyze               # Batch analyze (SSE stream)
 
 7. **`watchlist_tickers`** - Many-to-many: watchlist ↔ ticker
    - `id`, `watchlist_id`, `ticker`, `added_at`, UNIQUE(`watchlist_id`, `ticker`)
+
+8. **`schedules`** - Recurring analysis configuration
+   - `id`, `ticker` (UNIQUE), `interval_minutes`, `agents`, `enabled`, `last_run_at`, `next_run_at`
+
+9. **`schedule_runs`** - Schedule execution audit log
+   - `id`, `schedule_id`, `analysis_id`, `started_at`, `completed_at`, `success`, `error`
+
+10. **`alert_rules`** - User-defined alert conditions
+    - `id`, `ticker`, `rule_type`, `threshold`, `enabled`, `created_at`, `updated_at`
+
+11. **`alert_notifications`** - Triggered alert history
+    - `id`, `alert_rule_id`, `analysis_id`, `ticker`, `message`, `previous_value`, `current_value`, `acknowledged`
 
 ## Common Tasks
 
@@ -392,7 +453,8 @@ The `Orchestrator` class coordinates all agents:
 5. Runs sentiment agent (depends on news + market results)
 6. Passes all results to Solution Agent for synthesis
 7. Saves to database
-8. Closes shared session in `finally` block
+8. Evaluates alert rules (if ALERTS_ENABLED) and triggers notifications
+9. Closes shared session in `finally` block
 
 ### Agent Base Class
 All agents inherit from `BaseAgent` which provides:
@@ -415,7 +477,7 @@ All data agents follow the same pattern:
 
 ### Configurable Agent Pipeline
 The API accepts a `?agents=` query parameter to select which agents to run:
-- Valid agents: `news`, `sentiment`, `fundamentals`, `market`, `technical`, `macro`
+- Valid agents: `news`, `sentiment`, `fundamentals`, `market`, `technical`, `macro`, `options`
 - Dependencies are auto-resolved (e.g., `sentiment` auto-adds `news`)
 - Solution agent always runs to synthesize available results
 - The `AGENT_REGISTRY` in `orchestrator.py` maps agent names to classes and dependencies
@@ -430,7 +492,7 @@ Per Agent:
 
 ## Testing
 
-### Run Test Suite (80 tests)
+### Run Test Suite (157 tests)
 ```bash
 source venv/bin/activate
 
@@ -451,10 +513,14 @@ python -m pytest tests/ -v -m "not slow"
 - `tests/conftest.py` — Shared fixtures (temp DB, AV cache, rate limiter, mock responses, agent factory)
 - `tests/test_av_cache.py` — 14 tests (TTL, coalescing, key generation, stats)
 - `tests/test_av_rate_limiter.py` — 7 tests (limits, concurrency, exhaustion)
-- `tests/test_database.py` — 16 tests (CRUD, isolation, indexing)
+- `tests/test_database.py` — 25 tests (CRUD, isolation, indexing, schedules, alerts)
 - `tests/test_agents/test_base_agent.py` — 18 tests (validation, execute flow, AV requests, retry)
-- `tests/test_orchestrator.py` — 11 tests (resolution, dependencies, parallel, progress)
-- `tests/test_api.py` — 14 tests (all endpoints, error handling, SSE)
+- `tests/test_agents/test_options_agent.py` — 18 tests (analysis, fetch, helpers, fallback)
+- `tests/test_orchestrator.py` — 12 tests (resolution, dependencies, parallel, progress)
+- `tests/test_api.py` — 22 tests (all endpoints, error handling, SSE, schedules, alerts)
+- `tests/test_pdf_report.py` — 10 tests (PDF generation, all rec types, edge cases)
+- `tests/test_scheduler.py` — 7 tests (start/stop, job management, execution)
+- `tests/test_alert_engine.py` — 12 tests (all rule types, evaluation logic, DB persistence)
 
 ### Test API Manually
 ```bash
@@ -533,7 +599,7 @@ The frontend is in `frontend/` directory (React + Vite + Tailwind CSS v4).
 - Background: `#000000` (pure black)
 - Content surfaces: `#18181b` → `#27272a` → `#3f3f46` → `#52525b` (zinc scale)
 
-**Summary.jsx Chain-of-Thought Parsing**: The component maps the LLM's numbered reasoning (1-10) to domain-specific sections using `SECTION_META` — each step gets an icon, accent color, and one-line headline extracted from the first sentence. Sections 1 (Fundamentals) and 10 (Final Recommendation) are expanded by default; others are collapsed.
+**Summary.jsx Chain-of-Thought Parsing**: The component maps the LLM's numbered reasoning (1-11) to domain-specific sections using `SECTION_META` — each step gets an icon, accent color, and one-line headline extracted from the first sentence. Sections 1 (Fundamentals) and 11 (Final Recommendation) are expanded by default; others are collapsed.
 
 **Agent Data Surfaced in UI**:
 - `agent_results.market.data` → PriceChart (price, volume, trend, change %)
@@ -541,6 +607,7 @@ The frontend is in `frontend/` directory (React + Vite + Tailwind CSS v4).
 - `agent_results.sentiment.data` → SentimentReport (score, factors, themes)
 - `agent_results.news.data` → NewsFeed (articles, headlines)
 - `agent_results.macro.data` → MacroSnapshot (indicators, yield curve, economic cycle, risk environment)
+- `agent_results.options.data` → OptionsFlow (P/C ratio, unusual activity, max pain, overall signal)
 - `agent_results.*.data.data_source` → PriceChart source badges (AV/YF)
 - All agent signals → Recommendation consensus strip (bullish/bearish/neutral dots)
 
@@ -557,7 +624,7 @@ The frontend is in `frontend/` directory (React + Vite + Tailwind CSS v4).
 ## Development Workflow
 
 1. **Make changes** to agents or orchestrator
-2. **Run test suite**: `python -m pytest tests/ -v` (80 tests, ~25 seconds)
+2. **Run test suite**: `python -m pytest tests/ -v` (157 tests, ~28 seconds)
 3. **Test locally** with curl or Python
 4. **Check database** to verify data persistence
 5. **Run API tests** to ensure endpoints work
@@ -689,7 +756,8 @@ cd frontend && npm install
     "fundamentals": {"data_source": "alpha_vantage", "...": "..."},
     "market": {"data_source": "alpha_vantage", "...": "..."},
     "technical": {"data_source": "alpha_vantage", "...": "..."},
-    "macro": {"data_source": "alpha_vantage", "...": "..."}
+    "macro": {"data_source": "alpha_vantage", "...": "..."},
+    "options": {"data_source": "yfinance", "...": "..."}
   },
   "duration_seconds": 32.5
 }

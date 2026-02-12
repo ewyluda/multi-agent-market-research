@@ -134,6 +134,73 @@ class DatabaseManager:
                 )
             """)
 
+            # Scheduled analyses
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS schedules (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ticker TEXT NOT NULL,
+                    interval_minutes INTEGER NOT NULL,
+                    agents TEXT,
+                    enabled BOOLEAN DEFAULT 1,
+                    last_run_at TEXT,
+                    next_run_at TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    UNIQUE(ticker)
+                )
+            """)
+
+            # Schedule run history
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS schedule_runs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    schedule_id INTEGER NOT NULL,
+                    analysis_id INTEGER,
+                    started_at TEXT NOT NULL,
+                    completed_at TEXT,
+                    success BOOLEAN,
+                    error TEXT,
+                    FOREIGN KEY(schedule_id) REFERENCES schedules(id),
+                    FOREIGN KEY(analysis_id) REFERENCES analyses(id)
+                )
+            """)
+
+            # Alert rules
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS alert_rules (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ticker TEXT NOT NULL,
+                    rule_type TEXT NOT NULL CHECK(rule_type IN (
+                        'recommendation_change',
+                        'score_above',
+                        'score_below',
+                        'confidence_above',
+                        'confidence_below'
+                    )),
+                    threshold REAL,
+                    enabled BOOLEAN DEFAULT 1,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+            """)
+
+            # Alert notifications
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS alert_notifications (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    alert_rule_id INTEGER NOT NULL,
+                    analysis_id INTEGER NOT NULL,
+                    ticker TEXT NOT NULL,
+                    message TEXT NOT NULL,
+                    previous_value TEXT,
+                    current_value TEXT,
+                    acknowledged BOOLEAN DEFAULT 0,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY(alert_rule_id) REFERENCES alert_rules(id),
+                    FOREIGN KEY(analysis_id) REFERENCES analyses(id)
+                )
+            """)
+
             # Create indexes for performance
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_analyses_ticker_timestamp
@@ -150,6 +217,18 @@ class DatabaseManager:
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_watchlist_tickers_watchlist
                 ON watchlist_tickers(watchlist_id)
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_schedule_runs_schedule
+                ON schedule_runs(schedule_id, started_at DESC)
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_alert_rules_ticker
+                ON alert_rules(ticker)
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_alert_notifications_acknowledged
+                ON alert_notifications(acknowledged, created_at DESC)
             """)
 
     def insert_analysis(
@@ -673,6 +752,217 @@ class DatabaseManager:
                     "latest_analysis": dict(row) if row else None,
                 })
             return results
+
+    # ─── Schedule Methods ──────────────────────────────────────────────
+
+    def create_schedule(self, ticker: str, interval_minutes: int, agents: Optional[str] = None) -> Dict[str, Any]:
+        """Create a new schedule. Returns the created schedule dict."""
+        now = datetime.utcnow().isoformat()
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """INSERT INTO schedules (ticker, interval_minutes, agents, enabled, created_at, updated_at)
+                   VALUES (?, ?, ?, 1, ?, ?)""",
+                (ticker.upper(), interval_minutes, agents, now, now),
+            )
+            return {
+                "id": cursor.lastrowid,
+                "ticker": ticker.upper(),
+                "interval_minutes": interval_minutes,
+                "agents": agents,
+                "enabled": True,
+                "last_run_at": None,
+                "next_run_at": None,
+                "created_at": now,
+                "updated_at": now,
+            }
+
+    def get_schedules(self) -> List[Dict[str, Any]]:
+        """Get all schedules."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM schedules ORDER BY created_at DESC")
+            return [dict(row) for row in cursor.fetchall()]
+
+    def get_schedule(self, schedule_id: int) -> Optional[Dict[str, Any]]:
+        """Get a single schedule by ID."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM schedules WHERE id = ?", (schedule_id,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    def update_schedule(self, schedule_id: int, **kwargs) -> bool:
+        """Update schedule fields (interval_minutes, agents, enabled, last_run_at, next_run_at). Returns False if not found."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT id FROM schedules WHERE id = ?", (schedule_id,))
+            if not cursor.fetchone():
+                return False
+
+            allowed = {"interval_minutes", "agents", "enabled", "last_run_at", "next_run_at"}
+            updates = {k: v for k, v in kwargs.items() if k in allowed and v is not None}
+            if not updates:
+                return True
+
+            updates["updated_at"] = datetime.utcnow().isoformat()
+            set_clause = ", ".join(f"{k} = ?" for k in updates)
+            values = list(updates.values()) + [schedule_id]
+            cursor.execute(f"UPDATE schedules SET {set_clause} WHERE id = ?", values)
+            return True
+
+    def delete_schedule(self, schedule_id: int) -> bool:
+        """Delete a schedule and its runs. Returns False if not found."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT id FROM schedules WHERE id = ?", (schedule_id,))
+            if not cursor.fetchone():
+                return False
+            cursor.execute("DELETE FROM schedule_runs WHERE schedule_id = ?", (schedule_id,))
+            cursor.execute("DELETE FROM schedules WHERE id = ?", (schedule_id,))
+            return True
+
+    def insert_schedule_run(self, schedule_id: int, analysis_id: Optional[int], started_at: str, completed_at: Optional[str], success: bool, error: Optional[str] = None) -> int:
+        """Insert a schedule run record. Returns run ID."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """INSERT INTO schedule_runs (schedule_id, analysis_id, started_at, completed_at, success, error)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (schedule_id, analysis_id, started_at, completed_at, success, error),
+            )
+            return cursor.lastrowid
+
+    def get_schedule_runs(self, schedule_id: int, limit: int = 20) -> List[Dict[str, Any]]:
+        """Get recent runs for a schedule."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT * FROM schedule_runs WHERE schedule_id = ? ORDER BY started_at DESC LIMIT ?",
+                (schedule_id, limit),
+            )
+            return [dict(row) for row in cursor.fetchall()]
+
+    # ─── Alert Methods ─────────────────────────────────────────────
+
+    def create_alert_rule(self, ticker: str, rule_type: str, threshold: Optional[float] = None) -> Dict[str, Any]:
+        """Create a new alert rule."""
+        now = datetime.utcnow().isoformat()
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """INSERT INTO alert_rules (ticker, rule_type, threshold, enabled, created_at, updated_at)
+                   VALUES (?, ?, ?, 1, ?, ?)""",
+                (ticker.upper(), rule_type, threshold, now, now),
+            )
+            return {
+                "id": cursor.lastrowid,
+                "ticker": ticker.upper(),
+                "rule_type": rule_type,
+                "threshold": threshold,
+                "enabled": True,
+                "created_at": now,
+                "updated_at": now,
+            }
+
+    def get_alert_rules(self, ticker: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Get all alert rules, optionally filtered by ticker."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            if ticker:
+                cursor.execute(
+                    "SELECT * FROM alert_rules WHERE ticker = ? ORDER BY created_at DESC",
+                    (ticker.upper(),),
+                )
+            else:
+                cursor.execute("SELECT * FROM alert_rules ORDER BY created_at DESC")
+            return [dict(row) for row in cursor.fetchall()]
+
+    def get_alert_rule(self, rule_id: int) -> Optional[Dict[str, Any]]:
+        """Get a single alert rule."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM alert_rules WHERE id = ?", (rule_id,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    def update_alert_rule(self, rule_id: int, **kwargs) -> bool:
+        """Update alert rule fields. Allowed: rule_type, threshold, enabled."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT id FROM alert_rules WHERE id = ?", (rule_id,))
+            if not cursor.fetchone():
+                return False
+
+            allowed = {"rule_type", "threshold", "enabled"}
+            updates = {k: v for k, v in kwargs.items() if k in allowed and v is not None}
+            if not updates:
+                return True
+
+            updates["updated_at"] = datetime.utcnow().isoformat()
+            set_clause = ", ".join(f"{k} = ?" for k in updates)
+            values = list(updates.values()) + [rule_id]
+            cursor.execute(f"UPDATE alert_rules SET {set_clause} WHERE id = ?", values)
+            return True
+
+    def delete_alert_rule(self, rule_id: int) -> bool:
+        """Delete an alert rule and its notifications."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT id FROM alert_rules WHERE id = ?", (rule_id,))
+            if not cursor.fetchone():
+                return False
+            cursor.execute("DELETE FROM alert_notifications WHERE alert_rule_id = ?", (rule_id,))
+            cursor.execute("DELETE FROM alert_rules WHERE id = ?", (rule_id,))
+            return True
+
+    def insert_alert_notification(self, alert_rule_id: int, analysis_id: int, ticker: str, message: str, previous_value: Optional[str] = None, current_value: Optional[str] = None) -> int:
+        """Insert an alert notification. Returns notification ID."""
+        now = datetime.utcnow().isoformat()
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """INSERT INTO alert_notifications (alert_rule_id, analysis_id, ticker, message, previous_value, current_value, acknowledged, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, 0, ?)""",
+                (alert_rule_id, analysis_id, ticker.upper(), message, previous_value, current_value, now),
+            )
+            return cursor.lastrowid
+
+    def get_alert_notifications(self, unacknowledged_only: bool = False, limit: int = 50) -> List[Dict[str, Any]]:
+        """Get alert notifications."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            if unacknowledged_only:
+                cursor.execute(
+                    "SELECT * FROM alert_notifications WHERE acknowledged = 0 ORDER BY created_at DESC LIMIT ?",
+                    (limit,),
+                )
+            else:
+                cursor.execute(
+                    "SELECT * FROM alert_notifications ORDER BY created_at DESC LIMIT ?",
+                    (limit,),
+                )
+            return [dict(row) for row in cursor.fetchall()]
+
+    def acknowledge_alert(self, notification_id: int) -> bool:
+        """Mark a notification as acknowledged. Returns False if not found."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT id FROM alert_notifications WHERE id = ?", (notification_id,))
+            if not cursor.fetchone():
+                return False
+            cursor.execute(
+                "UPDATE alert_notifications SET acknowledged = 1 WHERE id = ?",
+                (notification_id,),
+            )
+            return True
+
+    def get_unacknowledged_count(self) -> int:
+        """Get count of unacknowledged notifications."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM alert_notifications WHERE acknowledged = 0")
+            return cursor.fetchone()[0]
 
     def get_cached_news(
         self,

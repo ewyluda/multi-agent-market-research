@@ -230,6 +230,7 @@ def test_config():
         "MAX_NEWS_ARTICLES": 10,
         "PARALLEL_AGENTS": True,
         "MACRO_AGENT_ENABLED": True,
+        "OPTIONS_AGENT_ENABLED": True,
         "FUNDAMENTALS_LLM_ENABLED": False,
         "AV_RATE_LIMIT_PER_MINUTE": 100,
         "AV_RATE_LIMIT_PER_DAY": 1000,

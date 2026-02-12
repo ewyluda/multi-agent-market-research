@@ -3,7 +3,8 @@
  * verdict banner, at-a-glance metrics, and price targets.
  */
 
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
+import { exportAnalysisPDF } from '../utils/api';
 import {
   DocumentIcon,
   ShieldExclamationIcon,
@@ -19,6 +20,7 @@ import {
   SparklesIcon,
   ChevronDownIcon,
   TargetIcon,
+  OptionsIcon,
 } from './Icons';
 
 /* ─── Section metadata ──────────────────────────────────────────── */
@@ -29,11 +31,12 @@ const SECTION_META = [
   { id: 3, label: 'Market Conditions', icon: ChartBarIcon, color: 'accent-cyan' },
   { id: 4, label: 'Sentiment & News', icon: BrainIcon, color: 'accent-green' },
   { id: 5, label: 'Technical Signals', icon: ChartLineIcon, color: 'accent-amber' },
-  { id: 6, label: 'Macro Environment', icon: GlobeIcon, color: 'accent-cyan' },
-  { id: 7, label: 'Earnings Trends', icon: TrendingUpIcon, color: 'accent-blue' },
-  { id: 8, label: 'Risk Factors', icon: ShieldExclamationIcon, color: 'accent-red' },
-  { id: 9, label: 'Risk/Reward Assessment', icon: ChartBarIcon, color: 'accent-amber' },
-  { id: 10, label: 'Final Recommendation', icon: SparklesIcon, color: 'accent-green' },
+  { id: 6, label: 'Options Flow', icon: OptionsIcon, color: 'accent-purple' },
+  { id: 7, label: 'Macro Environment', icon: GlobeIcon, color: 'accent-cyan' },
+  { id: 8, label: 'Earnings Trends', icon: TrendingUpIcon, color: 'accent-blue' },
+  { id: 9, label: 'Risk Factors', icon: ShieldExclamationIcon, color: 'accent-red' },
+  { id: 10, label: 'Risk/Reward Assessment', icon: ChartBarIcon, color: 'accent-amber' },
+  { id: 11, label: 'Final Recommendation', icon: SparklesIcon, color: 'accent-green' },
 ];
 
 /* Color map for Tailwind dynamic classes */
@@ -308,6 +311,20 @@ const SummarySkeleton = () => (
 /* ─── Main Component ────────────────────────────────────────────── */
 
 const Summary = ({ analysis }) => {
+  const [pdfLoading, setPdfLoading] = useState(false);
+
+  const handleExportPDF = useCallback(async () => {
+    if (!analysis?.ticker) return;
+    setPdfLoading(true);
+    try {
+      await exportAnalysisPDF(analysis.ticker, analysis.analysis_id);
+    } catch (err) {
+      console.error('PDF export failed:', err);
+    } finally {
+      setPdfLoading(false);
+    }
+  }, [analysis?.ticker, analysis?.analysis_id]);
+
   if (!analysis) {
     return <SummarySkeleton />;
   }
@@ -329,6 +346,24 @@ const Summary = ({ analysis }) => {
       {/* Verdict Banner */}
       <VerdictBanner analysis={analysis} />
 
+      {/* Export Bar */}
+      <div className="flex justify-end">
+        <button
+          onClick={handleExportPDF}
+          disabled={pdfLoading}
+          className="flex items-center space-x-1.5 px-3 py-1.5 text-xs font-medium rounded-lg
+            bg-dark-card hover:bg-dark-card-hover border border-white/5 hover:border-white/10
+            text-gray-400 hover:text-gray-200 transition-all duration-200 disabled:opacity-50"
+        >
+          <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="7 10 12 15 17 10" />
+            <line x1="12" y1="15" x2="12" y2="3" />
+          </svg>
+          <span>{pdfLoading ? 'Exporting...' : 'Export PDF'}</span>
+        </button>
+      </div>
+
       {/* At a Glance */}
       <AtAGlance analysis={analysis} />
 
@@ -344,7 +379,7 @@ const Summary = ({ analysis }) => {
               <AnalysisSection
                 key={section.num}
                 section={section}
-                defaultExpanded={section.num === 1 || section.num === 10}
+                defaultExpanded={section.num === 1 || section.num === 11}
               />
             ))}
           </div>

@@ -101,6 +101,34 @@ class WatchlistRename(BaseModel):
     name: str = Field(..., min_length=1, max_length=50, description="New watchlist name")
 
 
+class ScheduleCreate(BaseModel):
+    """Request model for creating a schedule."""
+    ticker: str = Field(..., min_length=1, max_length=5, description="Stock ticker symbol")
+    interval_minutes: int = Field(..., ge=30, le=10080, description="Interval in minutes (30 min to 1 week)")
+    agents: Optional[str] = Field(default=None, description="Comma-separated agent names, or null for all")
+
+
+class ScheduleUpdate(BaseModel):
+    """Request model for updating a schedule."""
+    interval_minutes: Optional[int] = Field(default=None, ge=30, le=10080)
+    agents: Optional[str] = None
+    enabled: Optional[bool] = None
+
+
+class AlertRuleCreate(BaseModel):
+    """Request model for creating an alert rule."""
+    ticker: str = Field(..., min_length=1, max_length=5, description="Stock ticker symbol")
+    rule_type: str = Field(..., description="Alert type: recommendation_change, score_above, score_below, confidence_above, confidence_below")
+    threshold: Optional[float] = Field(default=None, description="Threshold value (required for score/confidence rules)")
+
+
+class AlertRuleUpdate(BaseModel):
+    """Request model for updating an alert rule."""
+    rule_type: Optional[str] = None
+    threshold: Optional[float] = None
+    enabled: Optional[bool] = None
+
+
 class HealthCheckResponse(BaseModel):
     """Health check response."""
     status: str

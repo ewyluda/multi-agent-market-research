@@ -146,6 +146,15 @@ class TestExportCSV:
         assert response.status_code == 404
 
 
+class TestExportPDF:
+    """Tests for GET /api/analysis/{ticker}/export/pdf."""
+
+    def test_pdf_export_not_found_returns_404(self, client):
+        """GET /api/analysis/ZZZZ/export/pdf returns 404 when no data exists."""
+        response = client.get("/api/analysis/ZZZZ/export/pdf")
+        assert response.status_code == 404
+
+
 class TestSSEStream:
     """Tests for GET /api/analyze/{ticker}/stream."""
 
@@ -158,3 +167,99 @@ class TestSSEStream:
         """GET /api/analyze/AAPL/stream?agents=fake returns 400."""
         response = client.get("/api/analyze/AAPL/stream?agents=fake_agent")
         assert response.status_code == 400
+
+
+class TestScheduleAPI:
+    """Tests for schedule CRUD endpoints."""
+
+    def test_create_schedule(self, client):
+        """POST /api/schedules with valid body returns 200."""
+        # Use a unique alpha-only ticker unlikely to already have a schedule
+        import random
+        import string
+        ticker = "Z" + "".join(random.choices(string.ascii_uppercase, k=4))
+        response = client.post(
+            "/api/schedules",
+            json={"ticker": ticker, "interval_minutes": 60},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["ticker"] == ticker
+        assert data["interval_minutes"] == 60
+        assert data["enabled"] is True
+        assert "id" in data
+
+        # Clean up: delete the schedule we just created
+        client.delete(f"/api/schedules/{data['id']}")
+
+    def test_get_schedules(self, client):
+        """GET /api/schedules returns a list."""
+        response = client.get("/api/schedules")
+        assert response.status_code == 200
+        data = response.json()
+        assert "schedules" in data
+        assert "total_count" in data
+
+    def test_delete_schedule_not_found(self, client):
+        """DELETE /api/schedules/999 returns 404."""
+        response = client.delete("/api/schedules/999")
+        assert response.status_code == 404
+
+
+class TestAlertAPI:
+    """Tests for alert CRUD and notification endpoints."""
+
+    def test_create_alert_rule(self, client):
+        """POST /api/alerts with valid body returns 200."""
+        response = client.post(
+            "/api/alerts",
+            json={"ticker": "AAPL", "rule_type": "recommendation_change"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["ticker"] == "AAPL"
+        assert data["rule_type"] == "recommendation_change"
+        assert data["enabled"] is True
+        assert "id" in data
+
+        # Clean up
+        client.delete(f"/api/alerts/{data['id']}")
+
+    def test_get_alert_rules(self, client):
+        """GET /api/alerts returns a list of rules."""
+        response = client.get("/api/alerts")
+        assert response.status_code == 200
+        data = response.json()
+        assert "rules" in data
+
+    def test_delete_alert_rule(self, client):
+        """DELETE /api/alerts/{id} removes the rule."""
+        # Create a rule first
+        create_resp = client.post(
+            "/api/alerts",
+            json={"ticker": "TSLA", "rule_type": "score_above", "threshold": 50},
+        )
+        rule_id = create_resp.json()["id"]
+
+        # Delete it
+        del_resp = client.delete(f"/api/alerts/{rule_id}")
+        assert del_resp.status_code == 200
+
+        # Verify it's gone
+        get_resp = client.get(f"/api/alerts/{rule_id}")
+        assert get_resp.status_code == 404
+
+    def test_get_notifications_empty(self, client):
+        """GET /api/alerts/notifications returns empty list when no notifications."""
+        response = client.get("/api/alerts/notifications")
+        assert response.status_code == 200
+        data = response.json()
+        assert "notifications" in data
+
+    def test_get_unacknowledged_count_zero(self, client):
+        """GET /api/alerts/notifications/count returns count."""
+        response = client.get("/api/alerts/notifications/count")
+        assert response.status_code == 200
+        data = response.json()
+        assert "count" in data
+        assert data["count"] >= 0

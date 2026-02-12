@@ -16,6 +16,7 @@ from .agents.fundamentals_agent import FundamentalsAgent
 from .agents.market_agent import MarketAgent
 from .agents.technical_agent import TechnicalAgent
 from .agents.macro_agent import MacroAgent
+from .agents.options_agent import OptionsAgent
 from .agents.solution_agent import SolutionAgent
 from .database import DatabaseManager
 from .av_rate_limiter import AVRateLimiter
@@ -32,10 +33,11 @@ class Orchestrator:
         "fundamentals": {"class": FundamentalsAgent, "requires": []},
         "technical": {"class": TechnicalAgent, "requires": []},
         "macro": {"class": MacroAgent, "requires": []},
+        "options": {"class": OptionsAgent, "requires": []},
         "sentiment": {"class": SentimentAgent, "requires": ["news"]},
     }
 
-    DEFAULT_AGENTS = ["news", "market", "fundamentals", "technical", "macro", "sentiment"]
+    DEFAULT_AGENTS = ["news", "market", "fundamentals", "technical", "macro", "options", "sentiment"]
 
     def __init__(
         self,
@@ -123,6 +125,8 @@ class Orchestrator:
             agents = list(self.DEFAULT_AGENTS)
             if not self.config.get("MACRO_AGENT_ENABLED", True):
                 agents = [a for a in agents if a != "macro"]
+            if not self.config.get("OPTIONS_AGENT_ENABLED", True):
+                agents = [a for a in agents if a != "options"]
             return agents
 
         agents = set(requested)
@@ -180,6 +184,16 @@ class Orchestrator:
 
             analysis_id = self._save_to_database(ticker, agent_results, final_analysis, time.time() - start_time)
 
+            # Evaluate alert rules
+            alerts_triggered = []
+            if self.config.get("ALERTS_ENABLED", True):
+                try:
+                    from .alert_engine import AlertEngine
+                    alert_engine = AlertEngine(self.db_manager)
+                    alerts_triggered = alert_engine.evaluate_alerts(ticker, analysis_id)
+                except Exception as e:
+                    self.logger.warning(f"Alert evaluation failed: {e}")
+
             # Complete
             await self._notify_progress("complete", ticker, 100)
 
@@ -189,6 +203,7 @@ class Orchestrator:
                 "analysis_id": analysis_id,
                 "analysis": final_analysis,
                 "agent_results": agent_results,
+                "alerts_triggered": alerts_triggered,
                 "duration_seconds": time.time() - start_time
             }
 
@@ -222,7 +237,7 @@ class Orchestrator:
         run_sentiment = "sentiment" in agents_to_run
 
         # Create data agent instances
-        progress_map = {"news": 20, "fundamentals": 40, "market": 50, "macro": 55, "technical": 60}
+        progress_map = {"news": 20, "fundamentals": 40, "market": 50, "macro": 55, "options": 57, "technical": 60}
         agents = {}
         for name in data_agent_names:
             agent_info = self.AGENT_REGISTRY.get(name)

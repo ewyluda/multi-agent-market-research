@@ -2,7 +2,7 @@
  * Dashboard - Main application layout with view mode support
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAnalysis } from '../hooks/useAnalysis';
 import { useAnalysisContext } from '../context/AnalysisContext';
 import AgentStatus from './AgentStatus';
@@ -11,22 +11,44 @@ import SentimentReport from './SentimentReport';
 import PriceChart from './PriceChart';
 import Summary from './Summary';
 import NewsFeed from './NewsFeed';
+import OptionsFlow from './OptionsFlow';
 import MacroSnapshot from './MacroSnapshot';
 import HistoryDashboard from './HistoryDashboard';
 import WatchlistPanel from './WatchlistPanel';
-import { DocumentIcon, NewspaperIcon, BrainIcon, PulseIcon, SparklesIcon, ChartBarIcon, HistoryIcon, LoadingSpinner } from './Icons';
+import SchedulePanel from './SchedulePanel';
+import AlertPanel from './AlertPanel';
+import { DocumentIcon, NewspaperIcon, BrainIcon, PulseIcon, SparklesIcon, ChartBarIcon, HistoryIcon, ClockIcon, BellIcon, LoadingSpinner } from './Icons';
+import { getUnacknowledgedCount } from '../utils/api';
 
 const VIEW_MODES = {
   ANALYSIS: 'analysis',
   HISTORY: 'history',
   WATCHLIST: 'watchlist',
+  SCHEDULES: 'schedules',
+  ALERTS: 'alerts',
 };
 
 const Dashboard = () => {
   const [tickerInput, setTickerInput] = useState('');
   const [viewMode, setViewMode] = useState(VIEW_MODES.ANALYSIS);
+  const [unacknowledgedCount, setUnacknowledgedCount] = useState(0);
   const { runAnalysis, loading, error } = useAnalysis();
   const { analysis, progress, stage, currentTicker } = useAnalysisContext();
+
+  // Poll for unacknowledged alert count every 30 seconds
+  useEffect(() => {
+    const fetchCount = async () => {
+      try {
+        const data = await getUnacknowledgedCount();
+        setUnacknowledgedCount(data.count ?? data ?? 0);
+      } catch {
+        // silently ignore - badge is non-critical
+      }
+    };
+    fetchCount();
+    const interval = setInterval(fetchCount, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   const handleAnalyze = async (e) => {
     e.preventDefault();
@@ -56,6 +78,7 @@ const Dashboard = () => {
       running_fundamentals: 'Analyzing company fundamentals...',
       running_news: 'Fetching recent news...',
       running_technical: 'Running technical analysis...',
+      running_options: 'Analyzing options flow...',
       running_macro: 'Analyzing macroeconomic environment...',
       analyzing_sentiment: 'Analyzing market sentiment...',
       synthesizing: 'AI synthesizing all insights...',
@@ -118,7 +141,43 @@ const Dashboard = () => {
                 <ChartBarIcon className="w-3.5 h-3.5" />
                 <span>Watchlist</span>
               </button>
+              <button
+                onClick={() => setViewMode(VIEW_MODES.SCHEDULES)}
+                className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                  viewMode === VIEW_MODES.SCHEDULES
+                    ? 'bg-primary/15 text-white border border-primary/30'
+                    : 'text-gray-400 hover:text-white border border-transparent'
+                }`}
+              >
+                <ClockIcon className="w-3.5 h-3.5" />
+                <span>Schedules</span>
+              </button>
+              <button
+                onClick={() => setViewMode(VIEW_MODES.ALERTS)}
+                className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                  viewMode === VIEW_MODES.ALERTS
+                    ? 'bg-primary/15 text-white border border-primary/30'
+                    : 'text-gray-400 hover:text-white border border-transparent'
+                }`}
+              >
+                <BellIcon className="w-3.5 h-3.5" />
+                <span>Alerts</span>
+              </button>
             </div>
+
+            {/* Notification Bell */}
+            <button
+              onClick={() => setViewMode(VIEW_MODES.ALERTS)}
+              className="relative p-2 rounded-lg text-gray-400 hover:text-white hover:bg-white/5 transition-all"
+              title="Alert notifications"
+            >
+              <BellIcon className="w-4 h-4" />
+              {unacknowledgedCount > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 flex items-center justify-center min-w-[16px] h-4 px-1 text-[9px] font-bold text-white bg-danger rounded-full shadow-[0_0_8px_rgba(243,18,96,0.4)]">
+                  {unacknowledgedCount > 99 ? '99+' : unacknowledgedCount}
+                </span>
+              )}
+            </button>
 
             {/* Ticker Search */}
             <form onSubmit={handleAnalyze} className="flex space-x-2">
@@ -201,6 +260,20 @@ const Dashboard = () => {
           />
         )}
 
+        {/* ─── Schedules View ─── */}
+        {viewMode === VIEW_MODES.SCHEDULES && (
+          <SchedulePanel
+            onBack={() => setViewMode(VIEW_MODES.ANALYSIS)}
+          />
+        )}
+
+        {/* ─── Alerts View ─── */}
+        {viewMode === VIEW_MODES.ALERTS && (
+          <AlertPanel
+            onBack={() => setViewMode(VIEW_MODES.ANALYSIS)}
+          />
+        )}
+
         {/* ─── Analysis View ─── */}
         {viewMode === VIEW_MODES.ANALYSIS && (
           <>
@@ -214,6 +287,11 @@ const Dashboard = () => {
                 {/* Center - Chart & Stacked Sections */}
                 <div className="col-span-7">
                   <PriceChart analysis={analysis} />
+
+                  {/* Options Flow */}
+                  <div className="mt-6">
+                    <OptionsFlow analysis={analysis} />
+                  </div>
 
                   {/* Executive Overview */}
                   <div className="mt-6">

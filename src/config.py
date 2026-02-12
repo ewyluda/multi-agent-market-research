@@ -20,8 +20,9 @@ class Config:
     GROK_API_KEY = os.getenv("GROK_API_KEY", "")
 
     # LLM Configuration
-    LLM_PROVIDER = os.getenv("LLM_PROVIDER", "anthropic")  # 'anthropic', 'openai', or 'xai'
-    LLM_MODEL = os.getenv("LLM_MODEL", "claude-3-5-sonnet-20241022")  # or 'gpt-4-turbo' or 'grok-4-1-fast-reasoning'
+    # Strip inline comments that Docker env_file doesn't handle
+    LLM_PROVIDER = os.getenv("LLM_PROVIDER", "anthropic").split("#")[0].strip()
+    LLM_MODEL = os.getenv("LLM_MODEL", "claude-3-5-sonnet-20241022").split("#")[0].strip()
     LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.3"))
     LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "4096"))
 
@@ -30,6 +31,10 @@ class Config:
     AGENT_MAX_RETRIES = int(os.getenv("AGENT_MAX_RETRIES", "2"))
     FUNDAMENTALS_LLM_ENABLED = os.getenv("FUNDAMENTALS_LLM_ENABLED", "true").lower() == "true"
     MACRO_AGENT_ENABLED = os.getenv("MACRO_AGENT_ENABLED", "true").lower() == "true"
+    OPTIONS_AGENT_ENABLED = os.getenv("OPTIONS_AGENT_ENABLED", "true").lower() == "true"
+    SCHEDULER_ENABLED = os.getenv("SCHEDULER_ENABLED", "true").lower() == "true"
+    SCHEDULER_MIN_INTERVAL = int(os.getenv("SCHEDULER_MIN_INTERVAL", "30"))
+    ALERTS_ENABLED = os.getenv("ALERTS_ENABLED", "true").lower() == "true"
     PARALLEL_AGENTS = os.getenv("PARALLEL_AGENTS", "true").lower() == "true"
 
     # Database Configuration
@@ -111,6 +116,12 @@ class Config:
         required_keys = []
 
         # Check LLM API key based on provider
+        valid_providers = ("anthropic", "openai", "xai")
+        if cls.LLM_PROVIDER not in valid_providers:
+            print(f"ERROR: Invalid LLM_PROVIDER '{cls.LLM_PROVIDER}'. Must be one of: {', '.join(valid_providers)}")
+            print("Hint: Docker env_file does not strip inline comments. Remove comments from .env values.")
+            return False
+
         if cls.LLM_PROVIDER == "anthropic":
             if not cls.ANTHROPIC_API_KEY:
                 required_keys.append("ANTHROPIC_API_KEY")

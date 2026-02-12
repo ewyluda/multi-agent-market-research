@@ -205,6 +205,19 @@ export const ArrowLeftIcon = (props) => (
   </svg>
 );
 
+export const OptionsIcon = (props) => (
+  <svg {...iconProps} {...props}>
+    <path d="M3 10h14M10 3v14M6 6l8 8M14 6l-8 8" />
+  </svg>
+);
+
+export const BellIcon = (props) => (
+  <svg {...iconProps} {...props}>
+    <path d="M10 2a1 1 0 011 1v1a5 5 0 014 4.9V12l2 3H3l2-3V8.9A5 5 0 019 4V3a1 1 0 011-1z" />
+    <path d="M8 15a2 2 0 004 0" />
+  </svg>
+);
+
 export const LoadingSpinner = ({ className = '', size = 20 }) => (
   <svg
     width={size}

@@ -3,7 +3,7 @@
  */
 
 import React from 'react';
-import { BuildingIcon, ChartBarIcon, BrainIcon, ChartLineIcon, GlobeIcon } from './Icons';
+import { BuildingIcon, ChartBarIcon, BrainIcon, ChartLineIcon, GlobeIcon, OptionsIcon } from './Icons';
 
 /**
  * AgentConsensus — shows per-agent signal direction as colored dots.
@@ -44,6 +44,11 @@ const AgentConsensus = ({ agentResults }) => {
         if (risk === 'hawkish') return 'bearish';
         return 'neutral';
       }
+      case 'options': {
+        const optSignal = data.overall_signal;
+        if (!optSignal) return null;
+        return optSignal;
+      }
       default:
         return null;
     }
@@ -54,6 +59,7 @@ const AgentConsensus = ({ agentResults }) => {
     { id: 'technical', label: 'Tech', icon: ChartLineIcon },
     { id: 'sentiment', label: 'Sent', icon: BrainIcon },
     { id: 'market', label: 'Mkt', icon: ChartBarIcon },
+    { id: 'options', label: 'Opts', icon: OptionsIcon },
     { id: 'macro', label: 'Macro', icon: GlobeIcon },
   ];
 

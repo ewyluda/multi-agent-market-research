@@ -4,13 +4,14 @@ Real-time AI-powered stock market analysis using specialized agents.
 
 ## Overview
 
-This application uses 6 specialized AI agents to analyze stocks from different perspectives:
+This application uses 7 specialized AI agents to analyze stocks from different perspectives:
 - **News Agent**: Gathers financial news with ticker-specific relevance filtering
 - **Sentiment Agent**: LLM-based sentiment analysis on news articles (enriched with AV per-article sentiment scores)
 - **Fundamentals Agent**: Company financial metrics, health scoring, and LLM equity research
 - **Market Agent**: Price trends, moving averages, and market conditions
 - **Technical Agent**: RSI, MACD, Bollinger Bands, SMA analysis
 - **Macro Agent**: US macroeconomic indicators (fed funds rate, CPI, GDP, treasury yields, unemployment, inflation)
+- **Options Agent**: Options chain data analysis — put/call ratios, unusual activity detection, max pain calculation
 
 A **Solution Agent** synthesizes all outputs using chain-of-thought reasoning to provide a final BUY/HOLD/SELL recommendation with price targets and risk assessment.
 
@@ -31,13 +32,17 @@ A **Solution Agent** synthesizes all outputs using chain-of-thought reasoning to
 - React frontend with Hero UI dark theme, structured executive overview, and macro sidebar widget
 - **Analysis history dashboard** — browse past analyses, score trend charts, filter by recommendation, paginated tables
 - **Multi-ticker watchlists** — create watchlists, batch-analyze all tickers via SSE, side-by-side comparison table
-- **Test suite** — 80 pytest tests covering agents, orchestrator, API, database, AV cache, and rate limiter
+- **Options flow analysis** — put/call ratios, unusual activity detection, max pain, implied volatility
+- **PDF export** — branded downloadable reports with agent summaries and recommendation details
+- **Scheduled recurring analysis** — cron-style automatic re-analysis at configurable intervals
+- **Alert system** — notifications when recommendations change or scores cross thresholds
+- **Test suite** — 157 pytest tests covering agents, orchestrator, API, database, AV cache, and rate limiter
 - **Docker support** — Dockerfiles + docker-compose for one-command deployment (backend + nginx frontend)
 
 ## Architecture
 
 ```
-User Request → FastAPI → Orchestrator → [6 Agents in Parallel]
+User Request → FastAPI → Orchestrator → [7 Agents in Parallel]
                                               ↓
                                         Solution Agent
                                               ↓
@@ -57,6 +62,7 @@ Each data agent tries Alpha Vantage first and falls back gracefully:
 | News | `NEWS_SENTIMENT` | NewsAPI |
 | Technical | `RSI` + `MACD` + `BBANDS` + `SMA` (x3) + `TIME_SERIES_DAILY` | yfinance + local calculation |
 | Macro | `FEDERAL_FUNDS_RATE` + `CPI` + `REAL_GDP` + `TREASURY_YIELD` (10Y & 2Y) + `UNEMPLOYMENT` + `INFLATION` | None |
+| Options | `REALTIME_OPTIONS` + `HISTORICAL_OPTIONS` | yfinance options chain |
 
 ## Setup
 
@@ -144,7 +150,7 @@ curl -X POST "http://localhost:8000/api/analyze/NVDA?agents=market,technical"
 curl -X POST "http://localhost:8000/api/analyze/NVDA?agents=sentiment"
 ```
 
-Valid agent names: `news`, `sentiment`, `fundamentals`, `market`, `technical`, `macro`. The solution agent always runs.
+Valid agent names: `news`, `sentiment`, `fundamentals`, `market`, `technical`, `macro`, `options`. The solution agent always runs.
 
 ### Get Latest Analysis
 ```bash
@@ -237,6 +243,61 @@ curl -O http://localhost:8000/api/analysis/NVDA/export/csv
 curl -O http://localhost:8000/api/analysis/NVDA/export/csv?analysis_id=3
 ```
 
+### Export Analysis as PDF
+```bash
+GET /api/analysis/{ticker}/export/pdf?analysis_id={optional_id}
+
+# Export latest analysis as PDF
+curl -O http://localhost:8000/api/analysis/NVDA/export/pdf
+
+# Export specific analysis
+curl -O "http://localhost:8000/api/analysis/NVDA/export/pdf?analysis_id=3"
+```
+
+### Schedules
+```bash
+# Create a recurring analysis schedule
+curl -X POST http://localhost:8000/api/schedules -H "Content-Type: application/json" -d '{"ticker":"NVDA","interval_minutes":1440}'
+
+# List all schedules
+curl http://localhost:8000/api/schedules
+
+# Get schedule with recent runs
+curl http://localhost:8000/api/schedules/1
+
+# Update schedule (interval, enable/disable)
+curl -X PUT http://localhost:8000/api/schedules/1 -H "Content-Type: application/json" -d '{"enabled":false}'
+
+# Delete schedule
+curl -X DELETE http://localhost:8000/api/schedules/1
+```
+
+### Alerts
+```bash
+# Create an alert rule
+curl -X POST http://localhost:8000/api/alerts -H "Content-Type: application/json" -d '{"ticker":"NVDA","rule_type":"recommendation_change"}'
+
+# Create a threshold alert
+curl -X POST http://localhost:8000/api/alerts -H "Content-Type: application/json" -d '{"ticker":"NVDA","rule_type":"score_above","threshold":50}'
+
+# List all alert rules
+curl http://localhost:8000/api/alerts
+
+# Get notifications
+curl http://localhost:8000/api/alerts/notifications
+
+# Get unacknowledged count (for badge)
+curl http://localhost:8000/api/alerts/notifications/count
+
+# Acknowledge a notification
+curl -X POST http://localhost:8000/api/alerts/notifications/1/acknowledge
+
+# Delete an alert rule
+curl -X DELETE http://localhost:8000/api/alerts/1
+```
+
+Alert rule types: `recommendation_change`, `score_above`, `score_below`, `confidence_above`, `confidence_below`.
+
 ### Health Check
 ```bash
 GET /health
@@ -281,7 +342,8 @@ curl http://localhost:8000/health
     "fundamentals": { "data_source": "alpha_vantage", "..." : "..." },
     "market": { "data_source": "alpha_vantage", "..." : "..." },
     "technical": { "data_source": "alpha_vantage", "..." : "..." },
-    "macro": { "data_source": "alpha_vantage", "..." : "..." }
+    "macro": { "data_source": "alpha_vantage", "..." : "..." },
+    "options": { "data_source": "yfinance", "..." : "..." }
   },
   "duration_seconds": 32.5
 }
@@ -309,6 +371,10 @@ All configuration is in `.env` file. Key settings:
 | `MACD_FAST` / `MACD_SLOW` / `MACD_SIGNAL` | MACD parameters | `12` / `26` / `9` |
 | `BB_PERIOD` / `BB_STD` | Bollinger Bands parameters | `20` / `2` |
 | `MACRO_AGENT_ENABLED` | Enable/disable macroeconomic agent | `true` |
+| `OPTIONS_AGENT_ENABLED` | Enable/disable options flow agent | `true` |
+| `SCHEDULER_ENABLED` | Enable/disable background scheduler | `true` |
+| `SCHEDULER_MIN_INTERVAL` | Minimum schedule interval (minutes) | `30` |
+| `ALERTS_ENABLED` | Enable/disable alert evaluation | `true` |
 
 See `.env.example` for all available options.
 
@@ -319,7 +385,7 @@ See `.env.example` for all available options.
 ```bash
 source venv/bin/activate
 
-# Run all 80 tests
+# Run all 157 tests
 python -m pytest tests/ -v
 
 # Run with coverage
@@ -335,10 +401,14 @@ python -m pytest tests/ -v -m "not slow"
 Test suite covers:
 - **AV Cache** (14 tests) — TTL expiry, in-flight coalescing, key generation, stats
 - **AV Rate Limiter** (7 tests) — daily limits, concurrent serialization, exhaustion
-- **Database** (16 tests) — all CRUD operations, cross-ticker isolation, indexing
+- **Database** (25 tests) — all CRUD operations, cross-ticker isolation, indexing, schedules, alerts
 - **Base Agent** (18 tests) — ticker validation, execute flow, AV requests, retry logic
-- **Orchestrator** (11 tests) — agent resolution, dependencies, parallel execution, progress callbacks
-- **API** (14 tests) — all endpoints, error handling, SSE streaming
+- **Options Agent** (18 tests) — analysis, fetching, helpers, fallback paths
+- **Orchestrator** (12 tests) — agent resolution, dependencies, parallel execution, progress callbacks
+- **API** (22 tests) — all endpoints, error handling, SSE streaming, schedules, alerts
+- **PDF Report** (10 tests) — PDF generation, all recommendation types, edge cases
+- **Scheduler** (7 tests) — start/stop, job management, execution
+- **Alert Engine** (12 tests) — all rule types, evaluation logic, DB persistence
 
 ### Manual Testing
 
@@ -373,6 +443,10 @@ The application uses SQLite by default. Database file: `market_research.db`
 - `sentiment_scores` - Sentiment factor breakdown
 - `watchlists` - User-created watchlists
 - `watchlist_tickers` - Many-to-many ticker associations for watchlists
+- `schedules` - Recurring analysis configuration (ticker, interval, agents, enabled)
+- `schedule_runs` - Schedule execution audit log
+- `alert_rules` - User-defined alert conditions (ticker, rule_type, threshold)
+- `alert_notifications` - Triggered alert history with acknowledgment tracking
 
 ### Query Examples
 
@@ -402,6 +476,9 @@ multi-agent-market-research/
 │   ├── orchestrator.py        # Agent coordination with configurable pipeline
 │   ├── av_cache.py            # AV response cache (in-memory TTL)
 │   ├── av_rate_limiter.py     # AV API rate limiter (sliding window)
+│   ├── pdf_report.py         # PDF report generation (ReportLab)
+│   ├── scheduler.py          # Background analysis scheduler (APScheduler)
+│   ├── alert_engine.py       # Alert rule evaluation engine
 │   └── agents/
 │       ├── __init__.py
 │       ├── base_agent.py          # Base agent class (ABC) with shared AV infrastructure
@@ -411,11 +488,12 @@ multi-agent-market-research/
 │       ├── market_agent.py        # Market data (AV GLOBAL_QUOTE + DAILY → yfinance)
 │       ├── technical_agent.py     # Technical indicators (AV RSI/MACD/BBANDS/SMA → yfinance + local)
 │       ├── macro_agent.py         # US macroeconomic indicators (AV 7-endpoint, no fallback)
+│       ├── options_agent.py       # Options flow & unusual activity (AV → yfinance)
 │       └── solution_agent.py      # Final synthesis (LLM chain-of-thought)
 ├── frontend/
 │   ├── src/
 │   │   ├── components/
-│   │   │   ├── Dashboard.jsx         # Main layout (view mode toggle: Analysis/History/Watchlist)
+│   │   │   ├── Dashboard.jsx         # Main layout (Analysis/History/Watchlist/Schedules/Alerts + bell)
 │   │   │   ├── Recommendation.jsx    # SVG gauge with agent consensus strip
 │   │   │   ├── AgentStatus.jsx       # Real-time agent progress pipeline
 │   │   │   ├── PriceChart.jsx        # Price history, indicators, data source badges
@@ -425,7 +503,10 @@ multi-agent-market-research/
 │   │   │   ├── NewsFeed.jsx          # News article list
 │   │   │   ├── HistoryDashboard.jsx  # Analysis history browser with trend charts
 │   │   │   ├── WatchlistPanel.jsx    # Watchlist management + comparison table
-│   │   │   └── Icons.jsx             # SVG icon components (26+ icons)
+│   │   │   ├── OptionsFlow.jsx        # Options flow display
+│   │   │   ├── SchedulePanel.jsx      # Schedule management
+│   │   │   ├── AlertPanel.jsx         # Alert rules + notifications
+│   │   │   └── Icons.jsx             # SVG icon components (30+ icons)
 │   │   ├── context/
 │   │   │   └── AnalysisContext.jsx    # React context for analysis state
 │   │   ├── hooks/
@@ -433,7 +514,7 @@ multi-agent-market-research/
 │   │   │   ├── useHistory.js         # History state management hook
 │   │   │   └── useSSE.js             # SSE streaming hook
 │   │   ├── utils/
-│   │   │   └── api.js                # API client (analysis + watchlist endpoints)
+│   │   │   └── api.js                # API client (analysis + watchlist + schedule + alert endpoints)
 │   │   ├── assets/
 │   │   │   └── react.svg
 │   │   ├── App.jsx
@@ -452,11 +533,15 @@ multi-agent-market-research/
 │   ├── conftest.py                   # Shared fixtures (DB, cache, rate limiter, mock data)
 │   ├── test_av_cache.py              # AV cache tests (14 tests)
 │   ├── test_av_rate_limiter.py       # AV rate limiter tests (7 tests)
-│   ├── test_database.py              # Database CRUD tests (16 tests)
-│   ├── test_orchestrator.py          # Orchestrator tests (11 tests)
-│   ├── test_api.py                   # API endpoint tests (14 tests)
+│   ├── test_database.py              # Database CRUD tests (25 tests)
+│   ├── test_orchestrator.py          # Orchestrator tests (12 tests)
+│   ├── test_api.py                   # API endpoint tests (22 tests)
+│   ├── test_pdf_report.py           # PDF report tests (10 tests)
+│   ├── test_scheduler.py            # Scheduler tests (7 tests)
+│   ├── test_alert_engine.py         # Alert engine tests (12 tests)
 │   └── test_agents/
-│       └── test_base_agent.py        # Base agent tests (18 tests)
+│       ├── test_base_agent.py        # Base agent tests (18 tests)
+│       └── test_options_agent.py    # Options agent tests (18 tests)
 ├── Dockerfile                        # Backend Docker image
 ├── docker-compose.yml                # Production compose
 ├── docker-compose.dev.yml            # Development compose (hot-reload)
@@ -485,13 +570,16 @@ The frontend is a React application with a Hero UI-inspired dark theme built on 
 - Three-layer color system: Tailwind config, `@theme` CSS tokens, and `:root` CSS custom properties
 
 ### Components
-- **Dashboard** — Main layout with view mode toggle (Analysis / History / Watchlist), 2-7-3 grid, search, agent orchestration, and SSE streaming
+- **Dashboard** — Main layout with view mode toggle (Analysis / History / Watchlist / Schedules / Alerts), 2-7-3 grid, search, agent orchestration, and SSE streaming
 - **HistoryDashboard** — Analysis history browser with ticker selector, SVG score trend chart, recommendation filter, paginated table, delete actions
 - **WatchlistPanel** — Watchlist CRUD, add/remove tickers, per-ticker analysis, batch "Analyze All" via SSE, comparison table sorted by confidence
+- **SchedulePanel** — Create, edit, delete recurring analysis schedules; enable/disable toggle; expandable run history per schedule
+- **AlertPanel** — Create alert rules (5 types: recommendation_change, score_above/below, confidence_above/below); notifications feed with acknowledge buttons; unread filter toggle
+- **OptionsFlow** — Options chain analysis display with put/call ratio, unusual activity table, max pain indicator, implied volatility highlights
 - **Summary** — Structured executive overview with:
   - Verdict banner (colored BUY/HOLD/SELL with score and summary)
   - At-a-glance metric pills (score, confidence, position, horizon)
-  - 10 expandable chain-of-thought sections with domain icons and one-line insights
+  - 11 expandable chain-of-thought sections with domain icons and one-line insights
   - Price targets range bar visualization + 3-column grid
   - Risks and opportunities with numbered lists
 - **Recommendation** — SVG gauge showing BUY/HOLD/SELL with score, confidence bar, position/horizon, and agent consensus strip (per-agent signal dots)
@@ -563,13 +651,6 @@ python run.py  # Will create fresh database
 
 ## Roadmap
 
-### Tier 2 — Meaningful Feature Expansions
-
-- **Options flow / unusual activity agent**: New agent monitoring options market data for unusual volume, put/call ratios, and large block trades.
-- **PDF export with branded report**: Generate downloadable PDF reports with charts, agent summaries, and recommendation branding.
-- **Scheduled / recurring analysis**: Cron-style or interval-based automatic re-analysis of watched tickers.
-- **Alert system**: Notify users when a ticker's recommendation changes or crosses a score threshold.
-
 ### Tier 3 — Polish & Production Readiness
 
 - **TypeScript migration for frontend**: Convert React components to TypeScript for type safety across complex agent result structures.
@@ -586,7 +667,7 @@ python run.py  # Will create fresh database
 
 ### Completed
 
-- ~~**Test suite (pytest)**: 80 unit and integration tests covering agents, orchestrator, API endpoints, AV cache, and rate limiter with full mocking infrastructure.~~ *(Done — `tests/` directory with conftest fixtures, 80 passing tests, pytest-asyncio + aioresponses)*
+- ~~**Test suite (pytest)**: 157 unit and integration tests covering agents, orchestrator, API endpoints, AV cache, and rate limiter with full mocking infrastructure.~~ *(Done — `tests/` directory with conftest fixtures, 157 passing tests, pytest-asyncio + aioresponses)*
 - ~~**Multi-ticker watchlist & comparison**: Batch analysis across multiple tickers with watchlist persistence, SSE batch streaming, and side-by-side comparison UI.~~ *(Done — `watchlists` + `watchlist_tickers` tables, 8 CRUD endpoints, WatchlistPanel component with batch analyze + comparison)*
 - ~~**Analysis history dashboard**: Browse past analyses per ticker, visualize score trends over time, filter/paginate results, and delete records.~~ *(Done — HistoryDashboard with SVG trend chart, recommendation filter, paginated table, 3 new API endpoints)*
 - ~~**Docker containerization**: Dockerfile + docker-compose for one-command deployment of backend and frontend with persistent SQLite volume.~~ *(Done — multi-stage Dockerfiles, production + dev compose, nginx reverse proxy with SSE support)*
@@ -595,6 +676,10 @@ python run.py  # Will create fresh database
 - ~~**News sentiment aggregation into sentiment agent**: The AV NEWS_SENTIMENT endpoint provides per-article sentiment scores. These could be forwarded to the sentiment agent to supplement its LLM-based analysis.~~ *(Done — AV per-article sentiment scores are now included in the LLM prompt and blended into the keyword fallback)*
 - ~~**Export analysis as CSV**: Add endpoints to export analysis results in downloadable formats for reporting.~~ *(Done — CSV export available at `GET /api/analysis/{ticker}/export/csv`)*
 - ~~**In-flight request coalescing**: Deduplicate concurrent identical AV requests (e.g., market and technical agents both requesting TIME_SERIES_DAILY simultaneously).~~ *(Done — `AVCache` tracks in-flight requests via `asyncio.Future`; concurrent identical requests coalesce into a single HTTP call)*
+- ~~**Options flow / unusual activity agent**: New agent monitoring options market data for unusual volume, put/call ratios, and large block trades.~~ *(Done — `OptionsAgent` with AV REALTIME_OPTIONS + HISTORICAL_OPTIONS primary, yfinance fallback; put/call ratio, max pain, unusual activity detection; integrated into solution agent chain-of-thought)*
+- ~~**PDF export with branded report**: Generate downloadable PDF reports with charts, agent summaries, and recommendation branding.~~ *(Done — ReportLab-based multi-page PDF; executive summary, price targets, per-agent sections, full reasoning; `GET /api/analysis/{ticker}/export/pdf`)*
+- ~~**Scheduled / recurring analysis**: Cron-style or interval-based automatic re-analysis of watched tickers.~~ *(Done — APScheduler-based background scheduler; CRUD API for schedules; configurable intervals 30min-1week; run history audit log; SchedulePanel UI)*
+- ~~**Alert system**: Notify users when a ticker's recommendation changes or crosses a score threshold.~~ *(Done — AlertEngine evaluates rules post-analysis; 5 rule types; notification persistence with acknowledgment; AlertPanel UI with bell badge)*
 
 ## License
 

@@ -49,6 +49,7 @@ class SolutionAgent(BaseAgent):
         market_data = (raw_data.get("market") or {}).get("data") or {}
         technical_data = (raw_data.get("technical") or {}).get("data") or {}
         macro_data = (raw_data.get("macro") or {}).get("data") or {}
+        options_data = (raw_data.get("options") or {}).get("data") or {}
 
         # Use LLM for chain-of-thought reasoning
         llm_config = self.config.get("llm_config", {})
@@ -57,18 +58,18 @@ class SolutionAgent(BaseAgent):
         if provider == "anthropic" and llm_config.get("api_key"):
             analysis = await self._synthesize_with_llm(
                 news_data, sentiment_data, fundamentals_data,
-                market_data, technical_data, macro_data, llm_config
+                market_data, technical_data, macro_data, options_data, llm_config
             )
         elif provider in ("xai", "openai") and llm_config.get("api_key"):
             analysis = await self._synthesize_with_openai(
                 news_data, sentiment_data, fundamentals_data,
-                market_data, technical_data, macro_data, llm_config
+                market_data, technical_data, macro_data, options_data, llm_config
             )
         else:
             # Fallback to rule-based synthesis
             analysis = self._simple_synthesis(
                 news_data, sentiment_data, fundamentals_data,
-                market_data, technical_data, macro_data
+                market_data, technical_data, macro_data, options_data
             )
 
         return analysis
@@ -81,6 +82,7 @@ class SolutionAgent(BaseAgent):
         market_data: Dict[str, Any],
         technical_data: Dict[str, Any],
         macro_data: Dict[str, Any],
+        options_data: Dict[str, Any],
         llm_config: Dict[str, Any]
     ) -> Dict[str, Any]:
         """
@@ -93,6 +95,7 @@ class SolutionAgent(BaseAgent):
             market_data: Market agent output
             technical_data: Technical agent output
             macro_data: Macroeconomic agent output
+            options_data: Options flow agent output
             llm_config: LLM configuration
 
         Returns:
@@ -153,6 +156,15 @@ class SolutionAgent(BaseAgent):
 - Signal Strength: {technical_data.get('signals', {}).get('strength', 'N/A')}
 - Summary: {technical_data.get('summary', '')}
 
+## OPTIONS FLOW & UNUSUAL ACTIVITY
+- Put/Call Volume Ratio: {options_data.get('put_call_ratio', 'N/A')}
+- Put/Call OI Ratio: {options_data.get('put_call_oi_ratio', 'N/A')}
+- Max Pain Strike: ${options_data.get('max_pain', 'N/A')}
+- Unusual Activity: {[f"{u.get('type', '')} ${u.get('strike', '')} exp {u.get('expiration', '')} (vol/OI: {u.get('vol_oi_ratio', '')}x)" for u in (options_data.get('unusual_activity', []))[:3]] or 'None detected'}
+- Highest IV Contracts: {[f"{c.get('type', '')} ${c.get('strike', '')} IV={c.get('implied_volatility', '')}" for c in (options_data.get('highest_iv_contracts', []))[:3]] or 'N/A'}
+- Overall Options Signal: {options_data.get('overall_signal', 'N/A')}
+- Summary: {options_data.get('summary', 'No options data available')}
+
 ## MACROECONOMIC ENVIRONMENT
 - Federal Funds Rate: {macro_data.get('indicators', {}).get('federal_funds_rate', {}).get('current', 'N/A')} (Trend: {macro_data.get('indicators', {}).get('federal_funds_rate', {}).get('trend', 'N/A')})
 - CPI: {macro_data.get('indicators', {}).get('cpi', {}).get('current', 'N/A')} (Trend: {macro_data.get('indicators', {}).get('cpi', {}).get('trend', 'N/A')})
@@ -189,11 +201,12 @@ Using chain-of-thought reasoning and first principles:
 3. Evaluate market conditions and price action
 4. Consider sentiment and news impact
 5. Synthesize technical signals
-6. Factor in macroeconomic environment (interest rates, yield curve, economic cycle)
-7. Analyze earnings trends (beat rate, EPS/revenue trajectory from SEC filings)
-8. Weigh concerning metrics and existential risks identified
-9. Determine risk/reward ratio
-10. Provide final recommendation
+6. Evaluate options flow signals (put/call ratios, unusual activity, max pain vs current price)
+7. Factor in macroeconomic environment (interest rates, yield curve, economic cycle)
+8. Analyze earnings trends (beat rate, EPS/revenue trajectory from SEC filings)
+9. Weigh concerning metrics and existential risks identified
+10. Determine risk/reward ratio
+11. Provide final recommendation
 
 Respond in JSON format:
 {{
@@ -257,7 +270,7 @@ Respond in JSON format:
             # Fallback
             return self._simple_synthesis(
                 news_data, sentiment_data, fundamentals_data,
-                market_data, technical_data, macro_data
+                market_data, technical_data, macro_data, options_data
             )
 
     async def _synthesize_with_openai(
@@ -268,6 +281,7 @@ Respond in JSON format:
         market_data: Dict[str, Any],
         technical_data: Dict[str, Any],
         macro_data: Dict[str, Any],
+        options_data: Dict[str, Any],
         llm_config: Dict[str, Any]
     ) -> Dict[str, Any]:
         """
@@ -280,6 +294,7 @@ Respond in JSON format:
             market_data: Market agent output
             technical_data: Technical agent output
             macro_data: Macroeconomic agent output
+            options_data: Options flow agent output
             llm_config: LLM configuration
 
         Returns:
@@ -340,6 +355,15 @@ Respond in JSON format:
 - Signal Strength: {technical_data.get('signals', {}).get('strength', 'N/A')}
 - Summary: {technical_data.get('summary', '')}
 
+## OPTIONS FLOW & UNUSUAL ACTIVITY
+- Put/Call Volume Ratio: {options_data.get('put_call_ratio', 'N/A')}
+- Put/Call OI Ratio: {options_data.get('put_call_oi_ratio', 'N/A')}
+- Max Pain Strike: ${options_data.get('max_pain', 'N/A')}
+- Unusual Activity: {[f"{u.get('type', '')} ${u.get('strike', '')} exp {u.get('expiration', '')} (vol/OI: {u.get('vol_oi_ratio', '')}x)" for u in (options_data.get('unusual_activity', []))[:3]] or 'None detected'}
+- Highest IV Contracts: {[f"{c.get('type', '')} ${c.get('strike', '')} IV={c.get('implied_volatility', '')}" for c in (options_data.get('highest_iv_contracts', []))[:3]] or 'N/A'}
+- Overall Options Signal: {options_data.get('overall_signal', 'N/A')}
+- Summary: {options_data.get('summary', 'No options data available')}
+
 ## MACROECONOMIC ENVIRONMENT
 - Federal Funds Rate: {macro_data.get('indicators', {}).get('federal_funds_rate', {}).get('current', 'N/A')} (Trend: {macro_data.get('indicators', {}).get('federal_funds_rate', {}).get('trend', 'N/A')})
 - CPI: {macro_data.get('indicators', {}).get('cpi', {}).get('current', 'N/A')} (Trend: {macro_data.get('indicators', {}).get('cpi', {}).get('trend', 'N/A')})
@@ -376,11 +400,12 @@ Using chain-of-thought reasoning and first principles:
 3. Evaluate market conditions and price action
 4. Consider sentiment and news impact
 5. Synthesize technical signals
-6. Factor in macroeconomic environment (interest rates, yield curve, economic cycle)
-7. Analyze earnings trends (beat rate, EPS/revenue trajectory from SEC filings)
-8. Weigh concerning metrics and existential risks identified
-9. Determine risk/reward ratio
-10. Provide final recommendation
+6. Evaluate options flow signals (put/call ratios, unusual activity, max pain vs current price)
+7. Factor in macroeconomic environment (interest rates, yield curve, economic cycle)
+8. Analyze earnings trends (beat rate, EPS/revenue trajectory from SEC filings)
+9. Weigh concerning metrics and existential risks identified
+10. Determine risk/reward ratio
+11. Provide final recommendation
 
 Respond in JSON format:
 {{
@@ -447,7 +472,7 @@ Respond in JSON format:
             # Fallback
             return self._simple_synthesis(
                 news_data, sentiment_data, fundamentals_data,
-                market_data, technical_data, macro_data
+                market_data, technical_data, macro_data, options_data
             )
 
     def _simple_synthesis(
@@ -457,7 +482,8 @@ Respond in JSON format:
         fundamentals_data: Dict[str, Any],
         market_data: Dict[str, Any],
         technical_data: Dict[str, Any],
-        macro_data: Optional[Dict[str, Any]] = None
+        macro_data: Optional[Dict[str, Any]] = None,
+        options_data: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
         Simple rule-based synthesis as fallback.
@@ -471,33 +497,41 @@ Respond in JSON format:
         # Calculate weighted score
         score = 0
 
-        # Fundamentals (30% weight)
+        # Fundamentals (28% weight)
         health_score = fundamentals_data.get("health_score", 50)
-        score += (health_score - 50) * 0.6  # Convert 0-100 to -30 to +30
+        score += (health_score - 50) * 0.56  # Convert 0-100 to -28 to +28
 
-        # Technical (25% weight)
+        # Technical (23% weight)
         tech_strength = technical_data.get("signals", {}).get("strength", 0)
-        score += tech_strength * 0.25  # -25 to +25
+        score += tech_strength * 0.23  # -23 to +23
 
-        # Sentiment (25% weight)
+        # Sentiment (23% weight)
         sentiment_score = sentiment_data.get("overall_sentiment", 0)
-        score += sentiment_score * 25  # -25 to +25
+        score += sentiment_score * 23  # -23 to +23
 
-        # Market trend (20% weight)
+        # Market trend (18% weight)
         trend = market_data.get("trend", "sideways")
         if "uptrend" in trend:
-            score += 20
+            score += 18
         elif "downtrend" in trend:
-            score -= 20
+            score -= 18
 
-        # Macro environment (10% weight) - if available
+        # Macro environment (8% weight) - if available
         if macro_data:
             yield_status = macro_data.get("yield_curve", {}).get("status", "")
             cycle = macro_data.get("economic_cycle", "")
             if yield_status == "normal" and cycle == "expansion":
-                score += 10
+                score += 8
             elif yield_status == "inverted" or cycle == "contraction":
-                score -= 10
+                score -= 8
+
+        # Options flow (up to 8% weight) - if available
+        if options_data:
+            options_signal = options_data.get("overall_signal", "neutral")
+            if options_signal == "bullish":
+                score += 8
+            elif options_signal == "bearish":
+                score -= 8
 
         # Determine recommendation
         if score > 30:
