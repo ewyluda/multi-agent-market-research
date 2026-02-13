@@ -6,6 +6,9 @@ export default {
   ],
   theme: {
     extend: {
+      fontFamily: {
+        mono: ["'JetBrains Mono'", 'monospace'],
+      },
       colors: {
         'dark-bg': '#000000',
         'dark-card': '#18181b',
@@ -20,6 +23,9 @@ export default {
         'accent-amber': '#f5a524',
         'accent-purple': '#7828c8',
         'accent-cyan': '#338ef7',
+        'dark-sidebar': '#0a0a0b',
+        'dark-sidebar-active': 'rgba(0, 111, 238, 0.12)',
+        'dark-sidebar-border': 'rgba(255, 255, 255, 0.04)',
       },
     },
   },

@@ -260,16 +260,19 @@ class Orchestrator:
             self._inject_shared_resources(sentiment_agent)
 
             news_articles = []
+            twitter_posts = []
             news_result = results.get("news")
             if isinstance(news_result, dict) and news_result.get("success"):
-                news_articles = news_result.get("data", {}).get("articles", [])
+                news_data = news_result.get("data", {})
+                news_articles = news_data.get("articles", [])
+                twitter_posts = news_data.get("twitter_posts", [])
 
             market_data = {}
             market_result = results.get("market")
             if isinstance(market_result, dict) and market_result.get("success"):
                 market_data = market_result.get("data", {})
 
-            sentiment_agent.set_context_data(news_articles, market_data)
+            sentiment_agent.set_context_data(news_articles, market_data, twitter_posts)
 
             await self._notify_progress("analyzing_sentiment", ticker, 70)
             try:

@@ -5,8 +5,8 @@ Real-time AI-powered stock market analysis using specialized agents.
 ## Overview
 
 This application uses 7 specialized AI agents to analyze stocks from different perspectives:
-- **News Agent**: Gathers financial news with ticker-specific relevance filtering
-- **Sentiment Agent**: LLM-based sentiment analysis on news articles (enriched with AV per-article sentiment scores)
+- **News Agent**: Gathers financial news with ticker-specific relevance filtering + Twitter/X social posts
+- **Sentiment Agent**: LLM-based sentiment analysis on news articles + Twitter posts (enriched with AV per-article sentiment scores)
 - **Fundamentals Agent**: Company financial metrics, health scoring, and LLM equity research
 - **Market Agent**: Price trends, moving averages, and market conditions
 - **Technical Agent**: RSI, MACD, Bollinger Bands, SMA analysis
@@ -59,7 +59,7 @@ Each data agent tries Alpha Vantage first and falls back gracefully:
 |-------|------------------------|----------|
 | Market | `GLOBAL_QUOTE` + `TIME_SERIES_DAILY` | yfinance |
 | Fundamentals | `COMPANY_OVERVIEW` + `EARNINGS` + `BALANCE_SHEET` + `CASH_FLOW` + `INCOME_STATEMENT` | yfinance + SEC EDGAR |
-| News | `NEWS_SENTIMENT` | NewsAPI |
+| News | `NEWS_SENTIMENT` | NewsAPI + Twitter/X API v2 |
 | Technical | `RSI` + `MACD` + `BBANDS` + `SMA` (x3) + `TIME_SERIES_DAILY` | yfinance + local calculation |
 | Macro | `FEDERAL_FUNDS_RATE` + `CPI` + `REAL_GDP` + `TREASURY_YIELD` (10Y & 2Y) + `UNEMPLOYMENT` + `INFLATION` | None |
 | Options | `REALTIME_OPTIONS` + `HISTORICAL_OPTIONS` | yfinance options chain |
@@ -73,7 +73,7 @@ Each data agent tries Alpha Vantage first and falls back gracefully:
 - API Keys:
   - **Required**: Anthropic API key (or OpenAI / xAI Grok API key)
   - **Recommended**: Alpha Vantage API key (primary data source for all agents)
-  - **Optional**: NewsAPI (fallback news source)
+  - **Optional**: NewsAPI (fallback news source), Twitter/X Bearer Token (social sentiment)
 
 ### Installation
 
@@ -359,6 +359,9 @@ All configuration is in `.env` file. Key settings:
 | `LLM_MODEL` | Model to use | `claude-3-5-sonnet-20241022` |
 | `ALPHA_VANTAGE_API_KEY` | Alpha Vantage API key (primary data source) | _(empty)_ |
 | `NEWS_API_KEY` | NewsAPI key (fallback news source) | _(empty)_ |
+| `TWITTER_BEARER_TOKEN` | Twitter/X API v2 Bearer Token (social data) | _(empty)_ |
+| `TWITTER_MAX_RESULTS` | Max tweets to fetch per analysis | `50` |
+| `TWITTER_MIN_ENGAGEMENT` | Minimum engagement filter for tweets | `0` |
 | `AGENT_TIMEOUT` | Agent execution timeout (seconds) | `30` |
 | `AGENT_MAX_RETRIES` | Retry attempts per data fetch | `2` |
 | `NEWS_LOOKBACK_DAYS` | Days of news to fetch | `7` |
@@ -482,7 +485,7 @@ multi-agent-market-research/
 │   └── agents/
 │       ├── __init__.py
 │       ├── base_agent.py          # Base agent class (ABC) with shared AV infrastructure
-│       ├── news_agent.py          # News gathering (AV NEWS_SENTIMENT → NewsAPI)
+│       ├── news_agent.py          # News gathering (AV NEWS_SENTIMENT → NewsAPI + Twitter/X)
 │       ├── sentiment_agent.py     # Sentiment analysis (LLM + AV per-article scores)
 │       ├── fundamentals_agent.py  # Company fundamentals (AV 5-endpoint → yfinance + SEC EDGAR)
 │       ├── market_agent.py        # Market data (AV GLOBAL_QUOTE + DAILY → yfinance)
@@ -504,6 +507,7 @@ multi-agent-market-research/
 │   │   │   ├── HistoryDashboard.jsx  # Analysis history browser with trend charts
 │   │   │   ├── WatchlistPanel.jsx    # Watchlist management + comparison table
 │   │   │   ├── OptionsFlow.jsx        # Options flow display
+│   │   │   ├── SocialBuzz.jsx         # Twitter/X social buzz panel
 │   │   │   ├── SchedulePanel.jsx      # Schedule management
 │   │   │   ├── AlertPanel.jsx         # Alert rules + notifications
 │   │   │   └── Icons.jsx             # SVG icon components (30+ icons)
@@ -587,6 +591,7 @@ The frontend is a React application with a Hero UI-inspired dark theme built on 
 - **PriceChart** — TradingView chart with metric cards, technical indicators (RSI, MACD, signal strength), and data source provenance badges
 - **SentimentReport** — Sentiment meter, factor breakdown with centered bars, and key themes
 - **AgentStatus** — Real-time progress pipeline for 7 agents with status indicators and duration tracking
+- **SocialBuzz** — Twitter/X social buzz panel with tweet volume, engagement metrics, buzz level indicator, and collapsible top tweets with per-tweet engagement stats
 - **NewsFeed** — Relevance-scored news article list with source attribution
 
 ## Docker
@@ -680,6 +685,7 @@ python run.py  # Will create fresh database
 - ~~**PDF export with branded report**: Generate downloadable PDF reports with charts, agent summaries, and recommendation branding.~~ *(Done — ReportLab-based multi-page PDF; executive summary, price targets, per-agent sections, full reasoning; `GET /api/analysis/{ticker}/export/pdf`)*
 - ~~**Scheduled / recurring analysis**: Cron-style or interval-based automatic re-analysis of watched tickers.~~ *(Done — APScheduler-based background scheduler; CRUD API for schedules; configurable intervals 30min-1week; run history audit log; SchedulePanel UI)*
 - ~~**Alert system**: Notify users when a ticker's recommendation changes or crosses a score threshold.~~ *(Done — AlertEngine evaluates rules post-analysis; 5 rule types; notification persistence with acknowledgment; AlertPanel UI with bell badge)*
+- ~~**Twitter/X social sentiment**: Integrate Twitter/X API v2 for social buzz analysis alongside news sentiment.~~ *(Done — News agent fetches cashtag tweets concurrently via `asyncio.create_task`; sentiment agent includes social_sentiment as 5th analysis factor; SocialBuzz frontend component with engagement metrics and top tweets)*
 
 ## License
 

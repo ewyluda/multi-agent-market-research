@@ -14,9 +14,13 @@ class NewsAgent(BaseAgent):
     Data source priority:
         1. Alpha Vantage NEWS_SENTIMENT (includes built-in sentiment scores)
         2. NewsAPI (fallback)
+
+    Supplementary sources (always fetched when configured):
+        - Twitter/X API v2 (search/recent with cashtag filtering)
     """
 
     RELEVANCE_THRESHOLD = 0.15  # Minimum score to keep an article (very permissive)
+    TWITTER_API_BASE_URL = "https://api.twitter.com/2"
 
     async def _fetch_av_news(self) -> Optional[List[Dict[str, Any]]]:
         """
@@ -116,6 +120,123 @@ class NewsAgent(BaseAgent):
             return float(val)
         except (ValueError, TypeError):
             return None
+
+    # ──────────────────────────────────────────────
+    # Twitter/X API
+    # ──────────────────────────────────────────────
+
+    async def _fetch_twitter_posts(self) -> List[Dict[str, Any]]:
+        """
+        Fetch recent tweets mentioning the ticker's cashtag from Twitter/X API v2.
+
+        Uses the search/recent endpoint with engagement filtering to surface
+        quality financial discussion and filter out spam/bots.
+
+        Returns:
+            List of tweet dicts, or empty list on failure
+        """
+        bearer_token = self.config.get("TWITTER_BEARER_TOKEN", "")
+        if not bearer_token:
+            return []
+
+        max_results = min(self.config.get("TWITTER_MAX_RESULTS", 20), 100)
+        min_engagement = self.config.get("TWITTER_MIN_ENGAGEMENT", 2)
+
+        query = f"${self.ticker} -is:retweet lang:en"
+        url = f"{self.TWITTER_API_BASE_URL}/tweets/search/recent"
+        params = {
+            "query": query,
+            "max_results": str(max(max_results, 10)),
+            "tweet.fields": "created_at,public_metrics,author_id",
+        }
+        headers = {"Authorization": f"Bearer {bearer_token}"}
+
+        try:
+            session = getattr(self, '_shared_session', None)
+            if session and not session.closed:
+                tweets = await self._do_twitter_request(session, url, params, headers)
+            else:
+                async with aiohttp.ClientSession() as fallback_session:
+                    tweets = await self._do_twitter_request(fallback_session, url, params, headers)
+
+            if not tweets:
+                return []
+
+            # Filter by minimum engagement and format
+            filtered = []
+            for tweet in tweets:
+                metrics = tweet.get("public_metrics", {})
+                engagement = (
+                    metrics.get("like_count", 0)
+                    + metrics.get("retweet_count", 0)
+                    + metrics.get("reply_count", 0)
+                )
+                if engagement >= min_engagement:
+                    filtered.append({
+                        "id": tweet.get("id", ""),
+                        "text": tweet.get("text", ""),
+                        "created_at": tweet.get("created_at", ""),
+                        "author_id": tweet.get("author_id", ""),
+                        "metrics": {
+                            "likes": metrics.get("like_count", 0),
+                            "retweets": metrics.get("retweet_count", 0),
+                            "replies": metrics.get("reply_count", 0),
+                        },
+                        "engagement": engagement,
+                        "url": f"https://x.com/i/status/{tweet.get('id', '')}",
+                    })
+
+            # Sort by engagement descending
+            filtered.sort(key=lambda t: t["engagement"], reverse=True)
+
+            self.logger.info(
+                f"Twitter/X returned {len(tweets)} tweets for ${self.ticker}, "
+                f"{len(filtered)} passed engagement filter (>={min_engagement})"
+            )
+            return filtered
+
+        except Exception as e:
+            self.logger.warning(f"Twitter/X fetch failed for {self.ticker}: {e}")
+            return []
+
+    async def _do_twitter_request(
+        self,
+        session: aiohttp.ClientSession,
+        url: str,
+        params: Dict[str, str],
+        headers: Dict[str, str],
+    ) -> Optional[List[Dict[str, Any]]]:
+        """
+        Execute the actual Twitter API HTTP request.
+
+        Args:
+            session: aiohttp session
+            url: API endpoint URL
+            params: Query parameters
+            headers: Request headers with Bearer auth
+
+        Returns:
+            List of tweet dicts, or None on failure
+        """
+        async with session.get(
+            url,
+            params=params,
+            headers=headers,
+            timeout=aiohttp.ClientTimeout(total=10),
+        ) as resp:
+            if resp.status == 401:
+                self.logger.warning("Twitter/X API: unauthorized (invalid bearer token)")
+                return None
+            if resp.status == 429:
+                self.logger.warning("Twitter/X API: rate limited")
+                return None
+            if resp.status != 200:
+                body = await resp.text()
+                self.logger.warning(f"Twitter/X API returned status {resp.status}: {body[:200]}")
+                return None
+
+            data = await resp.json()
+            return data.get("data", [])
 
     # ──────────────────────────────────────────────
     # Company Info Lookup
@@ -400,16 +521,20 @@ class NewsAgent(BaseAgent):
 
     async def fetch_data(self) -> Dict[str, Any]:
         """
-        Fetch news articles. Tries Alpha Vantage NEWS_SENTIMENT first, falls back to NewsAPI.
+        Fetch news articles and supplementary Twitter/X posts.
 
-        Alpha Vantage provides built-in ticker relevance and sentiment scores,
-        so articles from AV are already pre-scored and don't need our relevance filter.
+        News: Tries Alpha Vantage NEWS_SENTIMENT first, falls back to NewsAPI.
+        Twitter: Always fetched concurrently when TWITTER_BEARER_TOKEN is set.
 
         Returns:
-            Dictionary with news articles and company info
+            Dictionary with news articles, twitter posts, and company info
         """
         articles = []
+        twitter_posts = []
         source = "unknown"
+
+        # ── Launch Twitter fetch concurrently (supplementary, never blocks) ──
+        twitter_task = asyncio.create_task(self._fetch_twitter_posts())
 
         # ── Try Alpha Vantage NEWS_SENTIMENT first ──
         av_api_key = self.config.get("ALPHA_VANTAGE_API_KEY", "")
@@ -426,12 +551,16 @@ class NewsAgent(BaseAgent):
                     company_info = await self._get_company_info()
                     self._company_info = company_info
 
+                    # Await Twitter results
+                    twitter_posts = await twitter_task
+
                     return {
                         "articles": articles,
                         "ticker": self.ticker,
                         "total_count": len(articles),
                         "company_info": company_info,
                         "source": source,
+                        "twitter_posts": twitter_posts,
                     }
                 else:
                     self.logger.info(f"Alpha Vantage returned no news for {self.ticker}, falling back to NewsAPI")
@@ -460,12 +589,16 @@ class NewsAgent(BaseAgent):
             except Exception as e:
                 self.logger.warning(f"Failed to fetch from NewsAPI: {e}")
 
+        # Await Twitter results
+        twitter_posts = await twitter_task
+
         return {
             "articles": articles,
             "ticker": self.ticker,
             "total_count": len(articles),
             "company_info": company_info,
             "source": source,
+            "twitter_posts": twitter_posts,
         }
 
     async def _fetch_from_newsapi(
@@ -606,6 +739,10 @@ class NewsAgent(BaseAgent):
         # Extract key headlines (from filtered, relevance-sorted list)
         key_headlines = self._extract_key_headlines(filtered_articles, limit=5)
 
+        # Build Twitter/X social buzz summary
+        twitter_posts = raw_data.get("twitter_posts", [])
+        twitter_buzz = self._build_twitter_buzz(twitter_posts)
+
         analysis = {
             "articles": filtered_articles,
             "total_count": len(filtered_articles),
@@ -613,7 +750,9 @@ class NewsAgent(BaseAgent):
             "categories": categorized,
             "recent_count": recent_count,
             "key_headlines": key_headlines,
-            "summary": self._generate_summary(filtered_articles, recent_count, removed_count)
+            "twitter_posts": twitter_posts,
+            "twitter_buzz": twitter_buzz,
+            "summary": self._generate_summary(filtered_articles, recent_count, removed_count, twitter_buzz)
         }
 
         return analysis
@@ -713,13 +852,45 @@ class NewsAgent(BaseAgent):
 
         return headlines
 
+    def _build_twitter_buzz(self, twitter_posts: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        Build summary statistics from Twitter/X posts.
+
+        Args:
+            twitter_posts: List of tweet dicts from _fetch_twitter_posts()
+
+        Returns:
+            Dictionary with social buzz metrics
+        """
+        if not twitter_posts:
+            return {
+                "total_tweets": 0,
+                "total_engagement": 0,
+                "avg_engagement": 0.0,
+                "top_tweets": [],
+            }
+
+        total_engagement = sum(t.get("engagement", 0) for t in twitter_posts)
+        avg_engagement = total_engagement / len(twitter_posts) if twitter_posts else 0.0
+
+        # Top 5 tweets by engagement for display
+        top_tweets = twitter_posts[:5]
+
+        return {
+            "total_tweets": len(twitter_posts),
+            "total_engagement": total_engagement,
+            "avg_engagement": round(avg_engagement, 1),
+            "top_tweets": top_tweets,
+        }
+
     def _generate_summary(
         self,
         articles: List[Dict[str, Any]],
         recent_count: int,
-        filtered_count: int = 0
+        filtered_count: int = 0,
+        twitter_buzz: Optional[Dict[str, Any]] = None,
     ) -> str:
-        """Generate news summary including filter stats."""
+        """Generate news summary including filter stats and social buzz."""
         total = len(articles)
 
         if total == 0:
@@ -734,8 +905,14 @@ class NewsAgent(BaseAgent):
 
         # Mention if high news volume
         if recent_count > 5:
-            summary += "High news volume indicates significant activity."
+            summary += "High news volume indicates significant activity. "
         elif recent_count == 0:
-            summary += "Low recent news activity."
+            summary += "Low recent news activity. "
+
+        # Add Twitter/X buzz context
+        if twitter_buzz and twitter_buzz.get("total_tweets", 0) > 0:
+            tweet_count = twitter_buzz["total_tweets"]
+            avg_eng = twitter_buzz["avg_engagement"]
+            summary += f"Social buzz: {tweet_count} tweets (avg engagement: {avg_eng:.0f})."
 
         return summary

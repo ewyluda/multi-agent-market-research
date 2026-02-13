@@ -20,8 +20,8 @@ User → FastAPI API → Orchestrator → [7 Agents Run in Parallel]
 
 ### Agent Roles
 
-1. **News Agent** (`src/agents/news_agent.py`) - Fetches financial news with relevance filtering
-2. **Sentiment Agent** (`src/agents/sentiment_agent.py`) - LLM-based sentiment analysis on news (enriched with AV per-article sentiment scores)
+1. **News Agent** (`src/agents/news_agent.py`) - Fetches financial news with relevance filtering + Twitter/X social posts (concurrent via `asyncio.create_task`)
+2. **Sentiment Agent** (`src/agents/sentiment_agent.py`) - LLM-based sentiment analysis on news + Twitter posts (5 factors: earnings, guidance, stock_reactions, strategic_news, social_sentiment)
 3. **Fundamentals Agent** (`src/agents/fundamentals_agent.py`) - Company financials, health metrics, and LLM equity research
 4. **Market Agent** (`src/agents/market_agent.py`) - Price trends and market conditions
 5. **Technical Agent** (`src/agents/technical_agent.py`) - RSI, MACD, Bollinger Bands, SMA
@@ -37,7 +37,7 @@ All data-fetching agents follow a **primary → fallback** pattern:
 |-------|-------------------------------|-----------------|
 | **Market Agent** | `GLOBAL_QUOTE` + `TIME_SERIES_DAILY` | yfinance |
 | **Fundamentals Agent** | `COMPANY_OVERVIEW` + `EARNINGS` + `BALANCE_SHEET` + `CASH_FLOW` + `INCOME_STATEMENT` | yfinance + SEC EDGAR XBRL |
-| **News Agent** | `NEWS_SENTIMENT` (includes ticker-specific relevance & sentiment scores) | NewsAPI |
+| **News Agent** | `NEWS_SENTIMENT` (includes ticker-specific relevance & sentiment scores) | NewsAPI + Twitter/X API v2 (`search/recent`) |
 | **Technical Agent** | `RSI` + `MACD` + `BBANDS` + `SMA` (×3 periods) + `TIME_SERIES_DAILY` | yfinance + local indicator calculation |
 | **Macro Agent** | `FEDERAL_FUNDS_RATE` + `CPI` + `REAL_GDP` + `TREASURY_YIELD` (10Y & 2Y) + `UNEMPLOYMENT` + `INFLATION` | None (supplementary) |
 | **Sentiment Agent** | N/A (LLM-powered, enriched with AV per-article scores) | N/A |
@@ -87,20 +87,25 @@ src/agents/
 frontend/
 ├── src/
 │   ├── components/
-│   │   ├── Dashboard.jsx          # Main layout (view mode: Analysis/History/Watchlist/Schedules/Alerts)
+│   │   ├── Dashboard.jsx          # Root layout: Sidebar + ContentHeader + tabbed content + right sidebar
+│   │   ├── Sidebar.jsx            # 64px fixed left icon sidebar (5 nav items, tooltips, alert badge)
+│   │   ├── ContentHeader.jsx      # Sticky header: ticker info, price, change %, search input, progress bar
+│   │   ├── AnalysisTabs.jsx       # 5-tab bar (Overview/Research/Sentiment/News/Options) + framer-motion underline
+│   │   ├── AgentPipelineBar.jsx   # Compact horizontal agent status bar (8 dots, collapsible after completion)
 │   │   ├── Recommendation.jsx     # SVG gauge with BUY/HOLD/SELL + agent consensus strip
-│   │   ├── AgentStatus.jsx        # Real-time agent progress pipeline
-│   │   ├── PriceChart.jsx         # TradingView chart, indicators, data source badges
-│   │   ├── SentimentReport.jsx    # Sentiment meter, factor bars, key themes
-│   │   ├── Summary.jsx            # Verdict banner, sectioned chain-of-thought, price targets range bar
-│   │   ├── MacroSnapshot.jsx      # Macro indicators sidebar widget (fed rate, yields, inflation, GDP)
-│   │   ├── NewsFeed.jsx           # Relevance-scored news article list
+│   │   ├── AgentStatus.jsx        # Legacy agent progress pipeline (replaced by AgentPipelineBar in new layout)
+│   │   ├── PriceChart.jsx         # lightweight-charts candlestick + volume, indicators, source badges
+│   │   ├── SentimentReport.jsx    # Sentiment arc gauge, factor bars (always expanded), key themes
+│   │   ├── Summary.jsx            # Exports: VerdictBanner, AtAGlance, OverviewMetrics, ResearchContent
+│   │   ├── MacroSnapshot.jsx      # Macro indicators right sidebar widget (fed rate, yields, inflation, GDP)
+│   │   ├── NewsFeed.jsx           # Relevance-scored news article list with hover elevation
 │   │   ├── HistoryDashboard.jsx   # Analysis history browser (trend charts, filters, pagination)
 │   │   ├── WatchlistPanel.jsx     # Watchlist management + batch analyze + comparison table
 │   │   ├── OptionsFlow.jsx        # Options flow display (P/C ratio, unusual activity, max pain)
+│   │   ├── SocialBuzz.jsx         # Twitter/X social buzz panel (tweet volume, engagement, top tweets)
 │   │   ├── SchedulePanel.jsx      # Schedule management for recurring analyses
 │   │   ├── AlertPanel.jsx         # Alert rules management and notification feed
-│   │   └── Icons.jsx              # SVG icon components (30+ icons)
+│   │   └── Icons.jsx              # SVG icon components (35+ icons)
 │   ├── context/
 │   │   └── AnalysisContext.jsx    # React context for analysis state
 │   ├── hooks/
@@ -109,7 +114,7 @@ frontend/
 │   │   └── useSSE.js              # SSE streaming hook
 │   ├── utils/
 │   │   └── api.js                 # API client (analysis + history + watchlist + schedule + alert endpoints)
-│   ├── index.css                  # Theme system (Tailwind v4 @theme + CSS custom properties)
+│   ├── index.css                  # Theme system (Tailwind v4 @theme + CSS custom properties + glass-card classes)
 │   └── App.jsx                    # Root component
 ├── Dockerfile                     # Production frontend (multi-stage: node build → nginx)
 ├── Dockerfile.dev                 # Development frontend (Vite hot-reload)
@@ -118,7 +123,7 @@ frontend/
 └── package.json
 ```
 
-**Frontend Layout**: 2-7-3 grid (AgentStatus | Content | Recommendation+Macro). All analysis sections (Summary, Sentiment, News) render vertically in the center column. Header has a view mode toggle switching between Analysis, History, Watchlist, Schedules, and Alerts views. A notification bell with badge shows unacknowledged alert count.
+**Frontend Layout**: Sidebar (64px fixed left, `--sidebar-width` CSS var) + main content area. Analysis view: sticky ContentHeader → AgentPipelineBar → AnalysisTabs → tab content panels + right sidebar (280px, Recommendation + MacroSnapshot). Tab content mapping: Overview (PriceChart + OverviewMetrics), Research (ResearchContent), Sentiment (SentimentReport + SocialBuzz), News (NewsFeed), Options (OptionsFlow). VIEW_MODES enum (ANALYSIS, HISTORY, WATCHLIST, SCHEDULES, ALERTS) switches between panels. Welcome screen has dot grid background, hero search input, quick-start ticker pills.
 
 **Frontend Theme**: Hero UI dark theme variant (zinc-based). Three color layers:
 1. `tailwind.config.js` - Custom color values
@@ -126,16 +131,19 @@ frontend/
 3. `:root` block in `index.css` - CSS custom properties for backgrounds, borders, glows
 
 **Key Frontend Patterns**:
-- `Summary.jsx` parses the LLM's 11-step chain-of-thought into domain-specific expandable sections (maps to solution agent prompt steps 1-11), each with icon, color, one-line headline, and collapsible detail
-- `Recommendation.jsx` includes an agent consensus strip showing per-agent signal direction (bullish/bearish/neutral dots derived from each agent's output data)
-- `MacroSnapshot.jsx` surfaces macro data (fed funds, yields, inflation, GDP) that otherwise only feeds the LLM reasoning
-- `PriceChart.jsx` shows data source provenance badges (`AV` / `YF`) from `data_source` fields
+- `Summary.jsx` exports `VerdictBanner`, `AtAGlance`, `OverviewMetrics`, `ResearchContent` — `OverviewMetrics` shows at-a-glance cards in Overview tab; `ResearchContent` renders 11-step chain-of-thought with expandable sections in Research tab
+- `Recommendation.jsx` includes left glow line, gradient arc gauge, animated needle glow (SMIL), and agent consensus strip (bullish/bearish/neutral dots)
+- `Sidebar.jsx` has 5 NAV_ITEMS with tooltip labels, active state glow, and alert notification badge
+- `ContentHeader.jsx` shows ticker name, price, change %, data source badges, search input, and loading progress bar
+- `AnalysisTabs.jsx` uses framer-motion `layoutId` for animated tab underline; 5 tabs with icon + label
+- `AgentPipelineBar.jsx` reads from `useAnalysisContext()`, shows 8 agent dots with status colors, collapses after completion
+- `MacroSnapshot.jsx` surfaces macro data (fed funds, yields, inflation, GDP) with gradient yield bars
+- `PriceChart.jsx` uses lightweight-charts for candlestick + volume, shows indicator cards with hover borders
 - `HistoryDashboard.jsx` uses `useHistory` hook for state; SVG `TrendChart` plots scores chronologically with color-coded recommendation dots; `FilterBar` toggles BUY/HOLD/SELL; `Pagination` handles offset-based pages
 - `WatchlistPanel.jsx` manages CRUD via `api.js` watchlist functions; SSE `EventSource` for batch analysis; `ComparisonTable` sorts by confidence
 - `SchedulePanel.jsx` manages schedule CRUD via `api.js` schedule functions; create/edit/delete schedules with interval selection; enable/disable toggle; expandable run history
 - `AlertPanel.jsx` manages alert rules and notifications; create rules with 5 types (recommendation_change, score_above/below, confidence_above/below); notifications feed with acknowledge; unread filter toggle
-- `Dashboard.jsx` has `VIEW_MODES` enum (ANALYSIS, HISTORY, WATCHLIST, SCHEDULES, ALERTS) — conditionally renders the appropriate panel
-- Glass cards have hover transitions (`border-color 0.2s`) defined in `index.css`
+- Glass cards use `glass-card` / `glass-card-elevated` CSS classes with hover transitions defined in `index.css`
 
 ## Key Technologies
 
@@ -148,7 +156,10 @@ frontend/
 - **yfinance** - Stock market data (fallback source)
 - **Alpha Vantage** - Primary market data API (22 endpoints used across 5 agents)
 - **NewsAPI** - News aggregation (fallback for news agent)
+- **Twitter/X API v2** - Social sentiment data (supplementary, `search/recent` endpoint)
 - **React + Tailwind CSS v4** - Frontend UI with Hero UI dark theme
+- **framer-motion** - Tab underline animations, stagger lists, spring physics for gauges, AnimatePresence for tab transitions
+- **lightweight-charts** - TradingView candlestick + volume charts (replaced custom SVG chart)
 - **Vite** - Frontend build tool
 - **pytest** - Test framework (157 tests with pytest-asyncio, aioresponses, httpx)
 - **ReportLab** - PDF report generation
@@ -196,6 +207,9 @@ TWITTER_BEARER_TOKEN=...
 - `SCHEDULER_ENABLED` - Enable/disable background scheduler (default: true)
 - `SCHEDULER_MIN_INTERVAL` - Minimum schedule interval in minutes (default: 30)
 - `ALERTS_ENABLED` - Enable/disable alert evaluation after analysis (default: true)
+- `TWITTER_BEARER_TOKEN` - Twitter/X API v2 Bearer Token for social data (optional, supplementary)
+- `TWITTER_MAX_RESULTS` - Max tweets to fetch per analysis (default: 50)
+- `TWITTER_MIN_ENGAGEMENT` - Minimum engagement filter for tweets (default: 0)
 
 ## Running the Application
 
@@ -450,7 +464,7 @@ The `Orchestrator` class coordinates all agents:
 2. Resolves which agents to run (from `AGENT_REGISTRY`, with dependency enforcement)
 3. Injects shared resources (session, rate limiter, cache) into each agent
 4. Runs data agents in parallel (or sequential if `PARALLEL_AGENTS=false`) using `asyncio.gather()`
-5. Runs sentiment agent (depends on news + market results)
+5. Runs sentiment agent (depends on news + market + twitter_posts extracted from news results)
 6. Passes all results to Solution Agent for synthesis
 7. Saves to database
 8. Evaluates alert rules (if ALERTS_ENABLED) and triggers notifications
@@ -608,7 +622,9 @@ The frontend is in `frontend/` directory (React + Vite + Tailwind CSS v4).
 - `agent_results.news.data` → NewsFeed (articles, headlines)
 - `agent_results.macro.data` → MacroSnapshot (indicators, yield curve, economic cycle, risk environment)
 - `agent_results.options.data` → OptionsFlow (P/C ratio, unusual activity, max pain, overall signal)
-- `agent_results.*.data.data_source` → PriceChart source badges (AV/YF)
+- `agent_results.news.data.twitter_buzz` → SocialBuzz (tweet count, engagement metrics, top tweets)
+- `agent_results.news.data.twitter_posts` → SocialBuzz (individual tweet cards with engagement)
+- `agent_results.*.data.data_source` → ContentHeader source badges (AV/YF)
 - All agent signals → Recommendation consensus strip (bullish/bearish/neutral dots)
 
 **Backend provides**:
@@ -649,6 +665,7 @@ The frontend is in `frontend/` directory (React + Vite + Tailwind CSS v4).
 - Database is local SQLite (not exposed)
 - CORS configured for frontend access
 - Alpha Vantage API key passed as query parameter (standard for AV)
+- Twitter Bearer Token: use raw value from `.env` — do NOT URL-decode `%2B`/`%3D` characters (causes 401)
 
 ## Performance Considerations
 

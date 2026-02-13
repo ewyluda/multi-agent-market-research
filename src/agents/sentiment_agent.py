@@ -3,7 +3,7 @@
 import asyncio
 import anthropic
 from openai import OpenAI
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 import json
 from .base_agent import BaseAgent
 
@@ -39,6 +39,7 @@ class SentimentAgent(BaseAgent):
         """
         news_articles = raw_data.get("news_articles", [])
         market_data = raw_data.get("market_data", {})
+        twitter_posts = raw_data.get("twitter_posts", [])
 
         if not news_articles or len(news_articles) == 0:
             return {
@@ -53,9 +54,9 @@ class SentimentAgent(BaseAgent):
         provider = llm_config.get("provider", "anthropic")
 
         if provider == "anthropic":
-            analysis = await self._analyze_with_anthropic(news_articles, market_data, llm_config)
+            analysis = await self._analyze_with_anthropic(news_articles, market_data, llm_config, twitter_posts)
         elif provider in ("xai", "openai"):
-            analysis = await self._analyze_with_openai(news_articles, market_data, llm_config)
+            analysis = await self._analyze_with_openai(news_articles, market_data, llm_config, twitter_posts)
         else:
             # Fallback to simple analysis
             analysis = self._simple_sentiment_analysis(news_articles)
@@ -66,7 +67,8 @@ class SentimentAgent(BaseAgent):
         self,
         articles: List[Dict[str, Any]],
         market_data: Dict[str, Any],
-        llm_config: Dict[str, Any]
+        llm_config: Dict[str, Any],
+        twitter_posts: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         """
         Analyze sentiment using Anthropic Claude API.
@@ -75,6 +77,7 @@ class SentimentAgent(BaseAgent):
             articles: News articles
             market_data: Market context
             llm_config: LLM configuration
+            twitter_posts: Optional tweets from Twitter/X
 
         Returns:
             Sentiment analysis
@@ -86,6 +89,7 @@ class SentimentAgent(BaseAgent):
 
         # Prepare article summaries for LLM (with AV sentiment enrichment)
         articles_text, av_sentiment_section = self._build_article_summaries(articles)
+        twitter_section = self._build_twitter_section(twitter_posts or [])
 
         # Get sentiment factors config
         sentiment_factors = self.config.get("SENTIMENT_FACTORS", {})
@@ -94,7 +98,7 @@ class SentimentAgent(BaseAgent):
         prompt = f"""Analyze the market sentiment for {self.ticker} based on the following recent news articles:
 
 {articles_text}
-{av_sentiment_section}
+{av_sentiment_section}{twitter_section}
 Market Context:
 - Current Price: {market_data.get('current_price', 'N/A')}
 - 1-Month Change: {market_data.get('price_change_1m', {}).get('change_pct', 'N/A')}%
@@ -105,6 +109,7 @@ Analyze sentiment across these factors:
 2. Guidance/EV Losses: Forward guidance changes, strategic concerns
 3. Stock Reactions: Market reactions to announcements
 4. Strategic News: New initiatives, partnerships, leadership changes
+5. Social Sentiment: Twitter/X community sentiment and buzz level
 
 For each factor, provide:
 - Score: -1.0 (very bearish) to +1.0 (very bullish)
@@ -119,7 +124,8 @@ Respond in JSON format:
     "earnings": {{"score": <float>, "weight": <float>, "contribution": <float>}},
     "guidance": {{"score": <float>, "weight": <float>, "contribution": <float>}},
     "stock_reactions": {{"score": <float>, "weight": <float>, "contribution": <float>}},
-    "strategic_news": {{"score": <float>, "weight": <float>, "contribution": <float>}}
+    "strategic_news": {{"score": <float>, "weight": <float>, "contribution": <float>}},
+    "social_sentiment": {{"score": <float>, "weight": <float>, "contribution": <float>}}
   }},
   "reasoning": "<brief explanation of the overall sentiment>",
   "key_themes": ["<theme1>", "<theme2>", "<theme3>"]
@@ -176,7 +182,8 @@ Respond in JSON format:
         self,
         articles: List[Dict[str, Any]],
         market_data: Dict[str, Any],
-        llm_config: Dict[str, Any]
+        llm_config: Dict[str, Any],
+        twitter_posts: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         """
         Analyze sentiment using OpenAI-compatible API (works with xAI/Grok, OpenAI, etc).
@@ -185,6 +192,7 @@ Respond in JSON format:
             articles: News articles
             market_data: Market context
             llm_config: LLM configuration
+            twitter_posts: Optional tweets from Twitter/X
 
         Returns:
             Sentiment analysis
@@ -196,12 +204,13 @@ Respond in JSON format:
 
         # Prepare article summaries for LLM (with AV sentiment enrichment)
         articles_text, av_sentiment_section = self._build_article_summaries(articles)
+        twitter_section = self._build_twitter_section(twitter_posts or [])
 
         # Construct prompt (same as Anthropic version)
         prompt = f"""Analyze the market sentiment for {self.ticker} based on the following recent news articles:
 
 {articles_text}
-{av_sentiment_section}
+{av_sentiment_section}{twitter_section}
 Market Context:
 - Current Price: {market_data.get('current_price', 'N/A')}
 - 1-Month Change: {market_data.get('price_change_1m', {}).get('change_pct', 'N/A')}%
@@ -212,6 +221,7 @@ Analyze sentiment across these factors:
 2. Guidance/EV Losses: Forward guidance changes, strategic concerns
 3. Stock Reactions: Market reactions to announcements
 4. Strategic News: New initiatives, partnerships, leadership changes
+5. Social Sentiment: Twitter/X community sentiment and buzz level
 
 For each factor, provide:
 - Score: -1.0 (very bearish) to +1.0 (very bullish)
@@ -226,7 +236,8 @@ Respond in JSON format:
     "earnings": {{"score": <float>, "weight": <float>, "contribution": <float>}},
     "guidance": {{"score": <float>, "weight": <float>, "contribution": <float>}},
     "stock_reactions": {{"score": <float>, "weight": <float>, "contribution": <float>}},
-    "strategic_news": {{"score": <float>, "weight": <float>, "contribution": <float>}}
+    "strategic_news": {{"score": <float>, "weight": <float>, "contribution": <float>}},
+    "social_sentiment": {{"score": <float>, "weight": <float>, "contribution": <float>}}
   }},
   "reasoning": "<brief explanation of the overall sentiment>",
   "key_themes": ["<theme1>", "<theme2>", "<theme3>"]
@@ -401,6 +412,42 @@ Respond in JSON format:
 
         return articles_text, av_sentiment_section
 
+    def _build_twitter_section(self, twitter_posts: List[Dict[str, Any]]) -> str:
+        """Build Twitter/X social sentiment section for LLM prompts.
+
+        Args:
+            twitter_posts: List of tweet dicts from NewsAgent
+
+        Returns:
+            Formatted string section for inclusion in LLM prompt
+        """
+        if not twitter_posts:
+            return ""
+
+        lines = ["\nTwitter/X Social Sentiment (recent cashtag mentions, sorted by engagement):"]
+        for i, tweet in enumerate(twitter_posts[:10], 1):
+            text = tweet.get("text", "").replace("\n", " ")[:200]
+            metrics = tweet.get("metrics", {})
+            engagement = tweet.get("engagement", 0)
+            created = tweet.get("created_at", "")
+            lines.append(
+                f"{i}. [{created}] {text}\n"
+                f"   [Likes: {metrics.get('likes', 0)}, "
+                f"RTs: {metrics.get('retweets', 0)}, "
+                f"Replies: {metrics.get('replies', 0)}, "
+                f"Total engagement: {engagement}]"
+            )
+
+        total = len(twitter_posts)
+        total_engagement = sum(t.get("engagement", 0) for t in twitter_posts)
+        lines.append(
+            f"\nTwitter Summary: {total} tweets found, "
+            f"total engagement: {total_engagement}. "
+            f"Use these as a supplementary social signal — not a primary indicator.\n"
+        )
+
+        return "\n".join(lines)
+
     def _generate_summary_from_llm_result(self, result: Dict[str, Any]) -> str:
         """Generate summary from LLM analysis result."""
         sentiment = result.get("overall_sentiment", 0.0)
@@ -422,16 +469,23 @@ Respond in JSON format:
 
         return summary
 
-    def set_context_data(self, news_articles: List[Dict[str, Any]], market_data: Dict[str, Any]):
+    def set_context_data(
+        self,
+        news_articles: List[Dict[str, Any]],
+        market_data: Dict[str, Any],
+        twitter_posts: Optional[List[Dict[str, Any]]] = None,
+    ):
         """
         Set context data from other agents for sentiment analysis.
 
         Args:
             news_articles: Articles from NewsAgent
             market_data: Market data from MarketAgent
+            twitter_posts: Optional tweets from NewsAgent's Twitter/X fetch
         """
         self._context_news = news_articles
         self._context_market = market_data
+        self._context_twitter = twitter_posts or []
 
     async def execute(self) -> Dict[str, Any]:
         """
@@ -445,7 +499,8 @@ Respond in JSON format:
             raw_data = {
                 "ticker": self.ticker,
                 "news_articles": self._context_news,
-                "market_data": self._context_market
+                "market_data": self._context_market,
+                "twitter_posts": getattr(self, '_context_twitter', []),
             }
             return await self._execute_with_data(raw_data)
         else:

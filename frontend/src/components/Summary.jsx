@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useCallback } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { exportAnalysisPDF } from '../utils/api';
 import {
   DocumentIcon,
@@ -130,11 +131,22 @@ const AnalysisSection = ({ section, defaultExpanded = false }) => {
           />
         )}
       </div>
-      {expanded && detail && (
-        <div className="mt-2.5 ml-10 text-[13px] text-gray-400 leading-relaxed animate-fade-in">
-          {detail}
-        </div>
-      )}
+      <AnimatePresence>
+        {expanded && detail && (
+          <motion.div
+            key="detail"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2, ease: 'easeInOut' }}
+            className="overflow-hidden"
+          >
+            <div className="mt-2.5 ml-10 text-sm text-gray-300 leading-relaxed pb-1">
+              {detail}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };
@@ -142,7 +154,7 @@ const AnalysisSection = ({ section, defaultExpanded = false }) => {
 /**
  * VerdictBanner — top-level recommendation summary.
  */
-const VerdictBanner = ({ analysis }) => {
+export const VerdictBanner = ({ analysis }) => {
   const { recommendation, score, confidence, reasoning } = analysis.analysis || {};
   const colors = getRecommendationColor(recommendation);
 
@@ -196,7 +208,7 @@ const VerdictBanner = ({ analysis }) => {
 /**
  * AtAGlance — horizontal strip of key metrics.
  */
-const AtAGlance = ({ analysis }) => {
+export const AtAGlance = ({ analysis }) => {
   const { score, confidence, position_size, time_horizon } = analysis.analysis || {};
 
   const pills = [
@@ -252,9 +264,9 @@ const PriceTargetsRangeBar = ({ price_targets }) => {
       </div>
       {/* Labels */}
       <div className="flex justify-between mt-1.5">
-        <span className="text-[10px] text-danger-400 tabular-nums">${stop_loss.toFixed(2)}</span>
-        <span className="text-[10px] text-gray-300 font-medium tabular-nums">${entry.toFixed(2)}</span>
-        <span className="text-[10px] text-success-400 tabular-nums">${target.toFixed(2)}</span>
+        <span className="text-[10px] text-danger-400 font-mono tabular-nums">${stop_loss.toFixed(2)}</span>
+        <span className="text-[10px] text-gray-300 font-medium font-mono tabular-nums">${entry.toFixed(2)}</span>
+        <span className="text-[10px] text-success-400 font-mono tabular-nums">${target.toFixed(2)}</span>
       </div>
     </div>
   );
@@ -308,9 +320,26 @@ const SummarySkeleton = () => (
   </div>
 );
 
-/* ─── Main Component ────────────────────────────────────────────── */
+/* ─── Exported Sub-components ──────────────────────────────────── */
 
-const Summary = ({ analysis }) => {
+/**
+ * OverviewMetrics — VerdictBanner + AtAGlance together for the Overview tab.
+ */
+export const OverviewMetrics = ({ analysis }) => {
+  if (!analysis) return null;
+  return (
+    <div className="space-y-4">
+      <VerdictBanner analysis={analysis} />
+      <AtAGlance analysis={analysis} />
+    </div>
+  );
+};
+
+/**
+ * ResearchContent — chain-of-thought sections, price targets, risks/opps, and PDF export.
+ * Designed for the Research tab.
+ */
+export const ResearchContent = ({ analysis }) => {
   const [pdfLoading, setPdfLoading] = useState(false);
 
   const handleExportPDF = useCallback(async () => {
@@ -325,9 +354,7 @@ const Summary = ({ analysis }) => {
     }
   }, [analysis?.ticker, analysis?.analysis_id]);
 
-  if (!analysis) {
-    return <SummarySkeleton />;
-  }
+  if (!analysis) return null;
 
   const { reasoning, risks, opportunities, price_targets } = analysis.analysis || {};
   const sections = parseReasoning(reasoning);
@@ -343,9 +370,6 @@ const Summary = ({ analysis }) => {
 
   return (
     <div className="space-y-4">
-      {/* Verdict Banner */}
-      <VerdictBanner analysis={analysis} />
-
       {/* Export Bar */}
       <div className="flex justify-end">
         <button
@@ -363,9 +387,6 @@ const Summary = ({ analysis }) => {
           <span>{pdfLoading ? 'Exporting...' : 'Export PDF'}</span>
         </button>
       </div>
-
-      {/* At a Glance */}
-      <AtAGlance analysis={analysis} />
 
       {/* Analysis Sections */}
       {sections.length > 0 && (
@@ -413,7 +434,7 @@ const Summary = ({ analysis }) => {
             {price_targets.entry != null && (
               <div className="p-3 bg-dark-inset rounded-lg border-t-2 border-t-accent-blue">
                 <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">Entry</div>
-                <div className="text-xl font-bold text-accent-blue tabular-nums">
+                <div className="text-xl font-bold font-mono text-accent-blue tabular-nums">
                   ${price_targets.entry.toFixed(2)}
                 </div>
               </div>
@@ -428,7 +449,7 @@ const Summary = ({ analysis }) => {
                     </span>
                   )}
                 </div>
-                <div className="text-xl font-bold text-success-400 tabular-nums">
+                <div className="text-xl font-bold font-mono text-success-400 tabular-nums">
                   ${price_targets.target.toFixed(2)}
                 </div>
               </div>
@@ -443,7 +464,7 @@ const Summary = ({ analysis }) => {
                     </span>
                   )}
                 </div>
-                <div className="text-xl font-bold text-danger-400 tabular-nums">
+                <div className="text-xl font-bold font-mono text-danger-400 tabular-nums">
                   ${price_targets.stop_loss.toFixed(2)}
                 </div>
               </div>
@@ -497,6 +518,25 @@ const Summary = ({ analysis }) => {
         )}
       </div>
     </div>
+  );
+};
+
+/* ─── Main Component ────────────────────────────────────────────── */
+
+const Summary = ({ analysis }) => {
+  if (!analysis) {
+    return <SummarySkeleton />;
+  }
+
+  return (
+    <motion.div
+      className="space-y-4"
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+    >
+      <OverviewMetrics analysis={analysis} />
+      <ResearchContent analysis={analysis} />
+    </motion.div>
   );
 };
 

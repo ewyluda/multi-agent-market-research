@@ -3,21 +3,32 @@
  */
 
 import React from 'react';
+import { motion } from 'framer-motion';
 import { useAnalysisContext } from '../context/AnalysisContext';
 import { ChartBarIcon, BuildingIcon, NewspaperIcon, ChartLineIcon, GlobeIcon, BrainIcon, SparklesIcon, OptionsIcon, CheckCircleIcon, XCircleIcon, ClockIcon } from './Icons';
+
+const containerVariants = {
+  hidden: {},
+  visible: { transition: { staggerChildren: 0.04 } }
+};
+
+const rowVariants = {
+  hidden: { opacity: 0, x: -8 },
+  visible: { opacity: 1, x: 0, transition: { duration: 0.3 } }
+};
 
 const AgentStatus = () => {
   const { analysis, loading, stage } = useAnalysisContext();
 
   const agents = [
-    { id: 'market', label: 'Market Data', icon: ChartBarIcon, description: 'Price & volume trends' },
-    { id: 'fundamentals', label: 'Fundamentals', icon: BuildingIcon, description: 'Company health metrics' },
-    { id: 'news', label: 'News', icon: NewspaperIcon, description: 'Recent articles & headlines' },
-    { id: 'technical', label: 'Technical', icon: ChartLineIcon, description: 'RSI, MACD, Bollinger' },
-    { id: 'options', label: 'Options', icon: OptionsIcon, description: 'Options flow & unusual activity' },
-    { id: 'macro', label: 'Macro', icon: GlobeIcon, description: 'Economic environment' },
-    { id: 'sentiment', label: 'Sentiment', icon: BrainIcon, description: 'Market mood analysis' },
-    { id: 'solution', label: 'Synthesis', icon: SparklesIcon, description: 'AI final analysis' },
+    { id: 'market', label: 'Market Data', icon: ChartBarIcon },
+    { id: 'fundamentals', label: 'Fundamentals', icon: BuildingIcon },
+    { id: 'news', label: 'News', icon: NewspaperIcon },
+    { id: 'technical', label: 'Technical', icon: ChartLineIcon },
+    { id: 'options', label: 'Options', icon: OptionsIcon },
+    { id: 'macro', label: 'Macro', icon: GlobeIcon },
+    { id: 'sentiment', label: 'Sentiment', icon: BrainIcon },
+    { id: 'solution', label: 'Synthesis', icon: SparklesIcon },
   ];
 
   const stageToAgent = {
@@ -84,11 +95,28 @@ const AgentStatus = () => {
     return result.duration_seconds.toFixed(1);
   };
 
+  const getDurationColorClass = (durationStr) => {
+    if (!durationStr) return '';
+    const seconds = parseFloat(durationStr);
+    if (seconds < 2) return 'text-success-400';
+    if (seconds <= 5) return 'text-warning-400';
+    return 'text-danger-400';
+  };
+
+  const completedCount = agents.filter(a => getAgentStatus(a.id) === 'success').length;
+  const totalCount = agents.length;
+  const percentage = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
+
   return (
     <div className="glass-card-elevated rounded-xl p-4">
       <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider mb-4">Agent Pipeline</h3>
 
-      <div className="space-y-1.5">
+      <motion.div
+        className="space-y-1.5"
+        variants={containerVariants}
+        initial="hidden"
+        animate="visible"
+      >
         {agents.map((agent, index) => {
           const status = getAgentStatus(agent.id);
           const Icon = agent.icon;
@@ -96,7 +124,7 @@ const AgentStatus = () => {
           const isLast = index === agents.length - 1;
 
           return (
-            <div key={agent.id}>
+            <motion.div key={agent.id} variants={rowVariants}>
               <div
                 className={`flex items-center justify-between p-2.5 rounded-lg transition-all ${
                   status === 'running'
@@ -113,15 +141,12 @@ const AgentStatus = () => {
                   }`}>
                     <Icon className="w-4 h-4" />
                   </div>
-                  <div className="min-w-0">
-                    <div className="text-xs font-medium truncate">{agent.label}</div>
-                    <div className="text-[10px] text-gray-500 truncate">{agent.description}</div>
-                  </div>
+                  <div className="text-xs font-medium truncate">{agent.label}</div>
                 </div>
 
                 <div className="flex items-center space-x-2 flex-shrink-0 ml-2">
                   {duration && (
-                    <span className="text-[10px] text-gray-500 tabular-nums">{duration}s</span>
+                    <span className={`text-[10px] font-mono tabular-nums ${getDurationColorClass(duration)}`}>{duration}s</span>
                   )}
                   {getStatusIndicator(status)}
                 </div>
@@ -137,17 +162,17 @@ const AgentStatus = () => {
                   }`} />
                 </div>
               )}
-            </div>
+            </motion.div>
           );
         })}
-      </div>
+      </motion.div>
 
       {/* Completion Summary */}
       {!loading && analysis && (
         <div className="mt-4 pt-3 border-t border-white/5">
           <div className="flex items-center space-x-1.5 text-[10px] text-gray-500">
             <ClockIcon className="w-3 h-3" />
-            <span>Completed in {analysis.duration_seconds?.toFixed(1)}s</span>
+            <span>Completed in <span className="font-mono">{analysis.duration_seconds?.toFixed(1)}s</span></span>
           </div>
         </div>
       )}
@@ -155,9 +180,12 @@ const AgentStatus = () => {
       {/* Loading Footer */}
       {loading && stage && (
         <div className="mt-4 pt-3 border-t border-white/5">
-          <div className="flex items-center space-x-2">
-            <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
-            <span className="text-[10px] text-gray-400">Processing...</span>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
+              <span className="text-[10px] text-gray-400">Processing...</span>
+            </div>
+            <span className="text-[10px] font-mono text-gray-500">{percentage}%</span>
           </div>
         </div>
       )}

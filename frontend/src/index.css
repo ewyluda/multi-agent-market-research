@@ -6,6 +6,8 @@
    ============================================ */
 
 @theme {
+  --font-family-mono: 'JetBrains Mono', monospace;
+
   --color-dark-bg: #000000;
   --color-dark-card: #18181b;
   --color-dark-card-hover: #27272a;
@@ -36,6 +38,11 @@
   --color-content2: #27272a;
   --color-content3: #3f3f46;
   --color-content4: #52525b;
+
+  /* Sidebar tokens */
+  --color-dark-sidebar: #0a0a0b;
+  --color-dark-sidebar-active: rgba(0, 111, 238, 0.12);
+  --color-dark-sidebar-border: rgba(255, 255, 255, 0.04);
 }
 
 /* ============================================
@@ -43,6 +50,9 @@
    ============================================ */
 
 :root {
+  /* Typography */
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
+
   /* Base backgrounds */
   --bg-primary: #000000;
   --bg-secondary: #18181b;
@@ -81,6 +91,11 @@
   --shadow-glow-blue: 0 0 20px rgba(0, 111, 238, 0.15);
   --shadow-glow-green: 0 0 20px rgba(23, 201, 100, 0.15);
   --shadow-glow-red: 0 0 20px rgba(243, 18, 96, 0.15);
+
+  /* Sidebar */
+  --bg-sidebar: #0a0a0b;
+  --bg-sidebar-active: rgba(0, 111, 238, 0.12);
+  --sidebar-width: 64px;
 }
 
 /* ============================================
@@ -104,7 +119,14 @@ body {
 }
 
 code {
-  font-family: 'Courier New', Courier, monospace;
+  font-family: var(--font-mono);
+}
+
+/* Terminal numeric display */
+.data-value {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
 }
 
 /* ============================================
@@ -146,6 +168,21 @@ code {
   to { transform: rotate(360deg); }
 }
 
+@keyframes slideInUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes tabFadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+
 /* ============================================
    Glass Card Utilities
    ============================================ */
@@ -154,7 +191,7 @@ code {
   background: linear-gradient(135deg, rgba(24, 24, 27, 0.7), rgba(24, 24, 27, 0.5));
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.04);
   box-shadow: var(--shadow-card);
 }
 
@@ -200,6 +237,78 @@ code {
 
 .animate-spin-slow {
   animation: spin 1s linear infinite;
+}
+
+.animate-slide-up {
+  animation: slideInUp 0.3s ease-out forwards;
+}
+
+.animate-tab-fade {
+  animation: tabFadeIn 0.25s ease-out forwards;
+}
+
+.animate-scale-in {
+  animation: scaleIn 0.2s ease-out forwards;
+}
+
+/* ============================================
+   Sidebar Navigation
+   ============================================ */
+
+.sidebar-nav-item {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.2s ease, background-color 0.2s ease, transform 0.15s ease;
+  position: relative;
+}
+
+.sidebar-nav-item:hover {
+  color: var(--text-secondary);
+  background-color: rgba(255, 255, 255, 0.04);
+  transform: scale(1.05);
+}
+
+.sidebar-nav-item.active {
+  color: var(--accent-blue);
+  background-color: var(--bg-sidebar-active);
+}
+
+.sidebar-nav-item.active::before {
+  content: '';
+  position: absolute;
+  left: -12px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 20px;
+  background: var(--accent-blue);
+  border-radius: 0 3px 3px 0;
+}
+
+/* ============================================
+   Tab Content Transitions
+   ============================================ */
+
+.tab-content {
+  animation: tabFadeIn 0.25s ease-out forwards;
+  will-change: opacity, transform;
+}
+
+.tab-content-enter {
+  opacity: 0;
+  transform: translateY(4px);
+}
+
+.tab-content-enter-active {
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 0.25s ease-out, transform 0.25s ease-out;
 }
 
 /* ============================================

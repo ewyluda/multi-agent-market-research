@@ -84,6 +84,8 @@ const TickerChip = ({ ticker, isActive, count, recommendation, onClick }) => {
 
 /* ──────── SVG Trend chart ──────── */
 const TrendChart = ({ data }) => {
+  const [hoveredIdx, setHoveredIdx] = useState(null);
+
   if (!data || data.length < 2) {
     return (
       <div className="h-32 flex items-center justify-center text-xs text-gray-500">
@@ -109,7 +111,7 @@ const TrendChart = ({ data }) => {
   const points = scores.map((s, i) => {
     const x = padX + (i / (scores.length - 1)) * chartW;
     const y = padY + chartH - ((s - minScore) / range) * chartH;
-    return { x, y, score: s, rec: sorted[i].recommendation, date: sorted[i].timestamp };
+    return { x, y, score: s, rec: sorted[i].recommendation, date: sorted[i].timestamp, confidence: sorted[i].confidence };
   });
 
   const linePath = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ');
@@ -120,57 +122,131 @@ const TrendChart = ({ data }) => {
   // Zero line if range spans 0
   const zeroY = minScore < 0 && maxScore > 0 ? padY + chartH - ((0 - minScore) / range) * chartH : null;
 
+  const hoveredPoint = hoveredIdx != null ? points[hoveredIdx] : null;
+
   return (
-    <svg viewBox={`0 0 ${width} ${height}`} className="w-full" preserveAspectRatio="xMidYMid meet">
-      <defs>
-        <linearGradient id="scoreGrad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#006fee" stopOpacity="0.3" />
-          <stop offset="100%" stopColor="#006fee" stopOpacity="0.02" />
-        </linearGradient>
-      </defs>
+    <div className="relative">
+      <svg viewBox={`0 0 ${width} ${height}`} className="w-full" preserveAspectRatio="xMidYMid meet">
+        <defs>
+          <linearGradient id="scoreGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#006fee" stopOpacity="0.3" />
+            <stop offset="100%" stopColor="#006fee" stopOpacity="0.02" />
+          </linearGradient>
+        </defs>
 
-      {/* Grid lines */}
-      <line x1={padX} y1={padY} x2={padX} y2={padY + chartH} stroke="rgba(255,255,255,0.06)" strokeWidth="1" />
-      <line x1={padX} y1={padY + chartH} x2={padX + chartW} y2={padY + chartH} stroke="rgba(255,255,255,0.06)" strokeWidth="1" />
+        {/* Grid lines */}
+        <line x1={padX} y1={padY} x2={padX} y2={padY + chartH} stroke="rgba(255,255,255,0.06)" strokeWidth="1" />
+        <line x1={padX} y1={padY + chartH} x2={padX + chartW} y2={padY + chartH} stroke="rgba(255,255,255,0.06)" strokeWidth="1" />
 
-      {/* Zero line */}
-      {zeroY && (
-        <line x1={padX} y1={zeroY} x2={padX + chartW} y2={zeroY} stroke="rgba(255,255,255,0.1)" strokeWidth="1" strokeDasharray="4 4" />
+        {/* Zero line */}
+        {zeroY && (
+          <line x1={padX} y1={zeroY} x2={padX + chartW} y2={zeroY} stroke="rgba(255,255,255,0.1)" strokeWidth="1" strokeDasharray="4 4" />
+        )}
+
+        {/* Y axis labels */}
+        <text x={padX - 4} y={padY + 4} textAnchor="end" fill="rgba(255,255,255,0.3)" fontSize="9">{maxScore}</text>
+        <text x={padX - 4} y={padY + chartH + 4} textAnchor="end" fill="rgba(255,255,255,0.3)" fontSize="9">{minScore}</text>
+        {zeroY && <text x={padX - 4} y={zeroY + 3} textAnchor="end" fill="rgba(255,255,255,0.3)" fontSize="9">0</text>}
+
+        {/* Area fill */}
+        <path d={areaPath} fill="url(#scoreGrad)" />
+
+        {/* Line */}
+        <path d={linePath} fill="none" stroke="#006fee" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+
+        {/* Hover crosshair */}
+        {hoveredPoint && (
+          <line
+            x1={hoveredPoint.x}
+            y1={padY}
+            x2={hoveredPoint.x}
+            y2={padY + chartH}
+            stroke="rgba(255,255,255,0.15)"
+            strokeWidth="1"
+            strokeDasharray="3 3"
+          />
+        )}
+
+        {/* Data points */}
+        {points.map((p, i) => {
+          const dotColor = p.rec === 'BUY' ? '#17c964' : p.rec === 'SELL' ? '#f31260' : '#f5a524';
+          const isHovered = hoveredIdx === i;
+          return (
+            <g key={i}>
+              {/* Invisible larger hit area for easier hovering */}
+              <circle
+                cx={p.x}
+                cy={p.y}
+                r="12"
+                fill="transparent"
+                onMouseEnter={() => setHoveredIdx(i)}
+                onMouseLeave={() => setHoveredIdx(null)}
+                style={{ cursor: 'pointer' }}
+              />
+              <circle
+                cx={p.x}
+                cy={p.y}
+                r={isHovered ? 6 : 4}
+                fill={dotColor}
+                stroke={isHovered ? 'white' : '#18181b'}
+                strokeWidth={isHovered ? 2.5 : 2}
+                style={{ transition: 'r 0.15s, stroke-width 0.15s' }}
+                pointerEvents="none"
+              />
+              {/* Date label for first and last */}
+              {(i === 0 || i === points.length - 1) && (
+                <text
+                  x={p.x}
+                  y={padY + chartH + 12}
+                  textAnchor={i === 0 ? 'start' : 'end'}
+                  fill="rgba(255,255,255,0.3)"
+                  fontSize="8"
+                >
+                  {new Date(p.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                </text>
+              )}
+            </g>
+          );
+        })}
+      </svg>
+
+      {/* Floating tooltip card */}
+      {hoveredPoint && (
+        <div
+          className="absolute z-50 pointer-events-none"
+          style={{
+            left: `${(hoveredPoint.x / width) * 100}%`,
+            top: `${(hoveredPoint.y / height) * 100}%`,
+            transform: hoveredPoint.x > width * 0.7 ? 'translate(-110%, -120%)' : 'translate(-50%, -120%)',
+          }}
+        >
+          <div className="bg-dark-card border border-white/10 rounded-lg shadow-xl px-3 py-2 min-w-[140px]">
+            <div className="text-[10px] text-gray-500 mb-1">
+              {new Date(hoveredPoint.date).toLocaleDateString('en-US', {
+                month: 'short',
+                day: 'numeric',
+                year: 'numeric',
+              })}
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-[9px] text-gray-500 uppercase">Score</div>
+                <div className="text-sm font-bold font-mono tabular-nums">
+                  {hoveredPoint.score > 0 ? '+' : ''}{hoveredPoint.score}
+                </div>
+              </div>
+              <div>
+                <div className="text-[9px] text-gray-500 uppercase">Conf</div>
+                <div className="text-sm font-bold font-mono tabular-nums">
+                  {hoveredPoint.confidence != null ? `${Math.round(hoveredPoint.confidence * 100)}%` : '—'}
+                </div>
+              </div>
+              <RecommendationBadge rec={hoveredPoint.rec} />
+            </div>
+          </div>
+        </div>
       )}
-
-      {/* Y axis labels */}
-      <text x={padX - 4} y={padY + 4} textAnchor="end" fill="rgba(255,255,255,0.3)" fontSize="9">{maxScore}</text>
-      <text x={padX - 4} y={padY + chartH + 4} textAnchor="end" fill="rgba(255,255,255,0.3)" fontSize="9">{minScore}</text>
-      {zeroY && <text x={padX - 4} y={zeroY + 3} textAnchor="end" fill="rgba(255,255,255,0.3)" fontSize="9">0</text>}
-
-      {/* Area fill */}
-      <path d={areaPath} fill="url(#scoreGrad)" />
-
-      {/* Line */}
-      <path d={linePath} fill="none" stroke="#006fee" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-
-      {/* Data points */}
-      {points.map((p, i) => {
-        const dotColor = p.rec === 'BUY' ? '#17c964' : p.rec === 'SELL' ? '#f31260' : '#f5a524';
-        return (
-          <g key={i}>
-            <circle cx={p.x} cy={p.y} r="4" fill={dotColor} stroke="#18181b" strokeWidth="2" />
-            {/* Date label for first and last */}
-            {(i === 0 || i === points.length - 1) && (
-              <text
-                x={p.x}
-                y={padY + chartH + 12}
-                textAnchor={i === 0 ? 'start' : 'end'}
-                fill="rgba(255,255,255,0.3)"
-                fontSize="8"
-              >
-                {new Date(p.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-              </text>
-            )}
-          </g>
-        );
-      })}
-    </svg>
+    </div>
   );
 };
 
@@ -430,7 +506,7 @@ const HistoryDashboard = ({ onBack, initialTicker }) => {
                             <RecommendationBadge rec={item.recommendation} />
                           </div>
                           <div className="col-span-3">
-                            <ScoreBar score={item.score ?? item.confidence_score} />
+                            <ScoreBar score={item.score} />
                           </div>
                           <div className="col-span-2">
                             <ConfidencePill confidence={item.confidence} />

@@ -15,6 +15,7 @@ class Config:
     NEWS_API_KEY = os.getenv("NEWS_API_KEY", "")
     TWITTER_API_KEY = os.getenv("TWITTER_API_KEY", "")
     TWITTER_API_SECRET = os.getenv("TWITTER_API_SECRET", "")
+    TWITTER_BEARER_TOKEN = os.getenv("TWITTER_BEARER_TOKEN", "")
     ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
     GROK_API_KEY = os.getenv("GROK_API_KEY", "")
@@ -53,6 +54,8 @@ class Config:
     YFINANCE_TIMEOUT = int(os.getenv("YFINANCE_TIMEOUT", "10"))
     NEWS_LOOKBACK_DAYS = int(os.getenv("NEWS_LOOKBACK_DAYS", "7"))
     MAX_NEWS_ARTICLES = int(os.getenv("MAX_NEWS_ARTICLES", "20"))
+    TWITTER_MAX_RESULTS = int(os.getenv("TWITTER_MAX_RESULTS", "50"))
+    TWITTER_MIN_ENGAGEMENT = int(os.getenv("TWITTER_MIN_ENGAGEMENT", "0"))
 
     # Technical Analysis Configuration
     RSI_PERIOD = int(os.getenv("RSI_PERIOD", "14"))

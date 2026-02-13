@@ -1,23 +1,29 @@
 /**
- * Dashboard - Main application layout with view mode support
+ * Dashboard - Main application layout with sidebar navigation and tabbed content
+ * Layout: Fixed 64px sidebar | Main content (flex-1) with ContentHeader + tabs + right sidebar
  */
 
 import React, { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useAnalysis } from '../hooks/useAnalysis';
 import { useAnalysisContext } from '../context/AnalysisContext';
-import AgentStatus from './AgentStatus';
+import Sidebar from './Sidebar';
+import ContentHeader from './ContentHeader';
+import AnalysisTabs from './AnalysisTabs';
+import AgentPipelineBar from './AgentPipelineBar';
 import Recommendation from './Recommendation';
 import SentimentReport from './SentimentReport';
 import PriceChart from './PriceChart';
-import Summary from './Summary';
+import { OverviewMetrics, ResearchContent } from './Summary';
 import NewsFeed from './NewsFeed';
+import SocialBuzz from './SocialBuzz';
 import OptionsFlow from './OptionsFlow';
 import MacroSnapshot from './MacroSnapshot';
 import HistoryDashboard from './HistoryDashboard';
 import WatchlistPanel from './WatchlistPanel';
 import SchedulePanel from './SchedulePanel';
 import AlertPanel from './AlertPanel';
-import { DocumentIcon, NewspaperIcon, BrainIcon, PulseIcon, SparklesIcon, ChartBarIcon, HistoryIcon, ClockIcon, BellIcon, LoadingSpinner } from './Icons';
+import { PulseIcon, SparklesIcon, ChartBarIcon, LoadingSpinner } from './Icons';
 import { getUnacknowledgedCount } from '../utils/api';
 
 const VIEW_MODES = {
@@ -28,9 +34,22 @@ const VIEW_MODES = {
   ALERTS: 'alerts',
 };
 
+/* ─── framer-motion variants ─── */
+
+const containerVariants = {
+  hidden: { opacity: 0 },
+  visible: { opacity: 1, transition: { staggerChildren: 0.12, delayChildren: 0.15 } },
+};
+
+const fadeUp = {
+  hidden: { opacity: 0, y: 20 },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: [0.22, 1, 0.36, 1] } },
+};
+
 const Dashboard = () => {
   const [tickerInput, setTickerInput] = useState('');
   const [viewMode, setViewMode] = useState(VIEW_MODES.ANALYSIS);
+  const [activeTab, setActiveTab] = useState('overview');
   const [unacknowledgedCount, setUnacknowledgedCount] = useState(0);
   const { runAnalysis, loading, error } = useAnalysis();
   const { analysis, progress, stage, currentTicker } = useAnalysisContext();
@@ -54,8 +73,8 @@ const Dashboard = () => {
     e.preventDefault();
     if (!tickerInput.trim()) return;
 
-    // Switch to analysis view when running an analysis
     setViewMode(VIEW_MODES.ANALYSIS);
+    setActiveTab('overview');
 
     try {
       await runAnalysis(tickerInput.trim().toUpperCase());
@@ -67,328 +86,337 @@ const Dashboard = () => {
   const handleQuickTicker = (ticker) => {
     setTickerInput(ticker);
     setViewMode(VIEW_MODES.ANALYSIS);
+    setActiveTab('overview');
     runAnalysis(ticker).catch((err) => console.error('Analysis failed:', err));
   };
 
-  const getStageText = (stage) => {
-    const stages = {
-      starting: 'Initializing analysis pipeline...',
-      gathering_data: 'Gathering data from multiple sources...',
-      running_market: 'Analyzing market data...',
-      running_fundamentals: 'Analyzing company fundamentals...',
-      running_news: 'Fetching recent news...',
-      running_technical: 'Running technical analysis...',
-      running_options: 'Analyzing options flow...',
-      running_macro: 'Analyzing macroeconomic environment...',
-      analyzing_sentiment: 'Analyzing market sentiment...',
-      synthesizing: 'AI synthesizing all insights...',
-      saving: 'Saving results...',
-      complete: 'Analysis complete',
-      error: 'Analysis failed',
-    };
-    return stages[stage] || stage;
-  };
+  const showAnalysisContent = analysis || loading;
 
   return (
-    <div className="min-h-screen bg-dark-bg text-white">
-      {/* Header */}
-      <div className="sticky top-0 z-50 glass-card-elevated border-b border-white/5">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex items-center justify-between">
-            {/* Brand */}
-            <div className="flex items-center space-x-3">
-              <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-primary to-primary-300 flex items-center justify-center">
-                <PulseIcon className="w-5 h-5 text-white" />
-              </div>
-              <div>
-                <h1 className="text-lg font-bold tracking-tight">AI Trading Analyst</h1>
-                <p className="text-xs text-gray-500">Multi-agent research platform</p>
-              </div>
-            </div>
+    <div className="min-h-screen bg-dark-bg text-white flex">
+      {/* ═══════════════════════════════════════════
+          Left Sidebar Navigation
+          ═══════════════════════════════════════════ */}
+      <Sidebar
+        activeView={viewMode}
+        onViewChange={setViewMode}
+        unacknowledgedCount={unacknowledgedCount}
+      />
 
-            {/* Center - View Mode Toggle */}
-            <div className="flex items-center space-x-1 bg-dark-inset rounded-lg p-0.5 border border-white/5">
-              <button
-                onClick={() => setViewMode(VIEW_MODES.ANALYSIS)}
-                className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
-                  viewMode === VIEW_MODES.ANALYSIS
-                    ? 'bg-primary/15 text-white border border-primary/30'
-                    : 'text-gray-400 hover:text-white border border-transparent'
-                }`}
-              >
-                <PulseIcon className="w-3.5 h-3.5" />
-                <span>Analysis</span>
-              </button>
-              <button
-                onClick={() => setViewMode(VIEW_MODES.HISTORY)}
-                className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
-                  viewMode === VIEW_MODES.HISTORY
-                    ? 'bg-primary/15 text-white border border-primary/30'
-                    : 'text-gray-400 hover:text-white border border-transparent'
-                }`}
-              >
-                <HistoryIcon className="w-3.5 h-3.5" />
-                <span>History</span>
-              </button>
-              <button
-                onClick={() => setViewMode(VIEW_MODES.WATCHLIST)}
-                className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
-                  viewMode === VIEW_MODES.WATCHLIST
-                    ? 'bg-primary/15 text-white border border-primary/30'
-                    : 'text-gray-400 hover:text-white border border-transparent'
-                }`}
-              >
-                <ChartBarIcon className="w-3.5 h-3.5" />
-                <span>Watchlist</span>
-              </button>
-              <button
-                onClick={() => setViewMode(VIEW_MODES.SCHEDULES)}
-                className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
-                  viewMode === VIEW_MODES.SCHEDULES
-                    ? 'bg-primary/15 text-white border border-primary/30'
-                    : 'text-gray-400 hover:text-white border border-transparent'
-                }`}
-              >
-                <ClockIcon className="w-3.5 h-3.5" />
-                <span>Schedules</span>
-              </button>
-              <button
-                onClick={() => setViewMode(VIEW_MODES.ALERTS)}
-                className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
-                  viewMode === VIEW_MODES.ALERTS
-                    ? 'bg-primary/15 text-white border border-primary/30'
-                    : 'text-gray-400 hover:text-white border border-transparent'
-                }`}
-              >
-                <BellIcon className="w-3.5 h-3.5" />
-                <span>Alerts</span>
-              </button>
-            </div>
-
-            {/* Notification Bell */}
-            <button
-              onClick={() => setViewMode(VIEW_MODES.ALERTS)}
-              className="relative p-2 rounded-lg text-gray-400 hover:text-white hover:bg-white/5 transition-all"
-              title="Alert notifications"
-            >
-              <BellIcon className="w-4 h-4" />
-              {unacknowledgedCount > 0 && (
-                <span className="absolute -top-0.5 -right-0.5 flex items-center justify-center min-w-[16px] h-4 px-1 text-[9px] font-bold text-white bg-danger rounded-full shadow-[0_0_8px_rgba(243,18,96,0.4)]">
-                  {unacknowledgedCount > 99 ? '99+' : unacknowledgedCount}
-                </span>
-              )}
-            </button>
-
-            {/* Ticker Search */}
-            <form onSubmit={handleAnalyze} className="flex space-x-2">
-              <div className="relative">
-                <input
-                  type="text"
-                  value={tickerInput}
-                  onChange={(e) => setTickerInput(e.target.value.toUpperCase())}
-                  placeholder="Enter ticker (e.g., NVDA)"
-                  className="pl-4 pr-4 py-2 bg-dark-inset border border-dark-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-accent-blue/30 focus:border-accent-blue/50 focus:shadow-[0_0_15px_rgba(0,111,238,0.15)] transition-all uppercase w-56"
-                  maxLength={5}
-                  disabled={loading}
-                />
-              </div>
-              <button
-                type="submit"
-                disabled={loading || !tickerInput.trim()}
-                className="px-5 py-2 bg-gradient-to-r from-primary-600 to-primary hover:from-primary hover:to-primary-400 disabled:from-zinc-700 disabled:to-zinc-700 disabled:cursor-not-allowed rounded-lg font-medium text-sm transition-all flex items-center space-x-2"
-              >
-                {loading ? (
-                  <>
-                    <LoadingSpinner size={16} />
-                    <span>Analyzing</span>
-                  </>
-                ) : (
-                  <span>Run Analysis</span>
-                )}
-              </button>
-            </form>
-          </div>
-
-          {/* Progress Bar */}
-          {loading && (
-            <div className="mt-4 animate-fade-in">
-              <div className="flex justify-between items-center mb-1.5">
-                <span className="text-xs text-gray-400 font-medium tracking-wide">{getStageText(stage)}</span>
-                <span className="text-xs text-accent-blue font-semibold tabular-nums">{progress}%</span>
-              </div>
-              <div className="w-full h-1.5 bg-dark-inset rounded-full overflow-hidden shadow-inner">
-                <div
-                  className="h-full bg-gradient-to-r from-primary-600 via-primary to-primary-300 rounded-full transition-all duration-500 ease-out relative"
-                  style={{ width: `${progress}%` }}
-                >
-                  <div
-                    className="absolute inset-0 w-1/2 bg-gradient-to-r from-transparent via-white/20 to-transparent"
-                    style={{ animation: 'progressShine 1.5s ease-in-out infinite' }}
-                  />
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Error Display */}
-          {error && viewMode === VIEW_MODES.ANALYSIS && (
-            <div className="mt-4 p-3 bg-danger/10 border border-danger/30 rounded-lg text-danger-400 text-sm flex items-center space-x-2 animate-fade-in">
-              <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
-                <circle cx="10" cy="10" r="7" />
-                <path d="M10 7v3M10 12.5v.5" />
-              </svg>
-              <span>{error}</span>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Main Content */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        {/* ─── History View ─── */}
+      {/* ═══════════════════════════════════════════
+          Main Content Area (offset by sidebar width)
+          ═══════════════════════════════════════════ */}
+      <div className="flex-1" style={{ marginLeft: 'var(--sidebar-width, 64px)' }}>
+        {/* ─── Non-analysis views ─── */}
         {viewMode === VIEW_MODES.HISTORY && (
-          <HistoryDashboard
-            onBack={() => setViewMode(VIEW_MODES.ANALYSIS)}
-            initialTicker={currentTicker || null}
-          />
+          <div className="p-6">
+            <HistoryDashboard
+              onBack={() => setViewMode(VIEW_MODES.ANALYSIS)}
+              initialTicker={currentTicker || null}
+            />
+          </div>
         )}
 
-        {/* ─── Watchlist View ─── */}
         {viewMode === VIEW_MODES.WATCHLIST && (
-          <WatchlistPanel
-            onBack={() => setViewMode(VIEW_MODES.ANALYSIS)}
-          />
+          <div className="p-6">
+            <WatchlistPanel
+              onBack={() => setViewMode(VIEW_MODES.ANALYSIS)}
+            />
+          </div>
         )}
 
-        {/* ─── Schedules View ─── */}
         {viewMode === VIEW_MODES.SCHEDULES && (
-          <SchedulePanel
-            onBack={() => setViewMode(VIEW_MODES.ANALYSIS)}
-          />
+          <div className="p-6">
+            <SchedulePanel
+              onBack={() => setViewMode(VIEW_MODES.ANALYSIS)}
+            />
+          </div>
         )}
 
-        {/* ─── Alerts View ─── */}
         {viewMode === VIEW_MODES.ALERTS && (
-          <AlertPanel
-            onBack={() => setViewMode(VIEW_MODES.ANALYSIS)}
-          />
+          <div className="p-6">
+            <AlertPanel
+              onBack={() => setViewMode(VIEW_MODES.ANALYSIS)}
+            />
+          </div>
         )}
 
         {/* ─── Analysis View ─── */}
         {viewMode === VIEW_MODES.ANALYSIS && (
-          <>
-            {analysis || loading ? (
-              <div className="grid grid-cols-12 gap-6 animate-fade-in">
-                {/* Left Sidebar - Agents */}
-                <div className="col-span-2 animate-slide-left">
-                  <AgentStatus />
+          <div className="flex flex-col h-screen">
+            {/* Content Header — sticky at top */}
+            <div className="sticky top-0 z-30 bg-dark-bg/80 backdrop-blur-xl border-b border-white/5">
+              <ContentHeader
+                tickerInput={tickerInput}
+                setTickerInput={setTickerInput}
+                onAnalyze={handleAnalyze}
+                loading={loading}
+                analysis={analysis}
+                progress={progress}
+                stage={stage}
+              />
+
+              {/* Agent Pipeline Bar — visible during/after analysis */}
+              {showAnalysisContent && (
+                <div className="px-6 pb-3">
+                  <AgentPipelineBar />
                 </div>
+              )}
 
-                {/* Center - Chart & Stacked Sections */}
-                <div className="col-span-7">
-                  <PriceChart analysis={analysis} />
-
-                  {/* Options Flow */}
-                  <div className="mt-6">
-                    <OptionsFlow analysis={analysis} />
-                  </div>
-
-                  {/* Executive Overview */}
-                  <div className="mt-6">
-                    <Summary analysis={analysis} />
-                  </div>
-
-                  {/* Sentiment Analysis */}
-                  <div className="mt-6">
-                    <SentimentReport analysis={analysis} />
-                  </div>
-
-                  {/* News Feed */}
-                  <div className="mt-6">
-                    <NewsFeed analysis={analysis} />
-                  </div>
+              {/* Error Display */}
+              {error && (
+                <div className="px-6 pb-3">
+                  <motion.div
+                    initial={{ opacity: 0, y: -8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="p-3 bg-danger/10 border border-danger/30 rounded-lg text-danger-400 text-sm flex items-center space-x-2"
+                  >
+                    <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
+                      <circle cx="10" cy="10" r="7" />
+                      <path d="M10 7v3M10 12.5v.5" />
+                    </svg>
+                    <span>{error}</span>
+                  </motion.div>
                 </div>
+              )}
+            </div>
 
-                {/* Right Sidebar - Recommendation + Macro */}
-                <div className="col-span-3 animate-slide-right space-y-6">
-                  <Recommendation analysis={analysis} />
-                  <MacroSnapshot analysis={analysis} />
-                </div>
-              </div>
-            ) : (
-              /* Welcome Screen */
-              <div className="mt-16 text-center animate-fade-in">
-                {/* Animated Chart Icon */}
-                <div className="w-20 h-20 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-primary/20 to-primary-300/20 border border-primary/20 flex items-center justify-center">
-                  <PulseIcon className="w-10 h-10 text-primary-400" />
-                </div>
+            {/* ─── Content below header ─── */}
+            <div className="flex-1 overflow-y-auto">
+              <AnimatePresence mode="wait">
+                {showAnalysisContent ? (
+                  /* ─────── Analysis Content with Tabs ─────── */
+                  <motion.div
+                    key="analysis-content"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.3 }}
+                    className="flex h-full"
+                  >
+                    {/* Left: Tabbed content area */}
+                    <div className="flex-1 min-w-0">
+                      {/* Tab bar */}
+                      <div className="sticky top-0 z-20 bg-dark-bg/80 backdrop-blur-xl px-6 pt-3">
+                        <AnalysisTabs
+                          activeTab={activeTab}
+                          onTabChange={setActiveTab}
+                          analysis={analysis}
+                        />
+                      </div>
 
-                <h2 className="text-3xl font-bold mb-2 tracking-tight">AI Trading Analyst</h2>
-                <p className="text-gray-400 text-lg max-w-md mx-auto">
-                  Enter a stock ticker to get multi-agent AI analysis with real-time insights
-                </p>
+                      {/* Tab content */}
+                      <div className="p-6">
+                        <AnimatePresence mode="wait">
+                          {/* Overview Tab */}
+                          {activeTab === 'overview' && (
+                            <motion.div
+                              key="tab-overview"
+                              initial={{ opacity: 0, y: 8 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              exit={{ opacity: 0, y: -8 }}
+                              transition={{ duration: 0.2 }}
+                              className="space-y-6"
+                            >
+                              <PriceChart analysis={analysis} />
+                              <OverviewMetrics analysis={analysis} />
+                            </motion.div>
+                          )}
 
-                {/* Quick Start Tickers */}
-                <div className="mt-6 flex items-center justify-center space-x-2">
-                  <span className="text-xs text-gray-500 mr-1">Quick start:</span>
-                  {['AAPL', 'NVDA', 'TSLA', 'MSFT'].map((ticker) => (
-                    <button
-                      key={ticker}
-                      onClick={() => handleQuickTicker(ticker)}
-                      className="px-3 py-1 text-xs font-mono font-medium text-accent-blue bg-accent-blue/10 border border-accent-blue/20 rounded-md hover:bg-accent-blue/20 hover:border-accent-blue/40 transition-all"
+                          {/* Research Tab */}
+                          {activeTab === 'research' && (
+                            <motion.div
+                              key="tab-research"
+                              initial={{ opacity: 0, y: 8 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              exit={{ opacity: 0, y: -8 }}
+                              transition={{ duration: 0.2 }}
+                            >
+                              <ResearchContent analysis={analysis} />
+                            </motion.div>
+                          )}
+
+                          {/* Sentiment Tab */}
+                          {activeTab === 'sentiment' && (
+                            <motion.div
+                              key="tab-sentiment"
+                              initial={{ opacity: 0, y: 8 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              exit={{ opacity: 0, y: -8 }}
+                              transition={{ duration: 0.2 }}
+                              className="space-y-6"
+                            >
+                              <SentimentReport analysis={analysis} />
+                              <SocialBuzz analysis={analysis} />
+                            </motion.div>
+                          )}
+
+                          {/* News Tab */}
+                          {activeTab === 'news' && (
+                            <motion.div
+                              key="tab-news"
+                              initial={{ opacity: 0, y: 8 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              exit={{ opacity: 0, y: -8 }}
+                              transition={{ duration: 0.2 }}
+                            >
+                              <NewsFeed analysis={analysis} />
+                            </motion.div>
+                          )}
+
+                          {/* Options Tab */}
+                          {activeTab === 'options' && (
+                            <motion.div
+                              key="tab-options"
+                              initial={{ opacity: 0, y: 8 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              exit={{ opacity: 0, y: -8 }}
+                              transition={{ duration: 0.2 }}
+                            >
+                              <OptionsFlow analysis={analysis} />
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </div>
+                    </div>
+
+                    {/* Right sidebar — Recommendation + Macro */}
+                    <motion.div
+                      initial={{ opacity: 0, x: 12 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ duration: 0.4, ease: 'easeOut' }}
+                      className="hidden lg:block w-[280px] shrink-0 border-l border-white/5 p-4 space-y-4 overflow-y-auto"
                     >
-                      {ticker}
-                    </button>
-                  ))}
-                </div>
+                      <Recommendation analysis={analysis} />
+                      <MacroSnapshot analysis={analysis} />
+                    </motion.div>
+                  </motion.div>
+                ) : (
+                  /* ─────── Welcome Screen ─────── */
+                  <motion.div
+                    key="welcome-screen"
+                    initial="hidden"
+                    animate="visible"
+                    exit={{ opacity: 0 }}
+                    variants={containerVariants}
+                    className="flex flex-col items-center justify-center min-h-[calc(100vh-80px)] px-6 relative"
+                  >
+                    {/* Subtle dot grid background */}
+                    <div
+                      className="absolute inset-0 opacity-[0.03] pointer-events-none"
+                      style={{
+                        backgroundImage: 'radial-gradient(circle, rgba(255,255,255,0.8) 1px, transparent 1px)',
+                        backgroundSize: '24px 24px',
+                      }}
+                    />
 
-                {/* Feature Cards */}
-                <div className="mt-12 grid grid-cols-3 gap-5 max-w-2xl mx-auto">
-                  <div
-                    className="glass-card rounded-xl p-5 text-left border-t-2 border-t-accent-blue animate-fade-in"
-                    style={{ animationDelay: '0.1s', opacity: 0 }}
-                  >
-                    <div className="w-9 h-9 rounded-lg bg-accent-blue/15 flex items-center justify-center mb-3">
-                      <ChartBarIcon className="w-5 h-5 text-accent-blue" />
-                    </div>
-                    <div className="font-semibold text-sm mb-1">6 Specialized Agents</div>
-                    <div className="text-xs text-gray-400 leading-relaxed">Market, Fundamentals, News, Macro, Sentiment, Technical</div>
-                  </div>
-                  <div
-                    className="glass-card rounded-xl p-5 text-left border-t-2 border-t-accent-green animate-fade-in"
-                    style={{ animationDelay: '0.2s', opacity: 0 }}
-                  >
-                    <div className="w-9 h-9 rounded-lg bg-accent-green/15 flex items-center justify-center mb-3">
-                      <PulseIcon className="w-5 h-5 text-accent-green" />
-                    </div>
-                    <div className="font-semibold text-sm mb-1">Real-time Analysis</div>
-                    <div className="text-xs text-gray-400 leading-relaxed">Live updates as agents complete their work</div>
-                  </div>
-                  <div
-                    className="glass-card rounded-xl p-5 text-left border-t-2 border-t-accent-purple animate-fade-in"
-                    style={{ animationDelay: '0.3s', opacity: 0 }}
-                  >
-                    <div className="w-9 h-9 rounded-lg bg-accent-purple/15 flex items-center justify-center mb-3">
-                      <SparklesIcon className="w-5 h-5 text-accent-purple" />
-                    </div>
-                    <div className="font-semibold text-sm mb-1">AI-Powered Insights</div>
-                    <div className="text-xs text-gray-400 leading-relaxed">LLM reasoning for final recommendations</div>
-                  </div>
-                </div>
+                    {/* Animated Chart Icon */}
+                    <motion.div variants={fadeUp} className="flex justify-center relative z-10">
+                      <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-primary/20 to-primary-300/20 border border-primary/20 flex items-center justify-center">
+                        <PulseIcon className="w-10 h-10 text-primary-400" />
+                      </div>
+                    </motion.div>
 
-                {/* History link on welcome screen */}
-                <div className="mt-8">
-                  <button
-                    onClick={() => setViewMode(VIEW_MODES.HISTORY)}
-                    className="inline-flex items-center space-x-2 text-xs text-gray-500 hover:text-accent-blue transition-colors"
-                  >
-                    <HistoryIcon className="w-3.5 h-3.5" />
-                    <span>View analysis history</span>
-                  </button>
-                </div>
-              </div>
-            )}
-          </>
+                    <motion.h2
+                      variants={fadeUp}
+                      className="text-4xl sm:text-5xl font-bold mt-6 mb-3 tracking-tight bg-gradient-to-r from-white via-white to-gray-400 bg-clip-text text-transparent relative z-10"
+                    >
+                      AI Trading Analyst
+                    </motion.h2>
+
+                    <motion.p variants={fadeUp} className="text-gray-400 text-lg max-w-md mx-auto text-center relative z-10">
+                      Multi-agent research platform
+                    </motion.p>
+
+                    {/* Hero search input */}
+                    <motion.form
+                      variants={fadeUp}
+                      onSubmit={handleAnalyze}
+                      className="mt-8 flex items-center gap-3 relative z-10"
+                    >
+                      <input
+                        type="text"
+                        value={tickerInput}
+                        onChange={(e) => setTickerInput(e.target.value.toUpperCase())}
+                        placeholder="Enter ticker symbol"
+                        className="w-[320px] sm:w-[400px] px-5 py-4 bg-dark-inset border border-dark-border rounded-xl text-base font-mono uppercase text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-accent-blue/40 focus:border-accent-blue/50 focus:shadow-[0_0_20px_rgba(0,111,238,0.2)] transition-all"
+                        maxLength={5}
+                        disabled={loading}
+                        autoFocus
+                      />
+                      <button
+                        type="submit"
+                        disabled={loading || !tickerInput.trim()}
+                        className="px-6 py-4 bg-gradient-to-r from-primary-600 to-primary hover:from-primary hover:to-primary-400 disabled:from-zinc-700 disabled:to-zinc-700 disabled:cursor-not-allowed rounded-xl font-medium text-base transition-all flex items-center gap-2 whitespace-nowrap"
+                      >
+                        {loading ? (
+                          <>
+                            <LoadingSpinner size={16} />
+                            <span>Analyzing</span>
+                          </>
+                        ) : (
+                          <span>Analyze</span>
+                        )}
+                      </button>
+                    </motion.form>
+
+                    {/* Quick Start Tickers */}
+                    <motion.div variants={fadeUp} className="mt-5 flex items-center justify-center flex-wrap gap-2 relative z-10">
+                      <span className="text-xs text-gray-500 mr-1">Quick start:</span>
+                      {['AAPL', 'NVDA', 'TSLA', 'MSFT', 'AMZN', 'GOOGL'].map((ticker) => (
+                        <button
+                          key={ticker}
+                          onClick={() => handleQuickTicker(ticker)}
+                          className="px-5 py-2 text-xs font-mono font-medium text-accent-blue bg-accent-blue/10 border border-accent-blue/20 rounded-full hover:bg-accent-blue/20 hover:border-accent-blue/40 transition-all"
+                        >
+                          {ticker}
+                        </button>
+                      ))}
+                    </motion.div>
+
+                    {/* Feature Cards */}
+                    <motion.div
+                      variants={containerVariants}
+                      className="mt-12 grid grid-cols-1 sm:grid-cols-3 gap-5 max-w-2xl mx-auto relative z-10"
+                    >
+                      <motion.div
+                        variants={fadeUp}
+                        className="glass-card-elevated rounded-xl p-5 text-left border-t-2 border-t-accent-blue"
+                      >
+                        <div className="w-9 h-9 rounded-lg bg-accent-blue/15 flex items-center justify-center mb-3">
+                          <ChartBarIcon className="w-5 h-5 text-accent-blue" />
+                        </div>
+                        <div className="font-semibold text-sm mb-1">7 Specialized Agents</div>
+                        <div className="text-xs text-gray-400 leading-relaxed">Market, Fundamentals, News, Technical, Macro, Options, Sentiment</div>
+                      </motion.div>
+
+                      <motion.div
+                        variants={fadeUp}
+                        className="glass-card-elevated rounded-xl p-5 text-left border-t-2 border-t-accent-green"
+                      >
+                        <div className="w-9 h-9 rounded-lg bg-accent-green/15 flex items-center justify-center mb-3">
+                          <PulseIcon className="w-5 h-5 text-accent-green" />
+                        </div>
+                        <div className="font-semibold text-sm mb-1">Real-time Analysis</div>
+                        <div className="text-xs text-gray-400 leading-relaxed">Live updates as agents complete their work</div>
+                      </motion.div>
+
+                      <motion.div
+                        variants={fadeUp}
+                        className="glass-card-elevated rounded-xl p-5 text-left border-t-2 border-t-accent-purple"
+                      >
+                        <div className="w-9 h-9 rounded-lg bg-accent-purple/15 flex items-center justify-center mb-3">
+                          <SparklesIcon className="w-5 h-5 text-accent-purple" />
+                        </div>
+                        <div className="font-semibold text-sm mb-1">AI-Powered Insights</div>
+                        <div className="text-xs text-gray-400 leading-relaxed">Chain-of-thought reasoning for recommendations</div>
+                      </motion.div>
+                    </motion.div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          </div>
         )}
       </div>
     </div>

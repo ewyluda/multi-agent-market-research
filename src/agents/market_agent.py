@@ -257,6 +257,20 @@ class MarketAgent(BaseAgent):
         # Generate summary
         analysis["summary"] = self._generate_summary(analysis)
 
+        # Serialize 3-month OHLCV for frontend charting
+        if hist_3m is not None and not hist_3m.empty:
+            analysis["price_history"] = [
+                {
+                    "date": idx.strftime("%Y-%m-%d"),
+                    "open": round(float(row["Open"]), 2),
+                    "high": round(float(row["High"]), 2),
+                    "low": round(float(row["Low"]), 2),
+                    "close": round(float(row["Close"]), 2),
+                    "volume": int(row["Volume"]),
+                }
+                for idx, row in hist_3m.iterrows()
+            ]
+
         return analysis
 
     def _calculate_ma(self, df: pd.DataFrame, period: int) -> float:

@@ -218,6 +218,36 @@ export const BellIcon = (props) => (
   </svg>
 );
 
+export const XLogoIcon = (props) => (
+  <svg {...iconProps} {...props} fill="currentColor" stroke="none">
+    <path d="M11.47 9.22L16.82 3h-1.27l-4.64 5.4L7.55 3H3l5.6 8.15L3 18h1.27l4.9-5.7L12.73 18H17.28L11.47 9.22zM9.88 11.63l-.57-.82L4.75 4h1.96l3.68 5.27.57.82 4.78 6.83h-1.96L9.88 11.63z" />
+  </svg>
+);
+
+export const HeartIcon = (props) => (
+  <svg {...iconProps} {...props}>
+    <path d="M10 17l-1.45-1.32C4.4 12.1 2 9.84 2 7.15 2 4.97 3.66 3.25 5.75 3.25c1.18 0 2.31.55 3.05 1.41A4.22 4.22 0 0111.85 3.25C13.94 3.25 15.6 4.97 15.6 7.15c0 2.69-2.4 4.95-6.55 8.53L10 17z" fill="none" />
+  </svg>
+);
+
+export const RepeatIcon = (props) => (
+  <svg {...iconProps} {...props}>
+    <path d="M14 3l3 3-3 3M3 10V8a4 4 0 014-4h10M6 17l-3-3 3-3M17 10v2a4 4 0 01-4 4H3" />
+  </svg>
+);
+
+export const ChatBubbleIcon = (props) => (
+  <svg {...iconProps} {...props}>
+    <path d="M5 3h10a2 2 0 012 2v7a2 2 0 01-2 2H8l-3 3v-3H5a2 2 0 01-2-2V5a2 2 0 012-2z" />
+  </svg>
+);
+
+export const FireIcon = (props) => (
+  <svg {...iconProps} {...props}>
+    <path d="M10 18c-3.31 0-6-2.69-6-6 0-2.97 2.16-5.44 5-5.93V3l6 5-3.5 2.5c1.93.78 3.5 2.72 3.5 5 0 3.31-2.69 5.5-5 5.5z" />
+  </svg>
+);
+
 export const LoadingSpinner = ({ className = '', size = 20 }) => (
   <svg
     width={size}
