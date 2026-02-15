@@ -137,6 +137,8 @@ const RuleCard = ({ rule, onToggle, onDelete }) => {
 /* ──────── Notification Row ──────── */
 const NotificationRow = ({ notification, onAcknowledge }) => {
   const [acknowledging, setAcknowledging] = useState(false);
+  const changeItems = notification.change_summary?.material_changes || [];
+  const triggerContext = notification.trigger_context || {};
 
   const handleAck = async () => {
     setAcknowledging(true);
@@ -161,6 +163,16 @@ const NotificationRow = ({ notification, onAcknowledge }) => {
             <span className="font-mono text-xs font-semibold">{notification.ticker}</span>
             <span className="text-[11px] text-gray-400 truncate">{notification.message}</span>
           </div>
+
+          {triggerContext.rule_type && (
+            <div className="mt-1 text-[10px] text-gray-500">
+              Rule: <span className="text-gray-400">{formatRuleType(triggerContext.rule_type)}</span>
+              {triggerContext.threshold !== null && triggerContext.threshold !== undefined && (
+                <span> - Threshold: <span className="text-gray-400">{formatThreshold(triggerContext.rule_type, triggerContext.threshold)}</span></span>
+              )}
+            </div>
+          )}
+
           <div className="flex items-center space-x-3 mt-0.5">
             {notification.previous_value && (
               <span className="text-[10px] text-gray-500">
@@ -174,6 +186,22 @@ const NotificationRow = ({ notification, onAcknowledge }) => {
             )}
             <span className="text-[10px] text-gray-600">{formatRelativeTime(notification.created_at)}</span>
           </div>
+
+          {notification.suggested_action && (
+            <div className="mt-1.5 text-[11px] text-accent-blue">
+              Next action: <span className="text-gray-300">{notification.suggested_action}</span>
+            </div>
+          )}
+
+          {changeItems.length > 0 && (
+            <div className="mt-1.5 space-y-1">
+              {changeItems.slice(0, 2).map((change, idx) => (
+                <div key={`${change.type}-${idx}`} className="text-[10px] text-gray-500">
+                  - {change.label}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
       {!notification.acknowledged && (

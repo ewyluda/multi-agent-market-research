@@ -171,3 +171,41 @@ class TestAlertEngine:
         assert notifications[0]["acknowledged"] == 0
         assert "BUY" in notifications[0]["message"]
         assert "SELL" in notifications[0]["message"]
+
+    def test_triggered_alert_includes_playbook_fields(self, db_manager):
+        """Triggered notifications include trigger_context, change_summary, and suggested_action."""
+        self._insert_analysis(db_manager, recommendation="HOLD", confidence=0.5)
+        aid2 = db_manager.insert_analysis(
+            ticker="AAPL",
+            recommendation="BUY",
+            confidence_score=0.82,
+            overall_sentiment_score=0.44,
+            solution_agent_reasoning="Momentum improving.",
+            duration_seconds=8.0,
+            score=74,
+            analysis_payload={
+                "recommendation": "BUY",
+                "score": 74,
+                "confidence": 0.82,
+                "decision_card": {"action": "buy"},
+                "changes_since_last_run": {
+                    "summary": "Recommendation changed from HOLD to BUY",
+                    "material_changes": [{"type": "recommendation_change", "label": "HOLD -> BUY"}],
+                },
+            },
+            change_summary={
+                "summary": "Recommendation changed from HOLD to BUY",
+                "material_changes": [{"type": "recommendation_change", "label": "HOLD -> BUY"}],
+            },
+        )
+
+        db_manager.create_alert_rule("AAPL", "recommendation_change")
+        engine = AlertEngine(db_manager)
+        triggered = engine.evaluate_alerts("AAPL", aid2)
+
+        assert len(triggered) == 1
+        notification = triggered[0]
+        assert notification["trigger_context"]["rule_type"] == "recommendation_change"
+        assert notification["change_summary"]["summary"] == "Recommendation changed from HOLD to BUY"
+        assert isinstance(notification["suggested_action"], str)
+        assert len(notification["suggested_action"]) > 0

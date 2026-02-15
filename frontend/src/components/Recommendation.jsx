@@ -100,22 +100,22 @@ const AgentConsensus = ({ agentResults }) => {
 
   return (
     <div className="mt-4 pt-3 border-t border-white/5">
-      <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-1.5">
+      <div className="text-[11px] text-gray-500 uppercase tracking-wider mb-2">
         Agent Signals
       </div>
-      <div className="space-y-0.5">
+      <div className="space-y-1">
         {signals.map(({ id, label, icon: Icon, signal }) => {
           const style = signalStyle(signal);
           return (
             <div
               key={id}
-              className={`flex items-center justify-between px-2 py-1 rounded border ${style.bg} ${style.border}`}
+              className={`flex items-center justify-between px-2.5 py-1.5 rounded border ${style.bg} ${style.border}`}
             >
               <div className="flex items-center gap-1.5">
                 <Icon className={`w-3 h-3 ${style.text}`} />
                 <span className="text-[11px] text-gray-300 leading-tight">{label}</span>
               </div>
-              <span className={`text-[10px] font-mono font-semibold ${style.text}`}>
+              <span className={`text-[11px] font-mono font-semibold ${style.text}`}>
                 {style.label}
               </span>
             </div>
@@ -385,7 +385,7 @@ const Recommendation = ({ analysis }) => {
 
       {/* Additional info */}
       {analysis.analysis?.position_size && (
-        <div className="mt-5 pt-4 border-t border-white/5 space-y-2.5">
+        <div className="mt-5 pt-4 border-t border-white/5 space-y-3">
           <div className="flex justify-between items-center">
             <span className="text-xs text-gray-500">Position Size</span>
             <span

@@ -52,6 +52,11 @@ const COLOR_CLASSES = {
 
 /* ─── Helpers ───────────────────────────────────────────────────── */
 
+const getAnalysisPayload = (analysis) => {
+  if (!analysis) return {};
+  return analysis.analysis || analysis.analysis_payload || analysis;
+};
+
 const getRecommendationColor = (recommendation) => {
   if (recommendation === 'BUY') return { text: 'text-success-400', bg: 'bg-success', bgLight: 'bg-success/15', border: 'border-success/30', glow: '0 0 20px rgba(23, 201, 100, 0.12)' };
   if (recommendation === 'SELL') return { text: 'text-danger-400', bg: 'bg-danger', bgLight: 'bg-danger/15', border: 'border-danger/30', glow: '0 0 20px rgba(243, 18, 96, 0.12)' };
@@ -112,7 +117,7 @@ const AnalysisSection = ({ section, defaultExpanded = false }) => {
 
   return (
     <div
-      className={`p-3.5 bg-dark-inset rounded-lg border-l-2 ${colors.border} transition-all duration-200 hover:bg-dark-card-hover cursor-pointer`}
+      className={`p-4 bg-dark-inset rounded-lg border-l-2 ${colors.border} transition-all duration-200 hover:bg-dark-card-hover cursor-pointer`}
       onClick={() => setExpanded(!expanded)}
     >
       <div className="flex items-start space-x-3">
@@ -120,7 +125,7 @@ const AnalysisSection = ({ section, defaultExpanded = false }) => {
           <Icon className={`w-4 h-4 ${colors.text}`} />
         </div>
         <div className="flex-1 min-w-0">
-          <div className={`text-[11px] font-semibold uppercase tracking-wider mb-0.5 ${colors.text} opacity-70`}>
+          <div className={`text-xs font-semibold uppercase tracking-wider mb-1 ${colors.text} opacity-70`}>
             {meta.label}
           </div>
           <div className="text-sm font-medium text-gray-200 leading-snug">{headline}</div>
@@ -155,7 +160,8 @@ const AnalysisSection = ({ section, defaultExpanded = false }) => {
  * VerdictBanner — top-level recommendation summary.
  */
 export const VerdictBanner = ({ analysis }) => {
-  const { recommendation, score, confidence, reasoning } = analysis.analysis || {};
+  const payload = getAnalysisPayload(analysis);
+  const { recommendation, score, confidence, reasoning } = payload;
   const colors = getRecommendationColor(recommendation);
 
   // Extract first sentence of reasoning as summary
@@ -209,7 +215,8 @@ export const VerdictBanner = ({ analysis }) => {
  * AtAGlance — horizontal strip of key metrics.
  */
 export const AtAGlance = ({ analysis }) => {
-  const { score, confidence, position_size, time_horizon } = analysis.analysis || {};
+  const payload = getAnalysisPayload(analysis);
+  const { score, confidence, position_size, time_horizon } = payload;
 
   const pills = [
     { label: 'Score', value: score != null ? (score > 0 ? `+${score}` : `${score}`) : 'N/A', color: score > 0 ? 'text-success-400' : score < 0 ? 'text-danger-400' : 'text-warning-400' },
@@ -219,13 +226,146 @@ export const AtAGlance = ({ analysis }) => {
   ];
 
   return (
-    <div className="grid grid-cols-4 gap-2 animate-fade-in" style={{ animationDelay: '0.05s' }}>
+    <div className="grid grid-cols-4 gap-3 animate-fade-in" style={{ animationDelay: '0.05s' }}>
       {pills.map(({ label, value, color }) => (
-        <div key={label} className="p-2.5 bg-dark-inset rounded-lg text-center">
-          <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-0.5">{label}</div>
+        <div key={label} className="p-3 bg-dark-inset rounded-lg text-center">
+          <div className="text-[11px] text-gray-500 uppercase tracking-wider mb-1">{label}</div>
           <div className={`text-sm font-bold tabular-nums ${color}`}>{value}</div>
         </div>
       ))}
+    </div>
+  );
+};
+
+/**
+ * DecisionCardPanel — explicit, machine-readable trade plan.
+ */
+export const DecisionCardPanel = ({ analysis }) => {
+  const payload = getAnalysisPayload(analysis);
+  const card = payload.decision_card;
+  if (!card) return null;
+
+  const formatPrice = (value) => {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? `$${numeric.toFixed(2)}` : 'N/A';
+  };
+
+  const low = Number(card.entry_zone?.low);
+  const high = Number(card.entry_zone?.high);
+  const entryZone = Number.isFinite(low) && Number.isFinite(high)
+    ? `${formatPrice(low)} - ${formatPrice(high)}`
+    : 'N/A';
+
+  const targets = Array.isArray(card.targets) && card.targets.length > 0
+    ? card.targets
+      .map((t) => Number(t))
+      .filter((t) => Number.isFinite(t))
+      .map((t) => formatPrice(t))
+      .join(', ')
+    : 'N/A';
+
+  const confidence = card.confidence != null ? `${Math.round(card.confidence * 100)}%` : 'N/A';
+  const horizon = card.time_horizon ? String(card.time_horizon).replace(/_/g, ' ') : 'N/A';
+  const action = card.action ? String(card.action).toUpperCase() : 'N/A';
+  const stopLoss = card.stop_loss != null ? formatPrice(card.stop_loss) : 'N/A';
+
+  return (
+    <div className="glass-card-elevated rounded-xl p-5 animate-fade-in">
+      <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider mb-3 flex items-center space-x-2">
+        <TargetIcon className="w-4 h-4 text-accent-green" />
+        <span>Decision Card</span>
+      </h3>
+
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-3">
+        <div className="p-3 bg-dark-inset rounded-lg">
+          <div className="text-[11px] text-gray-500 uppercase tracking-wider mb-1">Action</div>
+          <div className="text-sm font-bold text-accent-green">{action}</div>
+        </div>
+        <div className="p-3 bg-dark-inset rounded-lg">
+          <div className="text-[11px] text-gray-500 uppercase tracking-wider mb-1">Entry Zone</div>
+          <div className="text-sm font-mono tabular-nums text-gray-200">{entryZone}</div>
+        </div>
+        <div className="p-3 bg-dark-inset rounded-lg">
+          <div className="text-[11px] text-gray-500 uppercase tracking-wider mb-1">Stop Loss</div>
+          <div className="text-sm font-mono tabular-nums text-danger-400">{stopLoss}</div>
+        </div>
+        <div className="p-3 bg-dark-inset rounded-lg">
+          <div className="text-[11px] text-gray-500 uppercase tracking-wider mb-1">Targets</div>
+          <div className="text-sm font-mono tabular-nums text-success-400">{targets}</div>
+        </div>
+        <div className="p-3 bg-dark-inset rounded-lg">
+          <div className="text-[11px] text-gray-500 uppercase tracking-wider mb-1">Confidence</div>
+          <div className="text-sm font-semibold text-primary-400">{confidence}</div>
+        </div>
+        <div className="p-3 bg-dark-inset rounded-lg">
+          <div className="text-[11px] text-gray-500 uppercase tracking-wider mb-1">Horizon</div>
+          <div className="text-sm font-semibold text-accent-purple">{horizon}</div>
+        </div>
+      </div>
+
+      {card.position_sizing_hint && (
+        <div className="text-xs text-gray-400 mb-2">
+          <span className="text-gray-500 uppercase tracking-wider mr-2">Sizing</span>
+          {card.position_sizing_hint}
+        </div>
+      )}
+
+      {Array.isArray(card.invalidation_conditions) && card.invalidation_conditions.length > 0 && (
+        <div className="pt-2 border-t border-white/5">
+          <div className="text-[11px] text-gray-500 uppercase tracking-wider mb-1.5">Invalidation Conditions</div>
+          <ul className="space-y-1.5">
+            {card.invalidation_conditions.map((item, idx) => (
+              <li key={idx} className="text-sm text-gray-300 flex items-start">
+                <span className="text-[10px] text-danger-400/70 font-mono mr-2 mt-0.5">{String(idx + 1).padStart(2, '0')}</span>
+                <span>{item}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+};
+
+/**
+ * ChangeSummaryPanel — highlights what materially changed vs last run.
+ */
+export const ChangeSummaryPanel = ({ analysis, showFallbackWhenEmpty = false }) => {
+  const payload = getAnalysisPayload(analysis);
+  const changes = payload.changes_since_last_run || payload.change_summary || analysis?.change_summary;
+  if (!changes && !showFallbackWhenEmpty) return null;
+
+  const materialChanges = changes?.material_changes || [];
+  const hasPrevious = changes?.has_previous !== false;
+  const summary = changes?.summary
+    || (hasPrevious ? 'No major changes detected.' : 'No prior run to compare yet.');
+
+  return (
+    <div className="glass-card-elevated rounded-xl p-5 animate-fade-in">
+      <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider mb-2">
+        What Changed Since Last Run
+      </h3>
+
+      <p className="text-sm text-gray-300 mb-3">
+        {summary}
+      </p>
+
+      {materialChanges.length > 0 && (
+        <div className="space-y-2">
+          {materialChanges.map((item, idx) => (
+            <div key={`${item.type}-${idx}`} className="p-2.5 bg-dark-inset rounded-lg border border-white/5">
+              <div className="text-xs text-gray-200">{item.label}</div>
+              <div className="text-[11px] text-gray-500 mt-0.5">
+                Impact: <span className="uppercase">{item.impact || 'medium'}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {materialChanges.length === 0 && (
+        <div className="text-xs text-gray-500">No material deltas available for this run.</div>
+      )}
     </div>
   );
 };
@@ -331,6 +471,7 @@ export const OverviewMetrics = ({ analysis }) => {
     <div className="space-y-4">
       <VerdictBanner analysis={analysis} />
       <AtAGlance analysis={analysis} />
+      <DecisionCardPanel analysis={analysis} />
     </div>
   );
 };
@@ -356,7 +497,8 @@ export const ResearchContent = ({ analysis }) => {
 
   if (!analysis) return null;
 
-  const { reasoning, risks, opportunities, price_targets } = analysis.analysis || {};
+  const payload = getAnalysisPayload(analysis);
+  const { reasoning, risks, opportunities, price_targets } = payload;
   const sections = parseReasoning(reasoning);
 
   // Calculate upside/downside from entry
@@ -395,7 +537,7 @@ export const ResearchContent = ({ analysis }) => {
             <DocumentIcon className="w-4 h-4 text-accent-blue" />
             <span>Chain-of-Thought Analysis</span>
           </h3>
-          <div className="space-y-2">
+          <div className="space-y-3">
             {sections.map((section) => (
               <AnalysisSection
                 key={section.num}
@@ -430,19 +572,19 @@ export const ResearchContent = ({ analysis }) => {
           <PriceTargetsRangeBar price_targets={price_targets} />
 
           {/* Cards */}
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-3 gap-4">
             {price_targets.entry != null && (
-              <div className="p-3 bg-dark-inset rounded-lg border-t-2 border-t-accent-blue">
-                <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">Entry</div>
+              <div className="p-4 bg-dark-inset rounded-lg border-t-2 border-t-accent-blue">
+                <div className="text-[11px] text-gray-500 uppercase tracking-wider mb-1">Entry</div>
                 <div className="text-xl font-bold font-mono text-accent-blue tabular-nums">
                   ${price_targets.entry.toFixed(2)}
                 </div>
               </div>
             )}
             {price_targets.target != null && (
-              <div className="p-3 bg-dark-inset rounded-lg border-t-2 border-t-success">
+              <div className="p-4 bg-dark-inset rounded-lg border-t-2 border-t-success">
                 <div className="flex items-center justify-between mb-1">
-                  <span className="text-[10px] text-gray-500 uppercase tracking-wider">Target</span>
+                  <span className="text-[11px] text-gray-500 uppercase tracking-wider">Target</span>
                   {upside && (
                     <span className="text-[10px] text-success-400 font-medium flex items-center">
                       <ArrowUpIcon className="w-2.5 h-2.5 mr-0.5" />+{upside}%
@@ -455,9 +597,9 @@ export const ResearchContent = ({ analysis }) => {
               </div>
             )}
             {price_targets.stop_loss != null && (
-              <div className="p-3 bg-dark-inset rounded-lg border-t-2 border-t-danger">
+              <div className="p-4 bg-dark-inset rounded-lg border-t-2 border-t-danger">
                 <div className="flex items-center justify-between mb-1">
-                  <span className="text-[10px] text-gray-500 uppercase tracking-wider">Stop Loss</span>
+                  <span className="text-[11px] text-gray-500 uppercase tracking-wider">Stop Loss</span>
                   {downside && (
                     <span className="text-[10px] text-danger-400 font-medium flex items-center">
                       <ArrowDownIcon className="w-2.5 h-2.5 mr-0.5" />{downside}%
@@ -485,7 +627,7 @@ export const ResearchContent = ({ analysis }) => {
               <ShieldExclamationIcon className="w-4 h-4 text-danger-400" />
               <span>Risks</span>
             </h3>
-            <ul className="space-y-2">
+            <ul className="space-y-2.5">
               {risks.map((risk, index) => (
                 <li key={index} className="text-sm text-gray-300 flex items-start">
                   <span className="text-[10px] text-danger-400/60 font-mono mr-2 mt-0.5 flex-shrink-0">{String(index + 1).padStart(2, '0')}</span>
@@ -506,7 +648,7 @@ export const ResearchContent = ({ analysis }) => {
               <LightbulbIcon className="w-4 h-4 text-success-400" />
               <span>Opportunities</span>
             </h3>
-            <ul className="space-y-2">
+            <ul className="space-y-2.5">
               {opportunities.map((opportunity, index) => (
                 <li key={index} className="text-sm text-gray-300 flex items-start">
                   <span className="text-[10px] text-success-400/60 font-mono mr-2 mt-0.5 flex-shrink-0">{String(index + 1).padStart(2, '0')}</span>

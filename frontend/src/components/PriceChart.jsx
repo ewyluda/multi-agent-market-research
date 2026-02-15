@@ -332,13 +332,13 @@ const PriceChart = ({ analysis }) => {
       )}
 
       {/* ── Technical indicator metric cards ── */}
-      <div className="grid grid-cols-4 gap-3">
+      <div className="grid grid-cols-4 gap-4">
         {/* RSI Card */}
-        <div className="bg-dark-inset rounded-lg p-3 border border-white/[0.04] hover:border-white/[0.08] transition-colors">
+        <div className="bg-dark-inset rounded-lg p-3.5 border border-white/[0.04] hover:border-white/[0.08] transition-colors">
           <div className="flex justify-between items-center mb-1.5">
-            <span className="text-[10px] text-gray-500 uppercase tracking-wider font-medium">RSI</span>
+            <span className="text-[11px] text-gray-500 uppercase tracking-wider font-medium">RSI</span>
             {indicators.rsi && (
-              <span className={`text-[9px] px-1.5 py-0.5 rounded font-medium ${
+              <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
                 indicators.rsi.value > 70 ? 'bg-danger/15 text-danger-400' :
                 indicators.rsi.value < 30 ? 'bg-success/15 text-success-400' :
                 'bg-gray-500/15 text-gray-400'
@@ -363,11 +363,11 @@ const PriceChart = ({ analysis }) => {
         </div>
 
         {/* MACD Card */}
-        <div className="bg-dark-inset rounded-lg p-3 border border-white/[0.04] hover:border-white/[0.08] transition-colors">
+        <div className="bg-dark-inset rounded-lg p-3.5 border border-white/[0.04] hover:border-white/[0.08] transition-colors">
           <div className="flex justify-between items-center mb-1.5">
-            <span className="text-[10px] text-gray-500 uppercase tracking-wider font-medium">MACD</span>
+            <span className="text-[11px] text-gray-500 uppercase tracking-wider font-medium">MACD</span>
             {indicators.macd && (
-              <span className={`text-[9px] px-1.5 py-0.5 rounded font-medium ${
+              <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
                 indicators.macd.interpretation?.includes('bullish')
                   ? 'bg-success/15 text-success-400'
                   : 'bg-danger/15 text-danger-400'
@@ -408,11 +408,11 @@ const PriceChart = ({ analysis }) => {
         </div>
 
         {/* Bollinger Bands Card */}
-        <div className="bg-dark-inset rounded-lg p-3 border border-white/[0.04] hover:border-white/[0.08] transition-colors">
+        <div className="bg-dark-inset rounded-lg p-3.5 border border-white/[0.04] hover:border-white/[0.08] transition-colors">
           <div className="flex justify-between items-center mb-1.5">
-            <span className="text-[10px] text-gray-500 uppercase tracking-wider font-medium">Bollinger</span>
+            <span className="text-[11px] text-gray-500 uppercase tracking-wider font-medium">Bollinger</span>
             {indicators.bollinger_bands && (
-              <span className="text-[9px] px-1.5 py-0.5 rounded font-medium bg-accent-purple/15 text-accent-purple">
+              <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-accent-purple/15 text-accent-purple">
                 {indicators.bollinger_bands.interpretation || 'band'}
               </span>
             )}
@@ -443,11 +443,11 @@ const PriceChart = ({ analysis }) => {
         </div>
 
         {/* Signal Strength Card */}
-        <div className="bg-dark-inset rounded-lg p-3 border border-white/[0.04] hover:border-white/[0.08] transition-colors">
+        <div className="bg-dark-inset rounded-lg p-3.5 border border-white/[0.04] hover:border-white/[0.08] transition-colors">
           <div className="flex justify-between items-center mb-1.5">
-            <span className="text-[10px] text-gray-500 uppercase tracking-wider font-medium">Signal</span>
+            <span className="text-[11px] text-gray-500 uppercase tracking-wider font-medium">Signal</span>
             {signals.overall && (
-              <span className={`text-[9px] px-1.5 py-0.5 rounded font-medium ${
+              <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
                 signals.overall === 'bullish' ? 'bg-success/15 text-success-400' :
                 signals.overall === 'bearish' ? 'bg-danger/15 text-danger-400' :
                 'bg-warning/15 text-warning-400'

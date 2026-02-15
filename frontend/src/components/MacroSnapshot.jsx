@@ -12,7 +12,7 @@ const TrendBadge = ({ trend }) => {
   const isUp = trend === 'rising';
   const isDown = trend === 'falling';
   return (
-    <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+    <span className={`text-[11px] px-2 py-0.5 rounded font-medium ${
       isUp ? 'bg-success/15 text-success-400' :
       isDown ? 'bg-danger/15 text-danger-400' :
       'bg-gray-500/15 text-gray-400'
@@ -36,7 +36,7 @@ const StatusBadge = ({ status, label }) => {
     transitional: 'bg-warning/15 text-warning-400',
   };
   return (
-    <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium capitalize ${colorMap[status] || 'bg-gray-500/15 text-gray-400'}`}>
+    <span className={`text-[11px] px-2 py-0.5 rounded font-medium capitalize ${colorMap[status] || 'bg-gray-500/15 text-gray-400'}`}>
       {label || status}
     </span>
   );
@@ -99,7 +99,7 @@ const MacroSnapshot = ({ analysis }) => {
         <span>Macro Environment</span>
       </h3>
 
-      <div className="space-y-2">
+      <div className="space-y-2.5">
         {/* Fed Funds Rate */}
         {fedFunds.current != null && (
           <div className="flex items-center justify-between">
@@ -114,8 +114,8 @@ const MacroSnapshot = ({ analysis }) => {
         {/* Yield Curve Mini-Visualization */}
         {(yield2y.current != null || yield10y.current != null) && (
           <div className="p-3 bg-dark-inset rounded-lg">
-            <div className="text-[9px] text-gray-500 uppercase tracking-wider mb-2">Yield Curve</div>
-            <div className="flex items-end space-x-3 h-16">
+            <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-2">Yield Curve</div>
+            <div className="flex items-end space-x-4 h-20">
               {/* 2Y bar */}
               {yield2y.current != null && (
                 <div className="flex flex-col items-center flex-1">
@@ -127,7 +127,7 @@ const MacroSnapshot = ({ analysis }) => {
                       borderTop: '2px solid rgba(51, 142, 247, 0.7)',
                     }}
                   />
-                  <span className="text-[8px] text-gray-500 mt-1 font-mono">2Y</span>
+                  <span className="text-[10px] text-gray-500 mt-1 font-mono">2Y</span>
                 </div>
               )}
               {/* 10Y bar */}
@@ -141,22 +141,22 @@ const MacroSnapshot = ({ analysis }) => {
                       borderTop: '2px solid rgba(0, 111, 238, 0.7)',
                     }}
                   />
-                  <span className="text-[8px] text-gray-500 mt-1 font-mono">10Y</span>
+                  <span className="text-[10px] text-gray-500 mt-1 font-mono">10Y</span>
                 </div>
               )}
             </div>
             <div className="flex justify-between mt-1.5">
-              <span className="text-[9px] font-mono text-gray-400">
+              <span className="text-[10px] font-mono text-gray-400">
                 {yield2y.current != null ? `${yield2y.current.toFixed(2)}%` : '—'}
               </span>
               {yieldCurve.status && <StatusBadge status={yieldCurve.status} />}
-              <span className="text-[9px] font-mono text-gray-400">
+              <span className="text-[10px] font-mono text-gray-400">
                 {yield10y.current != null ? `${yield10y.current.toFixed(2)}%` : '—'}
               </span>
             </div>
             {yieldCurve.spread != null && (
               <div className="text-center mt-1">
-                <span className="text-[9px] font-mono text-gray-500">
+                <span className="text-[10px] font-mono text-gray-500">
                   Spread: {yieldCurve.spread > 0 ? '+' : ''}{yieldCurve.spread.toFixed(2)}%
                 </span>
               </div>

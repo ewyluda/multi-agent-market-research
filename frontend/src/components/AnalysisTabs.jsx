@@ -1,6 +1,6 @@
 /**
  * AnalysisTabs - Horizontal tab bar for the analysis content area
- * Tabs: Overview, Research, Sentiment, News, Options
+ * Tabs: Overview, Changes, Research, Sentiment, News, Options
  * Uses framer-motion layoutId for smooth underline transitions
  */
 
@@ -9,6 +9,7 @@ import { motion } from 'framer-motion';
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
+  { id: 'changes', label: 'Changes' },
   { id: 'research', label: 'Research' },
   { id: 'sentiment', label: 'Sentiment' },
   { id: 'news', label: 'News' },
@@ -39,7 +40,7 @@ const AnalysisTabs = ({ activeTab, onTabChange, analysis }) => {
 
   return (
     <div className="border-b border-white/5">
-      <nav className="flex space-x-6" aria-label="Analysis tabs">
+      <nav className="flex space-x-8" aria-label="Analysis tabs">
         {visibleTabs.map((tab) => {
           const isActive = activeTab === tab.id;
 
@@ -47,7 +48,7 @@ const AnalysisTabs = ({ activeTab, onTabChange, analysis }) => {
             <button
               key={tab.id}
               onClick={() => onTabChange(tab.id)}
-              className={`relative px-1 py-3 text-xs font-medium uppercase tracking-wider transition-colors duration-200 cursor-pointer ${
+              className={`relative px-2 py-3.5 text-[13px] font-medium uppercase tracking-wider transition-colors duration-200 cursor-pointer ${
                 isActive
                   ? 'text-white'
                   : 'text-gray-500 hover:text-gray-300'

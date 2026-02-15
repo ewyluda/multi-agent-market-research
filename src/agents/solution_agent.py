@@ -259,11 +259,7 @@ Respond in JSON format:
                     raise ValueError("Could not find JSON in LLM response")
 
             result = json.loads(json_str)
-
-            # Add summary
-            result["summary"] = self._generate_summary(result)
-
-            return result
+            return self._normalize_synthesis_result(result, market_data)
 
         except Exception as e:
             self.logger.error(f"LLM synthesis failed: {e}", exc_info=True)
@@ -461,11 +457,7 @@ Respond in JSON format:
                     raise ValueError("Could not find JSON in LLM response")
 
             result = json.loads(json_str)
-
-            # Add summary
-            result["summary"] = self._generate_summary(result)
-
-            return result
+            return self._normalize_synthesis_result(result, market_data)
 
         except Exception as e:
             self.logger.error(f"OpenAI-compatible synthesis failed: {e}", exc_info=True)
@@ -541,7 +533,7 @@ Respond in JSON format:
         else:
             recommendation = "HOLD"
 
-        return {
+        result = {
             "recommendation": recommendation,
             "score": int(max(-100, min(100, score))),
             "confidence": 0.6,
@@ -555,8 +547,102 @@ Respond in JSON format:
             },
             "position_size": "MEDIUM",
             "time_horizon": "MEDIUM_TERM",
-            "summary": f"Recommendation: {recommendation} (Score: {int(score)})"
+            "summary": f"Recommendation: {recommendation} (Score: {int(score)})",
         }
+        return self._normalize_synthesis_result(result, market_data)
+
+    def _to_float(self, value: Any) -> Optional[float]:
+        """Best-effort numeric conversion."""
+        if value is None:
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    def _build_decision_card(self, result: Dict[str, Any], market_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Build a normalized, machine-readable decision card.
+
+        If the LLM already produced `decision_card`, preserve provided fields and
+        fill any missing values from core synthesis fields.
+        """
+        recommendation = str(result.get("recommendation", "HOLD")).upper()
+        action_map = {"BUY": "buy", "HOLD": "hold", "SELL": "avoid"}
+        action = action_map.get(recommendation, "hold")
+
+        price_targets = result.get("price_targets") or {}
+        entry = self._to_float(price_targets.get("entry")) or self._to_float(market_data.get("current_price"))
+        target = self._to_float(price_targets.get("target"))
+        stop_loss = self._to_float(price_targets.get("stop_loss"))
+        confidence = self._to_float(result.get("confidence"))
+        time_horizon = result.get("time_horizon")
+        position_size = (result.get("position_size") or "").upper()
+
+        entry_zone = None
+        if entry is not None:
+            entry_zone = {
+                "low": round(entry * 0.98, 2),
+                "high": round(entry * 1.02, 2),
+                "reference": round(entry, 2),
+            }
+
+        targets = [round(target, 2)] if target is not None else []
+
+        sizing_map = {
+            "SMALL": "Use reduced size (about 0.5x normal risk).",
+            "MEDIUM": "Use standard size (about 1.0x normal risk).",
+            "LARGE": "Use increased size only if risk limits allow (about 1.5x normal risk).",
+        }
+        position_sizing_hint = sizing_map.get(position_size, "Size position according to your risk budget.")
+
+        invalidation_conditions = result.get("invalidation_conditions")
+        if not invalidation_conditions:
+            risks = result.get("risks") or []
+            invalidation_conditions = risks[:3] if risks else ["Risk/reward no longer supports the thesis."]
+
+        base_card = {
+            "action": action,
+            "entry_zone": entry_zone,
+            "stop_loss": round(stop_loss, 2) if stop_loss is not None else None,
+            "targets": targets,
+            "time_horizon": time_horizon,
+            "confidence": confidence,
+            "invalidation_conditions": invalidation_conditions,
+            "position_sizing_hint": position_sizing_hint,
+        }
+
+        existing = result.get("decision_card") if isinstance(result.get("decision_card"), dict) else {}
+        merged = {**base_card, **existing}
+        merged.setdefault("targets", targets)
+        merged.setdefault("invalidation_conditions", invalidation_conditions)
+        return merged
+
+    def _normalize_synthesis_result(self, result: Dict[str, Any], market_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Normalize synthesis payload so downstream systems get a stable schema."""
+        normalized = dict(result)
+
+        recommendation = str(normalized.get("recommendation", "HOLD")).upper()
+        if recommendation not in {"BUY", "HOLD", "SELL"}:
+            recommendation = "HOLD"
+        normalized["recommendation"] = recommendation
+
+        score = self._to_float(normalized.get("score"))
+        normalized["score"] = int(max(-100, min(100, score if score is not None else 0)))
+
+        confidence = self._to_float(normalized.get("confidence"))
+        normalized["confidence"] = max(0.0, min(1.0, confidence if confidence is not None else 0.5))
+
+        if not isinstance(normalized.get("risks"), list):
+            normalized["risks"] = []
+        if not isinstance(normalized.get("opportunities"), list):
+            normalized["opportunities"] = []
+        if not isinstance(normalized.get("price_targets"), dict):
+            normalized["price_targets"] = {}
+
+        normalized["decision_card"] = self._build_decision_card(normalized, market_data)
+        normalized["summary"] = self._generate_summary(normalized)
+        return normalized
 
     def _generate_summary(self, result: Dict[str, Any]) -> str:
         """Generate executive summary."""

@@ -201,6 +201,15 @@ class DatabaseManager:
                 )
             """)
 
+            # Manual/explicit schema migrations for existing databases.
+            self._ensure_column(cursor, "analyses", "score", "REAL")
+            self._ensure_column(cursor, "analyses", "decision_card", "TEXT")
+            self._ensure_column(cursor, "analyses", "change_summary", "TEXT")
+            self._ensure_column(cursor, "analyses", "analysis_payload", "TEXT")
+            self._ensure_column(cursor, "alert_notifications", "trigger_context", "TEXT")
+            self._ensure_column(cursor, "alert_notifications", "change_summary", "TEXT")
+            self._ensure_column(cursor, "alert_notifications", "suggested_action", "TEXT")
+
             # Create indexes for performance
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_analyses_ticker_timestamp
@@ -231,6 +240,46 @@ class DatabaseManager:
                 ON alert_notifications(acknowledged, created_at DESC)
             """)
 
+    def _ensure_column(self, cursor: sqlite3.Cursor, table_name: str, column_name: str, column_def: str):
+        """Add a column if it does not already exist."""
+        cursor.execute(f"PRAGMA table_info({table_name})")
+        existing = {row[1] for row in cursor.fetchall()}
+        if column_name not in existing:
+            cursor.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_def}")
+
+    def _deserialize_json_fields(self, record: Dict[str, Any], fields: List[str]):
+        """Best-effort JSON decoding for selected record fields."""
+        for field in fields:
+            value = record.get(field)
+            if value is None or isinstance(value, (dict, list)):
+                continue
+            try:
+                record[field] = json.loads(value)
+            except (json.JSONDecodeError, TypeError):
+                # Keep original value when not valid JSON
+                continue
+
+    def _hydrate_analysis_record(self, record: Dict[str, Any]) -> Dict[str, Any]:
+        """Decode analysis JSON fields and attach a normalized nested `analysis` payload."""
+        self._deserialize_json_fields(record, ["decision_card", "change_summary", "analysis_payload"])
+
+        payload = record.get("analysis_payload")
+        normalized = dict(payload) if isinstance(payload, dict) else {}
+
+        # Keep canonical fields in sync with DB columns.
+        normalized.setdefault("recommendation", record.get("recommendation"))
+        normalized.setdefault("score", record.get("score"))
+        normalized.setdefault("confidence", record.get("confidence_score"))
+        normalized.setdefault("reasoning", record.get("solution_agent_reasoning"))
+        if record.get("decision_card") and not normalized.get("decision_card"):
+            normalized["decision_card"] = record.get("decision_card")
+        if record.get("change_summary"):
+            normalized.setdefault("changes_since_last_run", record.get("change_summary"))
+            normalized.setdefault("change_summary", record.get("change_summary"))
+
+        record["analysis"] = normalized
+        return record
+
     def insert_analysis(
         self,
         ticker: str,
@@ -238,7 +287,11 @@ class DatabaseManager:
         confidence_score: float,
         overall_sentiment_score: float,
         solution_agent_reasoning: str,
-        duration_seconds: float
+        duration_seconds: float,
+        score: Optional[float] = None,
+        decision_card: Optional[Dict[str, Any]] = None,
+        change_summary: Optional[Dict[str, Any]] = None,
+        analysis_payload: Optional[Dict[str, Any]] = None,
     ) -> int:
         """
         Insert a new analysis record.
@@ -250,6 +303,10 @@ class DatabaseManager:
             overall_sentiment_score: Overall sentiment score (-1 to 1)
             solution_agent_reasoning: Reasoning text from solution agent
             duration_seconds: Total analysis duration
+            score: Analysis score (-100..100)
+            decision_card: Structured decision output
+            change_summary: Delta vs previous run
+            analysis_payload: Full synthesized analysis JSON
 
         Returns:
             ID of inserted analysis
@@ -257,14 +314,29 @@ class DatabaseManager:
         with self.get_connection() as conn:
             cursor = conn.cursor()
             timestamp = datetime.utcnow().isoformat()
+            decision_card_json = json.dumps(decision_card) if decision_card is not None else None
+            change_summary_json = json.dumps(change_summary) if change_summary is not None else None
+            analysis_payload_json = json.dumps(analysis_payload) if analysis_payload is not None else None
 
             cursor.execute("""
                 INSERT INTO analyses (
                     ticker, timestamp, recommendation, confidence_score,
-                    overall_sentiment_score, solution_agent_reasoning, duration_seconds
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (ticker, timestamp, recommendation, confidence_score,
-                  overall_sentiment_score, solution_agent_reasoning, duration_seconds))
+                    overall_sentiment_score, solution_agent_reasoning, duration_seconds,
+                    score, decision_card, change_summary, analysis_payload
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                ticker,
+                timestamp,
+                recommendation,
+                confidence_score,
+                overall_sentiment_score,
+                solution_agent_reasoning,
+                duration_seconds,
+                score,
+                decision_card_json,
+                change_summary_json,
+                analysis_payload_json,
+            ))
 
             return cursor.lastrowid
 
@@ -402,7 +474,10 @@ class DatabaseManager:
             """, (ticker,))
 
             row = cursor.fetchone()
-            return dict(row) if row else None
+            if not row:
+                return None
+
+            return self._hydrate_analysis_record(dict(row))
 
     def get_analysis_with_agents(self, analysis_id: int) -> Optional[Dict[str, Any]]:
         """
@@ -423,7 +498,7 @@ class DatabaseManager:
             if not analysis:
                 return None
 
-            result = dict(analysis)
+            result = self._hydrate_analysis_record(dict(analysis))
 
             # Get agent results
             cursor.execute("""
@@ -478,7 +553,7 @@ class DatabaseManager:
             """, (ticker, limit))
 
             rows = cursor.fetchall()
-            return [dict(row) for row in rows]
+            return [self._hydrate_analysis_record(dict(row)) for row in rows]
 
     def get_cached_price_data(
         self,
@@ -568,7 +643,7 @@ class DatabaseManager:
                 params + [limit, offset],
             )
             rows = cursor.fetchall()
-            items = [dict(row) for row in rows]
+            items = [self._hydrate_analysis_record(dict(row)) for row in rows]
 
             return {
                 "items": items,
@@ -749,7 +824,7 @@ class DatabaseManager:
                 row = cursor.fetchone()
                 results.append({
                     "ticker": ticker,
-                    "latest_analysis": dict(row) if row else None,
+                    "latest_analysis": self._hydrate_analysis_record(dict(row)) if row else None,
                 })
             return results
 
@@ -916,15 +991,43 @@ class DatabaseManager:
             cursor.execute("DELETE FROM alert_rules WHERE id = ?", (rule_id,))
             return True
 
-    def insert_alert_notification(self, alert_rule_id: int, analysis_id: int, ticker: str, message: str, previous_value: Optional[str] = None, current_value: Optional[str] = None) -> int:
+    def insert_alert_notification(
+        self,
+        alert_rule_id: int,
+        analysis_id: int,
+        ticker: str,
+        message: str,
+        previous_value: Optional[str] = None,
+        current_value: Optional[str] = None,
+        trigger_context: Optional[Dict[str, Any]] = None,
+        change_summary: Optional[Dict[str, Any]] = None,
+        suggested_action: Optional[str] = None,
+    ) -> int:
         """Insert an alert notification. Returns notification ID."""
         now = datetime.utcnow().isoformat()
+        trigger_context_json = json.dumps(trigger_context) if trigger_context is not None else None
+        change_summary_json = json.dumps(change_summary) if change_summary is not None else None
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
-                """INSERT INTO alert_notifications (alert_rule_id, analysis_id, ticker, message, previous_value, current_value, acknowledged, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, 0, ?)""",
-                (alert_rule_id, analysis_id, ticker.upper(), message, previous_value, current_value, now),
+                """INSERT INTO alert_notifications (
+                       alert_rule_id, analysis_id, ticker, message,
+                       previous_value, current_value, trigger_context,
+                       change_summary, suggested_action, acknowledged, created_at
+                   )
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)""",
+                (
+                    alert_rule_id,
+                    analysis_id,
+                    ticker.upper(),
+                    message,
+                    previous_value,
+                    current_value,
+                    trigger_context_json,
+                    change_summary_json,
+                    suggested_action,
+                    now,
+                ),
             )
             return cursor.lastrowid
 
@@ -942,7 +1045,10 @@ class DatabaseManager:
                     "SELECT * FROM alert_notifications ORDER BY created_at DESC LIMIT ?",
                     (limit,),
                 )
-            return [dict(row) for row in cursor.fetchall()]
+            notifications = [dict(row) for row in cursor.fetchall()]
+            for notification in notifications:
+                self._deserialize_json_fields(notification, ["trigger_context", "change_summary"])
+            return notifications
 
     def acknowledge_alert(self, notification_id: int) -> bool:
         """Mark a notification as acknowledged. Returns False if not found."""

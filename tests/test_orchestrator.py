@@ -274,6 +274,71 @@ class TestAnalyzeTicker:
             assert "starting" in stages
             assert "complete" in stages
 
+    async def test_change_summary_added_across_runs(self, test_config, tmp_path):
+        """Orchestrator adds run-to-run change summary using previous analysis context."""
+        db_path = str(tmp_path / "test.db")
+        db_manager = DatabaseManager(db_path)
+
+        with (
+            patch("src.orchestrator.NewsAgent") as MockNews,
+            patch("src.orchestrator.MarketAgent") as MockMarket,
+            patch("src.orchestrator.FundamentalsAgent") as MockFund,
+            patch("src.orchestrator.TechnicalAgent") as MockTech,
+            patch("src.orchestrator.MacroAgent") as MockMacro,
+            patch("src.orchestrator.OptionsAgent") as MockOptions,
+            patch("src.orchestrator.SentimentAgent") as MockSent,
+            patch("src.orchestrator.SolutionAgent") as MockSolution,
+        ):
+            MockNews.return_value.execute = AsyncMock(return_value=_make_agent_result("news"))
+            MockMarket.return_value.execute = AsyncMock(return_value=_make_agent_result("market", data={"trend": "uptrend"}))
+            MockFund.return_value.execute = AsyncMock(return_value=_make_agent_result("fundamentals", data={"health_score": 55}))
+            MockTech.return_value.execute = AsyncMock(return_value=_make_agent_result("technical", data={"signals": {"overall": "neutral", "strength": 5}}))
+            MockMacro.return_value.execute = AsyncMock(return_value=_make_agent_result("macro", data={"risk_environment": "neutral"}))
+            MockOptions.return_value.execute = AsyncMock(return_value=_make_agent_result("options", data={"overall_signal": "neutral", "put_call_ratio": 1.0}))
+            MockSent.return_value.set_context_data = MagicMock()
+            MockSent.return_value.execute = AsyncMock(return_value=_make_agent_result("sentiment", data={"overall_sentiment": 0.05}))
+
+            MockSolution.return_value.execute = AsyncMock(side_effect=[
+                {
+                    "success": True,
+                    "data": {
+                        "recommendation": "HOLD",
+                        "score": 5,
+                        "confidence": 0.51,
+                        "reasoning": "Baseline thesis.",
+                        "risks": ["Risk 1"],
+                        "opportunities": ["Opp 1"],
+                        "summary": "Hold",
+                        "price_targets": None,
+                        "position_size": "SMALL",
+                        "time_horizon": "SHORT_TERM",
+                    },
+                },
+                {
+                    "success": True,
+                    "data": {
+                        "recommendation": "BUY",
+                        "score": 42,
+                        "confidence": 0.73,
+                        "reasoning": "Trend improving.",
+                        "risks": ["Risk 1"],
+                        "opportunities": ["Opp 1"],
+                        "summary": "Buy",
+                        "price_targets": None,
+                        "position_size": "MEDIUM",
+                        "time_horizon": "MEDIUM_TERM",
+                    },
+                },
+            ])
+
+            orch = Orchestrator(config=test_config, db_manager=db_manager)
+            first = await orch.analyze_ticker("AAPL")
+            second = await orch.analyze_ticker("AAPL")
+
+            assert first["analysis"]["changes_since_last_run"]["has_previous"] is False
+            assert second["analysis"]["changes_since_last_run"]["has_previous"] is True
+            assert second["analysis"]["changes_since_last_run"]["change_count"] >= 1
+
 
 class TestInjectSharedResources:
     """Tests for _inject_shared_resources()."""

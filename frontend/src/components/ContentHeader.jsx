@@ -15,7 +15,7 @@ const SourceBadge = ({ source }) => {
   const isAV = source === 'alpha_vantage';
   return (
     <span
-      className={`text-[9px] px-1.5 py-0.5 rounded font-medium ${
+      className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
         isAV
           ? 'bg-accent-blue/10 text-accent-blue/70'
           : 'bg-gray-500/10 text-gray-500'

@@ -59,6 +59,54 @@ class TestDatabaseManager:
         assert latest["ticker"] == "AAPL"
         assert latest["confidence_score"] == 0.8
 
+    def test_analysis_json_fields_are_persisted_and_hydrated(self, db_manager):
+        """decision_card/change_summary/analysis_payload are stored and decoded on read."""
+        decision_card = {
+            "action": "buy",
+            "entry_zone": {"low": 100.0, "high": 105.0, "reference": 102.5},
+            "stop_loss": 95.0,
+            "targets": [115.0],
+            "time_horizon": "MEDIUM_TERM",
+            "confidence": 0.77,
+            "invalidation_conditions": ["Breaks below support"],
+            "position_sizing_hint": "Use standard risk.",
+        }
+        change_summary = {
+            "has_previous": True,
+            "summary": "Recommendation changed from HOLD to BUY",
+            "material_changes": [{"type": "recommendation_change", "label": "HOLD -> BUY"}],
+            "change_count": 1,
+        }
+        payload = {
+            "recommendation": "BUY",
+            "score": 68,
+            "confidence": 0.77,
+            "decision_card": decision_card,
+            "changes_since_last_run": change_summary,
+        }
+
+        aid = db_manager.insert_analysis(
+            ticker="AAPL",
+            recommendation="BUY",
+            confidence_score=0.77,
+            overall_sentiment_score=0.41,
+            solution_agent_reasoning="Thesis improving.",
+            duration_seconds=9.2,
+            score=68,
+            decision_card=decision_card,
+            change_summary=change_summary,
+            analysis_payload=payload,
+        )
+        latest = db_manager.get_latest_analysis("AAPL")
+        full = db_manager.get_analysis_with_agents(aid)
+
+        assert latest["score"] == 68
+        assert latest["decision_card"]["action"] == "buy"
+        assert latest["change_summary"]["change_count"] == 1
+        assert latest["analysis"]["recommendation"] == "BUY"
+        assert latest["analysis"]["decision_card"]["stop_loss"] == 95.0
+        assert full["analysis"]["changes_since_last_run"]["has_previous"] is True
+
     def test_insert_agent_result_and_retrieve(self, db_manager):
         """insert_agent_result stores data retrievable via get_analysis_with_agents."""
         aid = db_manager.insert_analysis("NVDA", "HOLD", 0.6, 0.3, "Neutral.", 15.0)
@@ -237,6 +285,32 @@ class TestDatabaseManager:
         aapl_history = db_manager.get_analysis_history("AAPL")
         assert len(aapl_history) == 1
         assert aapl_history[0]["ticker"] == "AAPL"
+
+    def test_alert_notification_extended_fields_round_trip(self, db_manager):
+        """trigger_context/change_summary/suggested_action are persisted on notifications."""
+        aid = db_manager.insert_analysis("AAPL", "BUY", 0.8, 0.4, "Reasoning", 7.0)
+        rule = db_manager.create_alert_rule("AAPL", "recommendation_change")
+        trigger_context = {"rule_type": "recommendation_change", "event": "BUY -> SELL"}
+        change_summary = {"summary": "Signal regime flipped", "material_changes": [{"type": "regime"}]}
+        notification_id = db_manager.insert_alert_notification(
+            alert_rule_id=rule["id"],
+            analysis_id=aid,
+            ticker="AAPL",
+            message="Recommendation changed from BUY to SELL",
+            previous_value="BUY",
+            current_value="SELL",
+            trigger_context=trigger_context,
+            change_summary=change_summary,
+            suggested_action="Reduce exposure.",
+        )
+        assert notification_id > 0
+
+        notifications = db_manager.get_alert_notifications(limit=5)
+        assert len(notifications) == 1
+        notif = notifications[0]
+        assert notif["trigger_context"]["rule_type"] == "recommendation_change"
+        assert notif["change_summary"]["summary"] == "Signal regime flipped"
+        assert notif["suggested_action"] == "Reduce exposure."
 
 
 class TestScheduleDatabase:

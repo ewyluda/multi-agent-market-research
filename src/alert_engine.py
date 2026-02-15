@@ -37,6 +37,16 @@ class AlertEngine:
         for rule in enabled_rules:
             notification = self._evaluate_rule(rule, new_analysis, previous_analysis)
             if notification:
+                trigger_context = {
+                    "rule_type": rule.get("rule_type"),
+                    "threshold": rule.get("threshold"),
+                    "event": notification.get("message"),
+                    "previous_value": notification.get("previous_value"),
+                    "current_value": notification.get("current_value"),
+                }
+                change_summary = self._extract_change_summary(new_analysis)
+                suggested_action = self._build_suggested_action(new_analysis, rule, notification)
+
                 notif_id = self.db_manager.insert_alert_notification(
                     alert_rule_id=rule["id"],
                     analysis_id=analysis_id,
@@ -44,8 +54,14 @@ class AlertEngine:
                     message=notification["message"],
                     previous_value=notification.get("previous_value"),
                     current_value=notification.get("current_value"),
+                    trigger_context=trigger_context,
+                    change_summary=change_summary,
+                    suggested_action=suggested_action,
                 )
                 notification["id"] = notif_id
+                notification["trigger_context"] = trigger_context
+                notification["change_summary"] = change_summary
+                notification["suggested_action"] = suggested_action
                 triggered.append(notification)
 
         if triggered:
@@ -94,6 +110,17 @@ class AlertEngine:
         """Map recommendation + confidence to a synthetic score (-100..100)."""
         if not analysis:
             return None
+
+        # Prefer stored/model score when available.
+        explicit_score = analysis.get("score")
+        payload = analysis.get("analysis") or analysis.get("analysis_payload") or {}
+        if explicit_score is None:
+            explicit_score = payload.get("score")
+        if explicit_score is not None:
+            try:
+                return float(explicit_score)
+            except (TypeError, ValueError):
+                pass
 
         rec = analysis.get("recommendation", "HOLD")
         conf = analysis.get("confidence_score", 0.0) or 0.0
@@ -157,3 +184,45 @@ class AlertEngine:
                 "current_value": f"{confidence:.2f}",
             }
         return None
+
+    def _extract_change_summary(self, analysis: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Extract run-to-run change summary from stored analysis payload."""
+        payload = analysis.get("analysis") or analysis.get("analysis_payload") or {}
+        if payload.get("changes_since_last_run"):
+            return payload["changes_since_last_run"]
+        if payload.get("change_summary"):
+            return payload["change_summary"]
+        if analysis.get("change_summary"):
+            return analysis["change_summary"]
+        return None
+
+    def _build_suggested_action(
+        self,
+        analysis: Dict[str, Any],
+        rule: Dict[str, Any],
+        notification: Dict[str, Any],
+    ) -> str:
+        """Generate a lightweight playbook action for each triggered alert."""
+        payload = analysis.get("analysis") or analysis.get("analysis_payload") or {}
+        decision_card = payload.get("decision_card") or analysis.get("decision_card") or {}
+        action = (decision_card.get("action") or "").lower()
+
+        if not action:
+            recommendation = str(payload.get("recommendation") or analysis.get("recommendation") or "HOLD").upper()
+            action = {"BUY": "buy", "SELL": "avoid"}.get(recommendation, "hold")
+
+        if action == "buy":
+            base = "Consider initiating or adding exposure near the entry zone while honoring the stop-loss."
+        elif action == "avoid":
+            base = "Avoid new long exposure or reduce risk until the signal set improves."
+        else:
+            base = "Hold current sizing and wait for confirmation before changing exposure."
+
+        message = notification.get("message", "").lower()
+        if "confidence" in message:
+            return f"{base} Re-check confidence trend and only act if this move persists on the next run."
+        if "score" in message:
+            return f"{base} Validate whether score momentum is confirmed by sentiment and market trend."
+        if "recommendation changed" in message:
+            return f"{base} Recommendation flipped, so prioritize risk controls before any position change."
+        return base

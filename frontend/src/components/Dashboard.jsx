@@ -14,7 +14,7 @@ import AgentPipelineBar from './AgentPipelineBar';
 import Recommendation from './Recommendation';
 import SentimentReport from './SentimentReport';
 import PriceChart from './PriceChart';
-import { OverviewMetrics, ResearchContent } from './Summary';
+import { OverviewMetrics, ResearchContent, ChangeSummaryPanel } from './Summary';
 import NewsFeed from './NewsFeed';
 import SocialBuzz from './SocialBuzz';
 import OptionsFlow from './OptionsFlow';
@@ -223,6 +223,22 @@ const Dashboard = () => {
                             </motion.div>
                           )}
 
+                          {/* Changes Tab */}
+                          {activeTab === 'changes' && (
+                            <motion.div
+                              key="tab-changes"
+                              initial={{ opacity: 0, y: 8 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              exit={{ opacity: 0, y: -8 }}
+                              transition={{ duration: 0.2 }}
+                            >
+                              <ChangeSummaryPanel
+                                analysis={analysis}
+                                showFallbackWhenEmpty
+                              />
+                            </motion.div>
+                          )}
+
                           {/* Research Tab */}
                           {activeTab === 'research' && (
                             <motion.div
@@ -285,7 +301,7 @@ const Dashboard = () => {
                       initial={{ opacity: 0, x: 12 }}
                       animate={{ opacity: 1, x: 0 }}
                       transition={{ duration: 0.4, ease: 'easeOut' }}
-                      className="hidden lg:block w-[280px] shrink-0 border-l border-white/5 p-4 space-y-4 overflow-y-auto"
+                      className="hidden lg:block w-[340px] shrink-0 border-l border-white/5 p-5 space-y-5 overflow-y-auto"
                     >
                       <Recommendation analysis={analysis} />
                       <MacroSnapshot analysis={analysis} />

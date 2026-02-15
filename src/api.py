@@ -311,10 +311,13 @@ async def export_analysis_csv(
         writer.writerow(["Summary", "Ticker", full["ticker"]])
         writer.writerow(["Summary", "Timestamp", full["timestamp"]])
         writer.writerow(["Summary", "Recommendation", full.get("recommendation", "")])
+        writer.writerow(["Summary", "Score", full.get("score", "")])
         writer.writerow(["Summary", "Confidence Score", full.get("confidence_score", "")])
         writer.writerow(["Summary", "Sentiment Score", full.get("overall_sentiment_score", "")])
         writer.writerow(["Summary", "Duration (s)", full.get("duration_seconds", "")])
         writer.writerow(["Summary", "Reasoning", full.get("solution_agent_reasoning", "")])
+        writer.writerow(["Summary", "Decision Card", json.dumps(full.get("decision_card")) if full.get("decision_card") else ""])
+        writer.writerow(["Summary", "Change Summary", json.dumps(full.get("change_summary")) if full.get("change_summary") else ""])
 
         # --- Section 2: Agent Results ---
         writer.writerow([])

@@ -87,21 +87,21 @@ const SocialBuzz = ({ analysis }) => {
       </div>
 
       {/* Metrics Row */}
-      <div className="grid grid-cols-3 gap-3 mb-4">
+      <div className="grid grid-cols-3 gap-4 mb-5">
         <div className="bg-dark-inset rounded-lg p-3 border border-white/5">
-          <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">Tweets</div>
+          <div className="text-[11px] text-gray-500 uppercase tracking-wider mb-1.5">Tweets</div>
           <div className="text-lg font-bold font-mono tabular-nums">{totalTweets}</div>
-          <div className="text-[10px] text-gray-500">7-day window</div>
+          <div className="text-[11px] text-gray-500">7-day window</div>
         </div>
         <div className="bg-dark-inset rounded-lg p-3 border border-white/5">
-          <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">Engagement</div>
+          <div className="text-[11px] text-gray-500 uppercase tracking-wider mb-1.5">Engagement</div>
           <div className="text-lg font-bold font-mono tabular-nums">{formatNumber(totalEngagement)}</div>
-          <div className="text-[10px] text-gray-500">total interactions</div>
+          <div className="text-[11px] text-gray-500">total interactions</div>
         </div>
         <div className="bg-dark-inset rounded-lg p-3 border border-white/5">
-          <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">Avg / Tweet</div>
+          <div className="text-[11px] text-gray-500 uppercase tracking-wider mb-1.5">Avg / Tweet</div>
           <div className="text-lg font-bold font-mono tabular-nums">{avgEngagement.toFixed(1)}</div>
-          <div className="text-[10px] text-gray-500">engagement</div>
+          <div className="text-[11px] text-gray-500">engagement</div>
         </div>
       </div>
 
@@ -149,17 +149,17 @@ const SocialBuzz = ({ analysis }) => {
             transition={{ duration: 0.25, ease: 'easeInOut' }}
             className="overflow-hidden"
           >
-            <div className="space-y-2 pt-2 max-h-[400px] overflow-y-auto pr-1">
+            <div className="space-y-3 pt-2 max-h-[400px] overflow-y-auto pr-1">
               {topTweets.map((tweet, index) => (
                 <motion.div
                   key={tweet.id || index}
                   initial={{ opacity: 0, x: -8 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ duration: 0.2, delay: index * 0.04 }}
-                  className="p-3 bg-dark-inset rounded-lg border border-white/5 hover:border-white/10 transition-all group"
+                  className="p-3.5 bg-dark-inset rounded-lg border border-white/5 hover:border-white/10 transition-all group"
                 >
                   {/* Tweet text */}
-                  <div className="text-xs text-gray-300 leading-relaxed mb-2 line-clamp-3">
+                  <div className="text-[13px] text-gray-300 leading-relaxed mb-2.5 line-clamp-3">
                     {tweet.url ? (
                       <a
                         href={tweet.url}
@@ -175,7 +175,7 @@ const SocialBuzz = ({ analysis }) => {
                   </div>
 
                   {/* Metrics row */}
-                  <div className="flex items-center space-x-4 text-[10px] text-gray-500">
+                  <div className="flex items-center space-x-5 text-[11px] text-gray-500">
                     <span className="flex items-center space-x-1 group-hover:text-danger-400 transition-colors">
                       <HeartIcon className="w-3 h-3" />
                       <span className="font-mono">{tweet.metrics?.likes || 0}</span>

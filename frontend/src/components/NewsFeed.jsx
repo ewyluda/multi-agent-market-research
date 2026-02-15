@@ -84,13 +84,13 @@ const NewsFeed = ({ analysis }) => {
         </span>
       </div>
 
-      <div className="space-y-2">
+      <div className="space-y-3">
         {sortedArticles.map((article, index) => (
           <div
             key={index}
-            className={`p-3 bg-dark-inset rounded-lg border-l-2 ${getSentimentBorderColor(article)} hover:bg-dark-card-hover hover:shadow-lg hover:shadow-black/20 hover:-translate-y-px transition-all duration-200`}
+            className={`p-4 bg-dark-inset rounded-lg border-l-2 ${getSentimentBorderColor(article)} hover:bg-dark-card-hover hover:shadow-lg hover:shadow-black/20 hover:-translate-y-px transition-all duration-200`}
           >
-            <h4 className="text-xs font-medium leading-relaxed mb-1.5">
+            <h4 className="text-[13px] font-medium leading-relaxed mb-2">
               {article.url ? (
                 <a
                   href={article.url}
@@ -105,7 +105,7 @@ const NewsFeed = ({ analysis }) => {
               )}
             </h4>
 
-            <div className="flex items-center flex-wrap gap-1.5 text-[10px]">
+            <div className="flex items-center flex-wrap gap-2 text-[11px]">
               {article.source && (
                 <span className="px-2 py-0.5 rounded-full bg-gray-700/50 text-gray-400 font-medium">
                   {article.source}
@@ -145,7 +145,7 @@ const NewsFeed = ({ analysis }) => {
             </div>
 
             {article.description && (
-              <p className="mt-1.5 text-[11px] text-gray-400 line-clamp-2 leading-relaxed">
+              <p className="mt-2 text-xs text-gray-400 line-clamp-2 leading-relaxed">
                 {article.description}
               </p>
             )}

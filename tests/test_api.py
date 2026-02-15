@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, patch, MagicMock
 import pytest
 from fastapi.testclient import TestClient
 
-from src.api import app
+from src.api import app, db_manager
 
 
 @pytest.fixture
@@ -135,6 +135,31 @@ class TestGetAnalysisHistory:
         data = response.json()
         assert "analyses" in data
         assert "total_count" in data
+
+    def test_history_exposes_decision_and_change_fields(self, client):
+        """History response includes decision_card/change_summary when present."""
+        ticker = "ZZPH1"
+        aid = db_manager.insert_analysis(
+            ticker=ticker,
+            recommendation="BUY",
+            confidence_score=0.74,
+            overall_sentiment_score=0.2,
+            solution_agent_reasoning="Test reasoning.",
+            duration_seconds=4.1,
+            score=55,
+            decision_card={"action": "buy", "targets": [120]},
+            change_summary={"summary": "Recommendation changed", "material_changes": [{"type": "recommendation_change"}]},
+            analysis_payload={"recommendation": "BUY", "score": 55, "confidence": 0.74},
+        )
+        try:
+            response = client.get(f"/api/analysis/{ticker}/history?limit=1")
+            assert response.status_code == 200
+            item = response.json()["analyses"][0]
+            assert item["score"] == 55
+            assert item["decision_card"]["action"] == "buy"
+            assert item["change_summary"]["summary"] == "Recommendation changed"
+        finally:
+            db_manager.delete_analysis(aid)
 
 
 class TestExportCSV:

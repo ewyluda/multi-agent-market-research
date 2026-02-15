@@ -71,14 +71,14 @@ const SentimentReport = ({ analysis }) => {
       <div className="p-4 bg-dark-inset rounded-lg">
         <div className="flex items-start justify-between mb-2">
           <div>
-            <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">Overall Sentiment</div>
+            <div className="text-[11px] text-gray-500 uppercase tracking-wider mb-1">Overall Sentiment</div>
             <div className={`text-2xl font-bold ${getSentimentColor(overallSentiment)}`}>
               {getSentimentLabel(overallSentiment)}
               <span className="text-sm font-mono ml-1.5 opacity-60">{overallSentiment.toFixed(2)}</span>
             </div>
           </div>
           <div className="text-right">
-            <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">Confidence</div>
+            <div className="text-[11px] text-gray-500 uppercase tracking-wider mb-1">Confidence</div>
             <div className="text-2xl font-bold font-mono">{(confidence * 100).toFixed(0)}%</div>
           </div>
         </div>
@@ -114,7 +114,7 @@ const SentimentReport = ({ analysis }) => {
       {/* Reasoning */}
       {sentimentData.reasoning && (
         <div className="mt-3 p-4 bg-dark-inset rounded-lg">
-          <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-2">Analysis</div>
+          <div className="text-[11px] text-gray-500 uppercase tracking-wider mb-2">Analysis</div>
           <div className="text-sm text-gray-300 leading-relaxed">{sentimentData.reasoning}</div>
         </div>
       )}
@@ -122,12 +122,12 @@ const SentimentReport = ({ analysis }) => {
       {/* Key Themes */}
       {sentimentData.key_themes && sentimentData.key_themes.length > 0 && (
         <div className="mt-3 p-4 bg-dark-inset rounded-lg">
-          <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-2">Key Themes</div>
-          <div className="flex flex-wrap gap-1.5">
+          <div className="text-[11px] text-gray-500 uppercase tracking-wider mb-2">Key Themes</div>
+          <div className="flex flex-wrap gap-2">
             {sentimentData.key_themes.map((theme, index) => (
               <span
                 key={index}
-                className="px-2.5 py-1 bg-accent-purple/10 border border-accent-purple/20 rounded-md text-[10px] text-accent-purple font-medium transition-colors duration-200 hover:bg-accent-purple/20 hover:border-accent-purple/30"
+                className="px-2.5 py-1.5 bg-accent-purple/10 border border-accent-purple/20 rounded-md text-[11px] text-accent-purple font-medium transition-colors duration-200 hover:bg-accent-purple/20 hover:border-accent-purple/30"
               >
                 {theme}
               </span>
@@ -140,7 +140,7 @@ const SentimentReport = ({ analysis }) => {
       {hasFactors && (
         <div className="mt-3 p-4 bg-dark-inset rounded-lg">
           <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-3">Sentiment by Factor</div>
-          <div className="space-y-2">
+          <div className="space-y-3">
             {Object.entries(factors).map(([factorName, factorData], index) => {
               const score = factorData.score || 0;
               const weight = factorData.weight || 0;
@@ -149,7 +149,7 @@ const SentimentReport = ({ analysis }) => {
               const barLeft = score < 0 ? 50 - barWidth : 50;
 
               return (
-                <div key={factorName} className="p-3 bg-white/[0.02] rounded-lg">
+                <div key={factorName} className="p-3.5 bg-white/[0.02] rounded-lg">
                   <div className="flex justify-between items-center mb-2">
                     <div className="font-medium text-xs capitalize">
                       {factorName.replace(/_/g, ' ')}
@@ -176,7 +176,7 @@ const SentimentReport = ({ analysis }) => {
                     <div className="absolute left-1/2 top-0 w-px h-full bg-gray-500/50" />
                   </div>
 
-                  <div className="mt-1.5 text-[10px] text-gray-500 font-mono">
+                  <div className="mt-2 text-[11px] text-gray-500 font-mono">
                     Contribution: <span className={getSentimentColor(contribution)}>{contribution > 0 ? '+' : ''}{contribution.toFixed(3)}</span>
                   </div>
                 </div>

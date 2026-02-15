@@ -45,6 +45,10 @@ class FinalAnalysis(BaseModel):
     price_targets: Optional[PriceTargets] = None
     position_size: Optional[str] = None  # SMALL, MEDIUM, LARGE
     time_horizon: Optional[str] = None  # SHORT_TERM, MEDIUM_TERM, LONG_TERM
+    decision_card: Optional[Dict[str, Any]] = None
+    changes_since_last_run: Optional[Dict[str, Any]] = None
+    change_summary: Optional[Dict[str, Any]] = None
+    signal_snapshot: Optional[Dict[str, Any]] = None
     summary: str
 
 
@@ -65,8 +69,11 @@ class AnalysisHistoryItem(BaseModel):
     ticker: str
     timestamp: str
     recommendation: str
+    score: Optional[float] = None
     confidence_score: float
     overall_sentiment_score: float
+    decision_card: Optional[Dict[str, Any]] = None
+    change_summary: Optional[Dict[str, Any]] = None
     duration_seconds: float
 
 

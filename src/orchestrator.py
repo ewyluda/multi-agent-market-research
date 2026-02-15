@@ -178,6 +178,11 @@ class Orchestrator:
             await self._notify_progress("synthesizing", ticker, 80)
 
             final_analysis = await self._run_solution_agent(ticker, agent_results)
+            previous_analysis = self.db_manager.get_latest_analysis(ticker)
+            final_analysis["signal_snapshot"] = self._build_signal_snapshot(final_analysis, agent_results)
+            change_summary = self._build_change_summary(previous_analysis, final_analysis)
+            final_analysis["changes_since_last_run"] = change_summary
+            final_analysis["change_summary"] = change_summary
 
             # Phase 3: Save to database
             await self._notify_progress("saving", ticker, 95)
@@ -410,7 +415,11 @@ class Orchestrator:
             confidence_score=final_analysis.get("confidence", 0.0),
             overall_sentiment_score=((agent_results.get("sentiment") or {}).get("data") or {}).get("overall_sentiment", 0.0),
             solution_agent_reasoning=final_analysis.get("reasoning", ""),
-            duration_seconds=duration
+            duration_seconds=duration,
+            score=final_analysis.get("score"),
+            decision_card=final_analysis.get("decision_card"),
+            change_summary=final_analysis.get("changes_since_last_run") or final_analysis.get("change_summary"),
+            analysis_payload=final_analysis,
         )
 
         # Insert agent results
@@ -444,6 +453,215 @@ class Orchestrator:
         self.logger.info(f"Saved analysis {analysis_id} for {ticker}")
 
         return analysis_id
+
+    def _safe_float(self, value: Any) -> Optional[float]:
+        """Convert value to float when possible."""
+        if value is None:
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    def _classify_market_regime(self, trend: Optional[str]) -> str:
+        """Normalize free-form trend text into a regime bucket."""
+        if not trend:
+            return "unknown"
+        t = str(trend).lower()
+        if any(keyword in t for keyword in ["uptrend", "bull", "rally"]):
+            return "bullish"
+        if any(keyword in t for keyword in ["downtrend", "bear", "selloff"]):
+            return "bearish"
+        return "neutral"
+
+    def _classify_sentiment_regime(self, sentiment_score: Optional[float]) -> str:
+        """Map sentiment score to bullish/neutral/bearish regime."""
+        score = self._safe_float(sentiment_score)
+        if score is None:
+            return "unknown"
+        if score >= 0.2:
+            return "bullish"
+        if score <= -0.2:
+            return "bearish"
+        return "neutral"
+
+    def _build_signal_snapshot(self, final_analysis: Dict[str, Any], agent_results: Dict[str, Any]) -> Dict[str, Any]:
+        """Capture high-signal fields so next runs can compute meaningful deltas."""
+        market_data = (agent_results.get("market") or {}).get("data") or {}
+        fundamentals_data = (agent_results.get("fundamentals") or {}).get("data") or {}
+        technical_data = (agent_results.get("technical") or {}).get("data") or {}
+        macro_data = (agent_results.get("macro") or {}).get("data") or {}
+        options_data = (agent_results.get("options") or {}).get("data") or {}
+        sentiment_data = (agent_results.get("sentiment") or {}).get("data") or {}
+
+        market_trend = market_data.get("trend")
+        sentiment_score = self._safe_float(sentiment_data.get("overall_sentiment"))
+
+        return {
+            "recommendation": final_analysis.get("recommendation"),
+            "score": self._safe_float(final_analysis.get("score")),
+            "confidence": self._safe_float(final_analysis.get("confidence")),
+            "market_trend": market_trend,
+            "market_regime": self._classify_market_regime(market_trend),
+            "fundamentals_health_score": self._safe_float(fundamentals_data.get("health_score")),
+            "technical_signal": (technical_data.get("signals") or {}).get("overall"),
+            "technical_strength": self._safe_float((technical_data.get("signals") or {}).get("strength")),
+            "sentiment_score": sentiment_score,
+            "sentiment_regime": self._classify_sentiment_regime(sentiment_score),
+            "options_signal": options_data.get("overall_signal"),
+            "options_put_call_ratio": self._safe_float(options_data.get("put_call_ratio")),
+            "macro_risk_environment": macro_data.get("risk_environment"),
+            "macro_cycle": macro_data.get("economic_cycle"),
+        }
+
+    def _build_change_summary(
+        self,
+        previous_analysis: Optional[Dict[str, Any]],
+        current_analysis: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Compute material run-to-run deltas for user-facing actionability."""
+        if not previous_analysis:
+            return {
+                "has_previous": False,
+                "summary": "No previous analysis to compare against yet.",
+                "material_changes": [],
+                "change_count": 0,
+            }
+
+        prev_payload = previous_analysis.get("analysis") or previous_analysis.get("analysis_payload") or {}
+        curr_payload = current_analysis or {}
+
+        prev_snapshot = prev_payload.get("signal_snapshot") or {}
+        curr_snapshot = curr_payload.get("signal_snapshot") or {}
+        changes: List[Dict[str, Any]] = []
+
+        def add_change(change_type: str, label: str, previous: Any, current: Any, impact: str = "medium"):
+            if previous == current:
+                return
+            changes.append({
+                "type": change_type,
+                "label": label,
+                "previous": previous,
+                "current": current,
+                "impact": impact,
+            })
+
+        prev_rec = prev_payload.get("recommendation") or previous_analysis.get("recommendation")
+        curr_rec = curr_payload.get("recommendation")
+        if prev_rec and curr_rec and prev_rec != curr_rec:
+            add_change(
+                "recommendation_change",
+                f"Recommendation changed from {prev_rec} to {curr_rec}",
+                prev_rec,
+                curr_rec,
+                impact="high",
+            )
+
+        prev_score = self._safe_float(prev_payload.get("score", previous_analysis.get("score")))
+        curr_score = self._safe_float(curr_payload.get("score"))
+        if prev_score is not None and curr_score is not None and abs(curr_score - prev_score) >= 15:
+            add_change(
+                "score_shift",
+                f"Score moved from {prev_score:+.0f} to {curr_score:+.0f}",
+                prev_score,
+                curr_score,
+                impact="high" if abs(curr_score - prev_score) >= 25 else "medium",
+            )
+
+        prev_conf = self._safe_float(prev_payload.get("confidence", previous_analysis.get("confidence_score")))
+        curr_conf = self._safe_float(curr_payload.get("confidence"))
+        if prev_conf is not None and curr_conf is not None and abs(curr_conf - prev_conf) >= 0.10:
+            add_change(
+                "confidence_shift",
+                f"Confidence moved from {prev_conf:.0%} to {curr_conf:.0%}",
+                prev_conf,
+                curr_conf,
+                impact="medium",
+            )
+
+        prev_market_regime = prev_snapshot.get("market_regime") or self._classify_market_regime(prev_snapshot.get("market_trend"))
+        curr_market_regime = curr_snapshot.get("market_regime") or self._classify_market_regime(curr_snapshot.get("market_trend"))
+        if prev_market_regime != "unknown" and curr_market_regime != "unknown" and prev_market_regime != curr_market_regime:
+            add_change(
+                "market_regime_flip",
+                f"Market trend regime flipped from {prev_market_regime} to {curr_market_regime}",
+                prev_market_regime,
+                curr_market_regime,
+                impact="high",
+            )
+
+        prev_sent_regime = prev_snapshot.get("sentiment_regime") or self._classify_sentiment_regime(prev_snapshot.get("sentiment_score"))
+        curr_sent_regime = curr_snapshot.get("sentiment_regime") or self._classify_sentiment_regime(curr_snapshot.get("sentiment_score"))
+        if prev_sent_regime != "unknown" and curr_sent_regime != "unknown" and prev_sent_regime != curr_sent_regime:
+            add_change(
+                "sentiment_regime_flip",
+                f"Sentiment regime shifted from {prev_sent_regime} to {curr_sent_regime}",
+                prev_sent_regime,
+                curr_sent_regime,
+                impact="high",
+            )
+
+        prev_health = self._safe_float(prev_snapshot.get("fundamentals_health_score"))
+        curr_health = self._safe_float(curr_snapshot.get("fundamentals_health_score"))
+        if prev_health is not None and curr_health is not None and abs(curr_health - prev_health) >= 10:
+            add_change(
+                "fundamentals_shift",
+                f"Fundamentals health score moved from {prev_health:.0f} to {curr_health:.0f}",
+                prev_health,
+                curr_health,
+                impact="medium",
+            )
+
+        prev_options_signal = prev_snapshot.get("options_signal")
+        curr_options_signal = curr_snapshot.get("options_signal")
+        if prev_options_signal and curr_options_signal and prev_options_signal != curr_options_signal:
+            add_change(
+                "options_signal_change",
+                f"Options signal changed from {prev_options_signal} to {curr_options_signal}",
+                prev_options_signal,
+                curr_options_signal,
+                impact="medium",
+            )
+
+        prev_put_call = self._safe_float(prev_snapshot.get("options_put_call_ratio"))
+        curr_put_call = self._safe_float(curr_snapshot.get("options_put_call_ratio"))
+        if prev_put_call is not None and curr_put_call is not None and abs(curr_put_call - prev_put_call) >= 0.20:
+            add_change(
+                "options_skew_shift",
+                f"Put/Call ratio moved from {prev_put_call:.2f} to {curr_put_call:.2f}",
+                prev_put_call,
+                curr_put_call,
+                impact="medium",
+            )
+
+        prev_macro = prev_snapshot.get("macro_risk_environment")
+        curr_macro = curr_snapshot.get("macro_risk_environment")
+        if prev_macro and curr_macro and prev_macro != curr_macro:
+            add_change(
+                "macro_regime_change",
+                f"Macro risk environment shifted from {prev_macro} to {curr_macro}",
+                prev_macro,
+                curr_macro,
+                impact="high",
+            )
+
+        # Keep output concise by default.
+        changes = changes[:6]
+        if changes:
+            summary = "; ".join(change["label"] for change in changes[:3])
+            if len(changes) > 3:
+                summary += f"; and {len(changes) - 3} more change(s)"
+        else:
+            summary = "No material signal changes versus the previous run."
+
+        return {
+            "has_previous": True,
+            "summary": summary,
+            "material_changes": changes,
+            "change_count": len(changes),
+            "compared_to_analysis_id": previous_analysis.get("id"),
+            "compared_to_timestamp": previous_analysis.get("timestamp"),
+        }
 
     async def _notify_progress(
         self,

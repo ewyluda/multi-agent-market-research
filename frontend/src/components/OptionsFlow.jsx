@@ -112,38 +112,38 @@ const OptionsFlow = ({ analysis }) => {
       </div>
 
       {/* Key Metrics */}
-      <div className="grid grid-cols-3 gap-3 mb-4">
+      <div className="grid grid-cols-3 gap-4 mb-5">
         {/* P/C Volume Ratio */}
-        <div className="bg-dark-inset rounded-lg p-3 border border-white/5">
-          <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">P/C Vol Ratio</div>
+        <div className="bg-dark-inset rounded-lg p-4 border border-white/5">
+          <div className="text-[11px] text-gray-500 uppercase tracking-wider mb-1.5">P/C Vol Ratio</div>
           <div className="text-lg font-bold font-mono tabular-nums">
             {pcRatio != null ? pcRatio.toFixed(2) : 'N/A'}
           </div>
-          <div className={`text-[10px] ${pcRatio > 1 ? 'text-danger-400' : pcRatio < 0.7 ? 'text-success-400' : 'text-warning-400'}`}>
+          <div className={`text-[11px] ${pcRatio > 1 ? 'text-danger-400' : pcRatio < 0.7 ? 'text-success-400' : 'text-warning-400'}`}>
             {getPcLabel(pcRatio)}
           </div>
           <PcRatioBar ratio={pcRatio} />
         </div>
 
         {/* P/C OI Ratio */}
-        <div className="bg-dark-inset rounded-lg p-3 border border-white/5">
-          <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">P/C OI Ratio</div>
+        <div className="bg-dark-inset rounded-lg p-4 border border-white/5">
+          <div className="text-[11px] text-gray-500 uppercase tracking-wider mb-1.5">P/C OI Ratio</div>
           <div className="text-lg font-bold font-mono tabular-nums">
             {pcOiRatio != null ? pcOiRatio.toFixed(2) : 'N/A'}
           </div>
-          <div className={`text-[10px] ${pcOiRatio > 1 ? 'text-danger-400' : pcOiRatio < 0.7 ? 'text-success-400' : 'text-warning-400'}`}>
+          <div className={`text-[11px] ${pcOiRatio > 1 ? 'text-danger-400' : pcOiRatio < 0.7 ? 'text-success-400' : 'text-warning-400'}`}>
             {getPcLabel(pcOiRatio)}
           </div>
           <PcRatioBar ratio={pcOiRatio} />
         </div>
 
         {/* Max Pain */}
-        <div className="bg-dark-inset rounded-lg p-3 border border-white/5">
-          <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">Max Pain</div>
+        <div className="bg-dark-inset rounded-lg p-4 border border-white/5">
+          <div className="text-[11px] text-gray-500 uppercase tracking-wider mb-1.5">Max Pain</div>
           <div className="text-lg font-bold font-mono tabular-nums">
             {maxPain != null ? `$${maxPain.toFixed(2)}` : 'N/A'}
           </div>
-          <div className="text-[10px] text-gray-500 font-mono">
+          <div className="text-[11px] text-gray-500 font-mono">
             {optionsData.total_contracts?.toLocaleString()} contracts
           </div>
         </div>
@@ -152,12 +152,12 @@ const OptionsFlow = ({ analysis }) => {
       {/* Unusual Activity */}
       {unusualActivity.length > 0 && (
         <div className="mb-4 pt-4 border-t border-white/5">
-          <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-2">Unusual Activity</div>
-          <div className="space-y-1.5">
+          <div className="text-[11px] text-gray-500 uppercase tracking-wider mb-2.5">Unusual Activity</div>
+          <div className="space-y-2.5">
             {unusualActivity.slice(0, 5).map((item, i) => (
               <div
                 key={i}
-                className="flex items-center justify-between px-3 py-2 bg-dark-inset rounded-lg border border-white/5 text-xs"
+                className="flex items-center justify-between px-3.5 py-2.5 bg-dark-inset rounded-lg border border-white/5 text-xs"
               >
                 <div className="flex items-center space-x-2">
                   {item.type === 'call' ? (
@@ -171,7 +171,7 @@ const OptionsFlow = ({ analysis }) => {
                   <span className="text-gray-300 font-mono">${item.strike}</span>
                   <span className="text-gray-500">{item.expiration}</span>
                 </div>
-                <div className="flex items-center space-x-3 font-mono tabular-nums">
+                <div className="flex items-center space-x-4 font-mono tabular-nums">
                   <span className="text-gray-400">Vol: {item.volume.toLocaleString()}</span>
                   <span className="text-gray-500">OI: {item.open_interest.toLocaleString()}</span>
                   <span className="text-warning-400 font-semibold">{item.vol_oi_ratio}x</span>
@@ -185,10 +185,10 @@ const OptionsFlow = ({ analysis }) => {
       {/* High IV Contracts */}
       {highestIv.length > 0 && (
         <div className="pt-4 border-t border-white/5">
-          <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-2">Highest Implied Volatility</div>
-          <div className="flex flex-wrap gap-2">
+          <div className="text-[11px] text-gray-500 uppercase tracking-wider mb-2.5">Highest Implied Volatility</div>
+          <div className="flex flex-wrap gap-2.5">
             {highestIv.slice(0, 5).map((c, i) => (
-              <div key={i} className="px-2.5 py-1.5 bg-dark-inset rounded-md border border-white/5 text-[11px]">
+              <div key={i} className="px-3 py-2 bg-dark-inset rounded-md border border-white/5 text-xs">
                 <span className={`font-semibold ${c.type === 'call' ? 'text-success-400' : 'text-danger-400'}`}>
                   {c.type?.toUpperCase()}
                 </span>

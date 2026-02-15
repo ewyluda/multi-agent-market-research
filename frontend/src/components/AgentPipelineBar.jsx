@@ -209,7 +209,7 @@ const AgentPipelineBar = () => {
             className="overflow-hidden"
           >
             <motion.div
-              className="flex items-center justify-between gap-1 pt-3"
+              className="flex items-center justify-between gap-2 pt-3"
               variants={containerVariants}
               initial="hidden"
               animate="visible"
@@ -227,7 +227,7 @@ const AgentPipelineBar = () => {
                   >
                     {/* Icon + status */}
                     <div
-                      className={`relative flex items-center justify-center w-8 h-8 rounded-lg transition-all ${
+                      className={`relative flex items-center justify-center w-9 h-9 rounded-lg transition-all ${
                         status === 'running'
                           ? 'bg-primary/10 ring-1 ring-primary/20'
                           : 'hover:bg-white/[0.03]'
@@ -245,7 +245,7 @@ const AgentPipelineBar = () => {
 
                     {/* Label */}
                     <span
-                      className={`text-[9px] font-medium tracking-wide ${
+                      className={`text-[10px] font-medium tracking-wide ${
                         status === 'running'
                           ? 'text-primary-400'
                           : status === 'success'
