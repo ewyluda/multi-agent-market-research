@@ -143,6 +143,62 @@ export const deleteSchedule = async (scheduleId) => {
   return response.data;
 };
 
+// ─── Portfolio API ────────────────────────────────────────────────────
+
+export const getPortfolio = async () => {
+  const response = await api.get('/api/portfolio');
+  return response.data;
+};
+
+export const updatePortfolioProfile = async (updates) => {
+  const response = await api.put('/api/portfolio/profile', updates);
+  return response.data;
+};
+
+export const getPortfolioHoldings = async () => {
+  const response = await api.get('/api/portfolio/holdings');
+  return response.data;
+};
+
+export const createPortfolioHolding = async (holding) => {
+  const response = await api.post('/api/portfolio/holdings', holding);
+  return response.data;
+};
+
+export const updatePortfolioHolding = async (holdingId, updates) => {
+  const response = await api.put(`/api/portfolio/holdings/${holdingId}`, updates);
+  return response.data;
+};
+
+export const deletePortfolioHolding = async (holdingId) => {
+  const response = await api.delete(`/api/portfolio/holdings/${holdingId}`);
+  return response.data;
+};
+
+// ─── Macro / Calibration API ──────────────────────────────────────────
+
+export const getMacroEvents = async ({ from, to } = {}) => {
+  const params = {};
+  if (from) params.from = from;
+  if (to) params.to = to;
+  const response = await api.get('/api/macro-events', { params });
+  return response.data;
+};
+
+export const getCalibrationSummary = async (windowDays = 180) => {
+  const response = await api.get('/api/calibration/summary', {
+    params: { window_days: windowDays },
+  });
+  return response.data;
+};
+
+export const getTickerCalibration = async (ticker, limit = 100) => {
+  const response = await api.get(`/api/calibration/ticker/${ticker}`, {
+    params: { limit },
+  });
+  return response.data;
+};
+
 // ─── Watchlist API ───────────────────────────────────────────────────
 
 /**

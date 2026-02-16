@@ -35,6 +35,24 @@ class Config:
     OPTIONS_AGENT_ENABLED = os.getenv("OPTIONS_AGENT_ENABLED", "true").lower() == "true"
     SCHEDULER_ENABLED = os.getenv("SCHEDULER_ENABLED", "true").lower() == "true"
     SCHEDULER_MIN_INTERVAL = int(os.getenv("SCHEDULER_MIN_INTERVAL", "30"))
+    CATALYST_SCHEDULER_ENABLED = os.getenv("CATALYST_SCHEDULER_ENABLED", "true").lower() == "true"
+    CATALYST_SOURCE = os.getenv("CATALYST_SOURCE", "earnings").split("#")[0].strip().lower()
+    CATALYST_PRE_DAYS = int(os.getenv("CATALYST_PRE_DAYS", "1"))
+    CATALYST_POST_DAYS = int(os.getenv("CATALYST_POST_DAYS", "1"))
+    CATALYST_SCAN_INTERVAL_MINUTES = int(os.getenv("CATALYST_SCAN_INTERVAL_MINUTES", "60"))
+    PORTFOLIO_ACTIONS_ENABLED = os.getenv("PORTFOLIO_ACTIONS_ENABLED", "true").lower() == "true"
+    MACRO_CATALYSTS_ENABLED = os.getenv("MACRO_CATALYSTS_ENABLED", "true").lower() == "true"
+    MACRO_CATALYST_PRE_DAYS = int(os.getenv("MACRO_CATALYST_PRE_DAYS", "1"))
+    MACRO_CATALYST_DAY_ENABLED = os.getenv("MACRO_CATALYST_DAY_ENABLED", "true").lower() == "true"
+    MACRO_CATALYST_EVENT_TYPES = [
+        event.strip().lower()
+        for event in os.getenv("MACRO_CATALYST_EVENT_TYPES", "fomc,cpi,nfp").split(",")
+        if event.strip()
+    ]
+    CALIBRATION_ENABLED = os.getenv("CALIBRATION_ENABLED", "true").lower() == "true"
+    CALIBRATION_TIMEZONE = os.getenv("CALIBRATION_TIMEZONE", "America/New_York").split("#")[0].strip()
+    CALIBRATION_CRON_HOUR = int(os.getenv("CALIBRATION_CRON_HOUR", "17"))
+    CALIBRATION_CRON_MINUTE = int(os.getenv("CALIBRATION_CRON_MINUTE", "30"))
     ALERTS_ENABLED = os.getenv("ALERTS_ENABLED", "true").lower() == "true"
     PARALLEL_AGENTS = os.getenv("PARALLEL_AGENTS", "true").lower() == "true"
 

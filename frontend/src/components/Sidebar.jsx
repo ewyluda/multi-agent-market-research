@@ -15,6 +15,7 @@ import {
   PulseIcon,
   HistoryIcon,
   ChartBarIcon,
+  BuildingIcon,
   ClockIcon,
   BellIcon,
 } from './Icons';
@@ -24,6 +25,7 @@ const NAV_ITEMS = [
   { key: 'analysis',  label: 'Analysis',  Icon: PulseIcon   },
   { key: 'history',   label: 'History',   Icon: HistoryIcon  },
   { key: 'watchlist',  label: 'Watchlist',  Icon: ChartBarIcon },
+  { key: 'portfolio', label: 'Portfolio', Icon: BuildingIcon },
   { key: 'schedules', label: 'Schedules', Icon: ClockIcon    },
   { key: 'alerts',    label: 'Alerts',    Icon: BellIcon     },
 ];

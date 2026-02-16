@@ -222,7 +222,13 @@ Respond in JSON format:
     "stop_loss": <stop loss price>
   }},
   "position_size": "<SMALL|MEDIUM|LARGE>",
-  "time_horizon": "<SHORT_TERM|MEDIUM_TERM|LONG_TERM>"
+  "time_horizon": "<SHORT_TERM|MEDIUM_TERM|LONG_TERM>",
+  "scenarios": {{
+    "bull": {{"probability": <0..1>, "expected_return_pct": <number|null>, "thesis": "<short thesis>"}},
+    "base": {{"probability": <0..1>, "expected_return_pct": <number|null>, "thesis": "<short thesis>"}},
+    "bear": {{"probability": <0..1>, "expected_return_pct": <number|null>, "thesis": "<short thesis>"}}
+  }},
+  "scenario_summary": "<one sentence summary of scenario mix>"
 }}"""
 
         try:
@@ -417,7 +423,13 @@ Respond in JSON format:
     "stop_loss": <stop loss price>
   }},
   "position_size": "<SMALL|MEDIUM|LARGE>",
-  "time_horizon": "<SHORT_TERM|MEDIUM_TERM|LONG_TERM>"
+  "time_horizon": "<SHORT_TERM|MEDIUM_TERM|LONG_TERM>",
+  "scenarios": {{
+    "bull": {{"probability": <0..1>, "expected_return_pct": <number|null>, "thesis": "<short thesis>"}},
+    "base": {{"probability": <0..1>, "expected_return_pct": <number|null>, "thesis": "<short thesis>"}},
+    "bear": {{"probability": <0..1>, "expected_return_pct": <number|null>, "thesis": "<short thesis>"}}
+  }},
+  "scenario_summary": "<one sentence summary of scenario mix>"
 }}"""
 
         try:
@@ -618,6 +630,102 @@ Respond in JSON format:
         merged.setdefault("invalidation_conditions", invalidation_conditions)
         return merged
 
+    def _default_scenarios(self, recommendation: str, score: int) -> Dict[str, Dict[str, Any]]:
+        """Generate baseline scenarios when the model response omits/invalidates them."""
+        rec = str(recommendation or "HOLD").upper()
+        score_val = self._to_float(score) or 0.0
+
+        if rec == "BUY":
+            probs = {"bull": 0.45, "base": 0.35, "bear": 0.20}
+            base_return = max(2.0, round(score_val * 0.15, 2))
+        elif rec == "SELL":
+            probs = {"bull": 0.20, "base": 0.35, "bear": 0.45}
+            base_return = min(-2.0, round(score_val * 0.15, 2))
+        else:
+            probs = {"bull": 0.30, "base": 0.45, "bear": 0.25}
+            base_return = round(score_val * 0.08, 2)
+
+        bull_return = round(base_return + 8.0, 2)
+        bear_return = round(base_return - 10.0, 2)
+
+        return {
+            "bull": {
+                "probability": probs["bull"],
+                "expected_return_pct": bull_return,
+                "thesis": "Upside catalysts exceed expectations and momentum broadens.",
+            },
+            "base": {
+                "probability": probs["base"],
+                "expected_return_pct": base_return,
+                "thesis": "Current trend continues with mixed positive and negative signals.",
+            },
+            "bear": {
+                "probability": probs["bear"],
+                "expected_return_pct": bear_return,
+                "thesis": "Downside risks dominate and execution or macro pressure increases.",
+            },
+        }
+
+    def _build_scenario_summary(self, scenarios: Dict[str, Dict[str, Any]]) -> str:
+        """Create one-line scenario framing for UI fallback display."""
+        labels = [("bull", "Bull"), ("base", "Base"), ("bear", "Bear")]
+        parts = []
+        for key, label in labels:
+            block = scenarios.get(key, {})
+            probability = self._to_float(block.get("probability"))
+            expected_return = self._to_float(block.get("expected_return_pct"))
+
+            prob_text = f"{(probability or 0.0) * 100:.0f}%"
+            ret_text = "n/a" if expected_return is None else f"{expected_return:+.1f}%"
+            parts.append(f"{label} {prob_text} ({ret_text})")
+
+        return "; ".join(parts) + "."
+
+    def _normalize_scenarios(self, result: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+        """Normalize bull/base/bear scenario structure and probabilities."""
+        scenario_order = ["bull", "base", "bear"]
+        defaults = self._default_scenarios(result.get("recommendation"), result.get("score"))
+        raw_scenarios = result.get("scenarios") if isinstance(result.get("scenarios"), dict) else {}
+
+        normalized: Dict[str, Dict[str, Any]] = {}
+        probabilities = []
+        for scenario_name in scenario_order:
+            default_block = defaults[scenario_name]
+            raw_block = raw_scenarios.get(scenario_name) if isinstance(raw_scenarios.get(scenario_name), dict) else {}
+
+            probability = self._to_float(raw_block.get("probability"))
+            if probability is None:
+                probability = default_block["probability"]
+            probability = max(0.0, min(1.0, float(probability)))
+            probabilities.append(probability)
+
+            expected_return = self._to_float(raw_block.get("expected_return_pct"))
+            if expected_return is not None:
+                expected_return = round(expected_return, 2)
+
+            thesis = raw_block.get("thesis")
+            if not isinstance(thesis, str) or not thesis.strip():
+                thesis = default_block["thesis"]
+
+            normalized[scenario_name] = {
+                "probability": probability,
+                "expected_return_pct": expected_return,
+                "thesis": thesis.strip(),
+            }
+
+        total_probability = sum(probabilities)
+        if total_probability <= 0:
+            normalized = defaults
+            total_probability = 1.0
+
+        # Renormalize to target a total of 1.0 (float tolerance naturally <= 0.01).
+        for scenario_name in scenario_order:
+            normalized[scenario_name]["probability"] = (
+                normalized[scenario_name]["probability"] / total_probability
+            )
+
+        return normalized
+
     def _normalize_synthesis_result(self, result: Dict[str, Any], market_data: Dict[str, Any]) -> Dict[str, Any]:
         """Normalize synthesis payload so downstream systems get a stable schema."""
         normalized = dict(result)
@@ -639,6 +747,14 @@ Respond in JSON format:
             normalized["opportunities"] = []
         if not isinstance(normalized.get("price_targets"), dict):
             normalized["price_targets"] = {}
+
+        scenarios = self._normalize_scenarios(normalized)
+        normalized["scenarios"] = scenarios
+
+        scenario_summary = normalized.get("scenario_summary")
+        if not isinstance(scenario_summary, str) or not scenario_summary.strip():
+            scenario_summary = self._build_scenario_summary(scenarios)
+        normalized["scenario_summary"] = scenario_summary.strip()
 
         normalized["decision_card"] = self._build_decision_card(normalized, market_data)
         normalized["summary"] = self._generate_summary(normalized)

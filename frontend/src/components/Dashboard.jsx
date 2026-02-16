@@ -15,6 +15,8 @@ import Recommendation from './Recommendation';
 import SentimentReport from './SentimentReport';
 import PriceChart from './PriceChart';
 import { OverviewMetrics, ResearchContent, ChangeSummaryPanel } from './Summary';
+import ScenarioPanel from './ScenarioPanel';
+import DiagnosticsPanel from './DiagnosticsPanel';
 import NewsFeed from './NewsFeed';
 import SocialBuzz from './SocialBuzz';
 import OptionsFlow from './OptionsFlow';
@@ -23,6 +25,7 @@ import HistoryDashboard from './HistoryDashboard';
 import WatchlistPanel from './WatchlistPanel';
 import SchedulePanel from './SchedulePanel';
 import AlertPanel from './AlertPanel';
+import PortfolioPanel from './PortfolioPanel';
 import { PulseIcon, SparklesIcon, ChartBarIcon, LoadingSpinner } from './Icons';
 import { getUnacknowledgedCount } from '../utils/api';
 
@@ -30,6 +33,7 @@ const VIEW_MODES = {
   ANALYSIS: 'analysis',
   HISTORY: 'history',
   WATCHLIST: 'watchlist',
+  PORTFOLIO: 'portfolio',
   SCHEDULES: 'schedules',
   ALERTS: 'alerts',
 };
@@ -128,6 +132,14 @@ const Dashboard = () => {
         {viewMode === VIEW_MODES.SCHEDULES && (
           <div className="p-6">
             <SchedulePanel
+              onBack={() => setViewMode(VIEW_MODES.ANALYSIS)}
+            />
+          </div>
+        )}
+
+        {viewMode === VIEW_MODES.PORTFOLIO && (
+          <div className="p-6">
+            <PortfolioPanel
               onBack={() => setViewMode(VIEW_MODES.ANALYSIS)}
             />
           </div>
@@ -236,6 +248,32 @@ const Dashboard = () => {
                                 analysis={analysis}
                                 showFallbackWhenEmpty
                               />
+                            </motion.div>
+                          )}
+
+                          {/* Scenarios Tab */}
+                          {activeTab === 'scenarios' && (
+                            <motion.div
+                              key="tab-scenarios"
+                              initial={{ opacity: 0, y: 8 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              exit={{ opacity: 0, y: -8 }}
+                              transition={{ duration: 0.2 }}
+                            >
+                              <ScenarioPanel analysis={analysis} />
+                            </motion.div>
+                          )}
+
+                          {/* Diagnostics Tab */}
+                          {activeTab === 'diagnostics' && (
+                            <motion.div
+                              key="tab-diagnostics"
+                              initial={{ opacity: 0, y: 8 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              exit={{ opacity: 0, y: -8 }}
+                              transition={{ duration: 0.2 }}
+                            >
+                              <DiagnosticsPanel analysis={analysis} />
                             </motion.div>
                           )}
 

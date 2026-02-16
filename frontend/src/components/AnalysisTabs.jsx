@@ -1,6 +1,6 @@
 /**
  * AnalysisTabs - Horizontal tab bar for the analysis content area
- * Tabs: Overview, Changes, Research, Sentiment, News, Options
+ * Tabs: Overview, Changes, Scenarios, Diagnostics, Research, Sentiment, News, Options
  * Uses framer-motion layoutId for smooth underline transitions
  */
 
@@ -10,6 +10,8 @@ import { motion } from 'framer-motion';
 const TABS = [
   { id: 'overview', label: 'Overview' },
   { id: 'changes', label: 'Changes' },
+  { id: 'scenarios', label: 'Scenarios' },
+  { id: 'diagnostics', label: 'Diagnostics' },
   { id: 'research', label: 'Research' },
   { id: 'sentiment', label: 'Sentiment' },
   { id: 'news', label: 'News' },

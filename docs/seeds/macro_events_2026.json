@@ -1,0 +1,38 @@
+{
+  "events": [
+    {"event_type": "fomc", "event_date": "2026-01-28", "event_label": "FOMC Decision", "source": "seeded", "enabled": true},
+    {"event_type": "fomc", "event_date": "2026-03-18", "event_label": "FOMC Decision", "source": "seeded", "enabled": true},
+    {"event_type": "fomc", "event_date": "2026-04-29", "event_label": "FOMC Decision", "source": "seeded", "enabled": true},
+    {"event_type": "fomc", "event_date": "2026-06-17", "event_label": "FOMC Decision", "source": "seeded", "enabled": true},
+    {"event_type": "fomc", "event_date": "2026-07-29", "event_label": "FOMC Decision", "source": "seeded", "enabled": true},
+    {"event_type": "fomc", "event_date": "2026-09-16", "event_label": "FOMC Decision", "source": "seeded", "enabled": true},
+    {"event_type": "fomc", "event_date": "2026-11-04", "event_label": "FOMC Decision", "source": "seeded", "enabled": true},
+    {"event_type": "fomc", "event_date": "2026-12-16", "event_label": "FOMC Decision", "source": "seeded", "enabled": true},
+
+    {"event_type": "cpi", "event_date": "2026-01-14", "event_label": "US CPI", "source": "seeded", "enabled": true},
+    {"event_type": "cpi", "event_date": "2026-02-11", "event_label": "US CPI", "source": "seeded", "enabled": true},
+    {"event_type": "cpi", "event_date": "2026-03-11", "event_label": "US CPI", "source": "seeded", "enabled": true},
+    {"event_type": "cpi", "event_date": "2026-04-10", "event_label": "US CPI", "source": "seeded", "enabled": true},
+    {"event_type": "cpi", "event_date": "2026-05-12", "event_label": "US CPI", "source": "seeded", "enabled": true},
+    {"event_type": "cpi", "event_date": "2026-06-10", "event_label": "US CPI", "source": "seeded", "enabled": true},
+    {"event_type": "cpi", "event_date": "2026-07-14", "event_label": "US CPI", "source": "seeded", "enabled": true},
+    {"event_type": "cpi", "event_date": "2026-08-12", "event_label": "US CPI", "source": "seeded", "enabled": true},
+    {"event_type": "cpi", "event_date": "2026-09-11", "event_label": "US CPI", "source": "seeded", "enabled": true},
+    {"event_type": "cpi", "event_date": "2026-10-14", "event_label": "US CPI", "source": "seeded", "enabled": true},
+    {"event_type": "cpi", "event_date": "2026-11-12", "event_label": "US CPI", "source": "seeded", "enabled": true},
+    {"event_type": "cpi", "event_date": "2026-12-10", "event_label": "US CPI", "source": "seeded", "enabled": true},
+
+    {"event_type": "nfp", "event_date": "2026-01-09", "event_label": "US Nonfarm Payrolls", "source": "seeded", "enabled": true},
+    {"event_type": "nfp", "event_date": "2026-02-06", "event_label": "US Nonfarm Payrolls", "source": "seeded", "enabled": true},
+    {"event_type": "nfp", "event_date": "2026-03-06", "event_label": "US Nonfarm Payrolls", "source": "seeded", "enabled": true},
+    {"event_type": "nfp", "event_date": "2026-04-03", "event_label": "US Nonfarm Payrolls", "source": "seeded", "enabled": true},
+    {"event_type": "nfp", "event_date": "2026-05-08", "event_label": "US Nonfarm Payrolls", "source": "seeded", "enabled": true},
+    {"event_type": "nfp", "event_date": "2026-06-05", "event_label": "US Nonfarm Payrolls", "source": "seeded", "enabled": true},
+    {"event_type": "nfp", "event_date": "2026-07-02", "event_label": "US Nonfarm Payrolls", "source": "seeded", "enabled": true},
+    {"event_type": "nfp", "event_date": "2026-08-07", "event_label": "US Nonfarm Payrolls", "source": "seeded", "enabled": true},
+    {"event_type": "nfp", "event_date": "2026-09-04", "event_label": "US Nonfarm Payrolls", "source": "seeded", "enabled": true},
+    {"event_type": "nfp", "event_date": "2026-10-02", "event_label": "US Nonfarm Payrolls", "source": "seeded", "enabled": true},
+    {"event_type": "nfp", "event_date": "2026-11-06", "event_label": "US Nonfarm Payrolls", "source": "seeded", "enabled": true},
+    {"event_type": "nfp", "event_date": "2026-12-04", "event_label": "US Nonfarm Payrolls", "source": "seeded", "enabled": true}
+  ]
+}

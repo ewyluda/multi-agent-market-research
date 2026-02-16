@@ -139,6 +139,8 @@ const Recommendation = ({ analysis }) => {
   }
 
   const { recommendation, score, confidence } = analysis.analysis || {};
+  const portfolioAction = analysis.analysis?.portfolio_action || null;
+  const portfolioSummary = analysis.analysis?.portfolio_summary || null;
 
   // Needle rotation: -90 for strong SELL, 0 for HOLD, +90 for strong BUY
   const needleAngle = (score / 100) * 90;
@@ -176,6 +178,15 @@ const Recommendation = ({ analysis }) => {
   };
 
   const colors = getColor();
+  const actionStyle = (action) => {
+    const key = String(action || '').toLowerCase();
+    if (key === 'add') return 'bg-success/15 text-success-400 border-success/25';
+    if (key === 'trim') return 'bg-warning/15 text-warning-400 border-warning/25';
+    if (key === 'hold') return 'bg-gray-500/20 text-gray-300 border-gray-500/25';
+    if (key === 'hedge') return 'bg-accent-blue/15 text-accent-blue border-accent-blue/25';
+    if (key === 'exit') return 'bg-danger/15 text-danger-400 border-danger/25';
+    return 'bg-gray-500/20 text-gray-300 border-gray-500/25';
+  };
 
   return (
     <motion.div
@@ -406,6 +417,45 @@ const Recommendation = ({ analysis }) => {
               {analysis.analysis.time_horizon?.replace(/_/g, ' ')}
             </span>
           </div>
+        </div>
+      )}
+
+      {portfolioAction && (
+        <div className="mt-5 pt-4 border-t border-white/5 space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] text-gray-500 uppercase tracking-wider">Portfolio Action</span>
+            <span className={`text-[11px] font-semibold px-2 py-0.5 rounded border ${actionStyle(portfolioAction.action)}`}>
+              {String(portfolioAction.action || 'hold').toUpperCase()}
+            </span>
+          </div>
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-gray-500">Fit Score</span>
+            <span className="font-mono text-gray-200">{portfolioAction.fit_score ?? 0}/100</span>
+          </div>
+          <div className="text-[11px] text-gray-400">
+            Pos {((Number(portfolioAction.current_position_pct || 0) * 100).toFixed(1))}% → {((Number(portfolioAction.projected_position_pct || 0) * 100).toFixed(1))}%
+          </div>
+          {Array.isArray(portfolioAction.constraint_checks) && portfolioAction.constraint_checks.length > 0 && (
+            <div className="space-y-1 pt-1">
+              {portfolioAction.constraint_checks.map((check) => (
+                <div key={check.name} className="flex items-center justify-between text-[10px]">
+                  <span className="text-gray-500">{check.name}</span>
+                  <span className={`font-semibold ${
+                    check.status === 'pass'
+                      ? 'text-success-400'
+                      : check.status === 'warn'
+                      ? 'text-warning-400'
+                      : 'text-danger-400'
+                  }`}>
+                    {String(check.status || 'warn').toUpperCase()}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+          {portfolioSummary && (
+            <p className="text-[11px] text-gray-500 leading-relaxed">{portfolioSummary}</p>
+          )}
         </div>
       )}
 

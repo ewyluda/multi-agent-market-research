@@ -78,6 +78,41 @@ const formatRelativeTime = (isoString) => {
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 };
 
+const getRunReasonMeta = (run) => {
+  const reason = run?.run_reason || 'scheduled';
+  const eventType = String(run?.catalyst_event_type || '').toLowerCase();
+  const eventLabel = eventType ? eventType.toUpperCase() : 'Event';
+
+  if (reason === 'catalyst_pre') {
+    if (eventType && eventType !== 'earnings') {
+      return {
+        label: `Catalyst (Pre-${eventLabel})`,
+        className: 'bg-accent-blue/15 text-accent-blue border-accent-blue/25',
+      };
+    }
+    return {
+      label: 'Catalyst (Pre-Earnings)',
+      className: 'bg-accent-blue/15 text-accent-blue border-accent-blue/25',
+    };
+  }
+  if (reason === 'catalyst_day') {
+    return {
+      label: eventType ? `Catalyst (${eventLabel} Day)` : 'Catalyst (Event Day)',
+      className: 'bg-primary/15 text-primary-300 border-primary/25',
+    };
+  }
+  if (reason === 'catalyst_post') {
+    return {
+      label: 'Catalyst (Post-Earnings)',
+      className: 'bg-accent-cyan/15 text-accent-cyan border-accent-cyan/25',
+    };
+  }
+  return {
+    label: 'Scheduled',
+    className: 'bg-gray-700/40 text-gray-300 border-gray-600/40',
+  };
+};
+
 /* ──────── Toggle Switch ──────── */
 const ToggleSwitch = ({ enabled, onChange, disabled }) => (
   <button
@@ -108,6 +143,7 @@ const StatusDot = ({ enabled }) => (
 const RunRow = ({ run, fallbackTicker }) => {
   const success = run.success === true || run.success === 1;
   const ticker = run.ticker || fallbackTicker || '—';
+  const runReason = getRunReasonMeta(run);
   return (
     <div className="flex items-center justify-between px-3 py-2 hover:bg-white/[0.02] transition-colors rounded">
       <div className="flex items-center space-x-2">
@@ -117,6 +153,9 @@ const RunRow = ({ run, fallbackTicker }) => {
           <XCircleIcon className="w-3 h-3 text-danger-400" />
         )}
         <span className="text-[11px] text-gray-300 font-mono">{ticker}</span>
+        <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border ${runReason.className}`}>
+          {runReason.label}
+        </span>
         {run.recommendation && (
           <span
             className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border ${

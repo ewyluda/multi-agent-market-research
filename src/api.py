@@ -22,6 +22,9 @@ from .models import (
     WatchlistRename,
     ScheduleCreate,
     ScheduleUpdate,
+    PortfolioProfileUpdate,
+    PortfolioHoldingCreate,
+    PortfolioHoldingUpdate,
     AlertRuleCreate,
     AlertRuleUpdate,
 )
@@ -105,6 +108,9 @@ async def root():
             "watchlist_analyze": "POST /api/watchlists/{id}/analyze",
             "schedules": "POST/GET /api/schedules",
             "schedule_runs": "GET /api/schedules/{id}/runs",
+            "portfolio": "GET /api/portfolio",
+            "macro_events": "GET /api/macro-events",
+            "calibration_summary": "GET /api/calibration/summary",
             "alerts": "POST/GET /api/alerts",
             "alert_notifications": "GET /api/alerts/notifications",
             "health": "GET /health"
@@ -751,6 +757,165 @@ async def get_schedule_runs(schedule_id: int, limit: int = Query(default=20, ge=
         raise
     except Exception as e:
         logger.error(f"Failed to get runs for schedule {schedule_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─── Portfolio Endpoints ───────────────────────────────────────────────
+
+@app.get("/api/portfolio")
+async def get_portfolio():
+    """Get portfolio profile, holdings, and exposure snapshot."""
+    try:
+        profile = db_manager.get_portfolio_profile()
+        holdings = db_manager.list_portfolio_holdings()
+        snapshot = db_manager.get_portfolio_snapshot()
+        return {
+            "profile": profile,
+            "holdings": holdings,
+            "snapshot": snapshot,
+        }
+    except Exception as e:
+        logger.error(f"Failed to fetch portfolio: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/api/portfolio/profile")
+async def update_portfolio_profile(body: PortfolioProfileUpdate):
+    """Update singleton portfolio profile."""
+    updates = body.model_dump(exclude_none=True)
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields to update")
+
+    try:
+        profile = db_manager.upsert_portfolio_profile(**updates)
+        return profile
+    except Exception as e:
+        logger.error(f"Failed to update portfolio profile: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/portfolio/holdings")
+async def get_portfolio_holdings():
+    """List all portfolio holdings."""
+    try:
+        holdings = db_manager.list_portfolio_holdings()
+        return {"holdings": holdings, "total_count": len(holdings)}
+    except Exception as e:
+        logger.error(f"Failed to list holdings: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/portfolio/holdings")
+async def create_portfolio_holding(body: PortfolioHoldingCreate):
+    """Create a portfolio holding."""
+    import re
+
+    ticker = body.ticker.upper()
+    if not re.match(r"^[A-Z]{1,5}$", ticker):
+        raise HTTPException(status_code=400, detail="Invalid ticker symbol format")
+
+    try:
+        holding = db_manager.create_portfolio_holding(
+            ticker=ticker,
+            shares=body.shares,
+            avg_cost=body.avg_cost,
+            market_value=body.market_value,
+            sector=body.sector,
+            beta=body.beta,
+        )
+        return holding
+    except Exception as e:
+        if "UNIQUE" in str(e).upper():
+            raise HTTPException(status_code=409, detail=f"Holding for {ticker} already exists")
+        logger.error(f"Failed to create holding for {ticker}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/api/portfolio/holdings/{holding_id}")
+async def update_portfolio_holding(holding_id: int, body: PortfolioHoldingUpdate):
+    """Update an existing portfolio holding."""
+    updates = body.model_dump(exclude_none=True)
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields to update")
+
+    if "ticker" in updates:
+        import re
+
+        ticker = str(updates["ticker"]).upper()
+        if not re.match(r"^[A-Z]{1,5}$", ticker):
+            raise HTTPException(status_code=400, detail="Invalid ticker symbol format")
+        updates["ticker"] = ticker
+
+    try:
+        holding = db_manager.update_portfolio_holding(holding_id, **updates)
+        if not holding:
+            raise HTTPException(status_code=404, detail=f"Holding {holding_id} not found")
+        return holding
+    except HTTPException:
+        raise
+    except Exception as e:
+        if "UNIQUE" in str(e).upper():
+            raise HTTPException(status_code=409, detail="Ticker already exists in holdings")
+        logger.error(f"Failed to update holding {holding_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/portfolio/holdings/{holding_id}")
+async def delete_portfolio_holding(holding_id: int):
+    """Delete a portfolio holding."""
+    try:
+        deleted = db_manager.delete_portfolio_holding(holding_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail=f"Holding {holding_id} not found")
+        return {"success": True, "deleted_id": holding_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete holding {holding_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─── Macro Catalyst Endpoints ──────────────────────────────────────────
+
+@app.get("/api/macro-events")
+async def get_macro_events(
+    date_from: Optional[str] = Query(default=None, alias="from"),
+    date_to: Optional[str] = Query(default=None, alias="to"),
+):
+    """List macro catalyst events over a date range."""
+    try:
+        events = db_manager.list_macro_events(
+            date_from=date_from,
+            date_to=date_to,
+            enabled_only=False,
+        )
+        return {"events": events, "total_count": len(events)}
+    except Exception as e:
+        logger.error(f"Failed to get macro events: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─── Calibration Endpoints ─────────────────────────────────────────────
+
+@app.get("/api/calibration/summary")
+async def get_calibration_summary(window_days: int = Query(default=180, ge=30, le=365)):
+    """Get latest calibration metrics by horizon."""
+    try:
+        return db_manager.get_calibration_summary(window_days=window_days, horizons=[1, 7, 30])
+    except Exception as e:
+        logger.error(f"Failed to get calibration summary: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/calibration/ticker/{ticker}")
+async def get_ticker_calibration(ticker: str, limit: int = Query(default=100, ge=1, le=500)):
+    """Get per-outcome calibration rows for a ticker."""
+    ticker = ticker.upper()
+    try:
+        outcomes = db_manager.get_outcomes_for_ticker(ticker=ticker, limit=limit)
+        return {"ticker": ticker, "outcomes": outcomes, "total_count": len(outcomes)}
+    except Exception as e:
+        logger.error(f"Failed to get ticker calibration for {ticker}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

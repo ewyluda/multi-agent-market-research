@@ -4,6 +4,7 @@
 
 import React, { useEffect, useState, useMemo } from 'react';
 import { useHistory } from '../hooks/useHistory';
+import { getCalibrationSummary } from '../utils/api';
 import {
   HistoryIcon,
   FilterIcon,
@@ -55,6 +56,78 @@ const ConfidencePill = ({ confidence }) => {
     <span className="text-xs font-semibold tabular-nums">
       {pct}%
     </span>
+  );
+};
+
+/* ──────── Outcome chips ──────── */
+const OutcomeChips = ({ outcomes }) => {
+  if (!outcomes || typeof outcomes !== 'object') {
+    return <span className="text-xs text-gray-500">—</span>;
+  }
+
+  const order = ['1d', '7d', '30d'];
+  const styleFor = (status) => {
+    if (status === 'complete') return 'bg-success/15 text-success-400 border-success/25';
+    if (status === 'skipped') return 'bg-gray-500/15 text-gray-400 border-gray-500/25';
+    return 'bg-warning/15 text-warning-400 border-warning/25';
+  };
+
+  return (
+    <div className="flex items-center gap-1.5 flex-wrap">
+      {order.map((horizon) => {
+        const status = outcomes?.[horizon]?.status || 'pending';
+        return (
+          <span
+            key={horizon}
+            className={`text-[10px] px-1.5 py-0.5 rounded border font-semibold ${styleFor(status)}`}
+            title={`${horizon}: ${status}`}
+          >
+            {horizon}:{status[0].toUpperCase()}
+          </span>
+        );
+      })}
+    </div>
+  );
+};
+
+const CalibrationSummaryCards = ({ summary, loading }) => {
+  const horizons = ['1d', '7d', '30d'];
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+      {horizons.map((horizon) => {
+        const row = summary?.horizons?.[horizon] || null;
+        const accuracy = row?.directional_accuracy != null ? `${(row.directional_accuracy * 100).toFixed(1)}%` : '—';
+        const brier = row?.brier_score != null ? Number(row.brier_score).toFixed(3) : '—';
+        const sample = row?.sample_size ?? 0;
+
+        return (
+          <div key={horizon} className="bg-dark-inset border border-white/5 rounded-lg p-3">
+            <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-2">{horizon} Calibration</div>
+            {loading ? (
+              <div className="flex justify-center py-3">
+                <LoadingSpinner size={12} className="text-gray-500" />
+              </div>
+            ) : (
+              <div className="space-y-1 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Accuracy</span>
+                  <span className="font-mono text-gray-200">{accuracy}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Brier</span>
+                  <span className="font-mono text-gray-200">{brier}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Sample</span>
+                  <span className="font-mono text-gray-200">{sample}</span>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
   );
 };
 
@@ -333,6 +406,8 @@ const HistoryDashboard = ({ onBack, initialTicker }) => {
 
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [tickerSearch, setTickerSearch] = useState('');
+  const [calibrationSummary, setCalibrationSummary] = useState(null);
+  const [calibrationLoading, setCalibrationLoading] = useState(false);
 
   // Load tickers on mount
   useEffect(() => {
@@ -345,6 +420,26 @@ const HistoryDashboard = ({ onBack, initialTicker }) => {
       }
     });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    let mounted = true;
+    const loadCalibration = async () => {
+      setCalibrationLoading(true);
+      try {
+        const data = await getCalibrationSummary(180);
+        if (mounted) setCalibrationSummary(data);
+      } catch {
+        if (mounted) setCalibrationSummary(null);
+      } finally {
+        if (mounted) setCalibrationLoading(false);
+      }
+    };
+
+    loadCalibration();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   // Filter tickers by search
   const filteredTickers = useMemo(() => {
@@ -433,6 +528,13 @@ const HistoryDashboard = ({ onBack, initialTicker }) => {
             </div>
           ) : (
             <div className="space-y-4">
+              <div className="glass-card-elevated rounded-xl p-5">
+                <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
+                  Calibration Summary (180d)
+                </h3>
+                <CalibrationSummaryCards summary={calibrationSummary} loading={calibrationLoading} />
+              </div>
+
               {/* Trend chart */}
               <div className="glass-card-elevated rounded-xl p-5">
                 <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3 flex items-center space-x-2">
@@ -472,8 +574,9 @@ const HistoryDashboard = ({ onBack, initialTicker }) => {
                     <div className="grid grid-cols-12 gap-2 px-3 py-2 text-[10px] font-semibold text-gray-500 uppercase tracking-wider border-b border-white/5">
                       <div className="col-span-3">Date</div>
                       <div className="col-span-2">Recommendation</div>
-                      <div className="col-span-3">Score</div>
-                      <div className="col-span-2">Confidence</div>
+                      <div className="col-span-2">Score</div>
+                      <div className="col-span-1">Conf</div>
+                      <div className="col-span-2">Outcomes</div>
                       <div className="col-span-2 text-right">Actions</div>
                     </div>
 
@@ -505,11 +608,14 @@ const HistoryDashboard = ({ onBack, initialTicker }) => {
                           <div className="col-span-2">
                             <RecommendationBadge rec={item.recommendation} />
                           </div>
-                          <div className="col-span-3">
+                          <div className="col-span-2">
                             <ScoreBar score={item.score} />
                           </div>
-                          <div className="col-span-2">
+                          <div className="col-span-1">
                             <ConfidencePill confidence={item.confidence} />
+                          </div>
+                          <div className="col-span-2">
+                            <OutcomeChips outcomes={item.outcomes} />
                           </div>
                           <div className="col-span-2 flex justify-end space-x-1">
                             {confirmDelete === item.id ? (

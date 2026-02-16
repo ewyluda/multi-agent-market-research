@@ -48,6 +48,12 @@ class FinalAnalysis(BaseModel):
     decision_card: Optional[Dict[str, Any]] = None
     changes_since_last_run: Optional[Dict[str, Any]] = None
     change_summary: Optional[Dict[str, Any]] = None
+    scenarios: Optional[Dict[str, Any]] = None
+    scenario_summary: Optional[str] = None
+    diagnostics: Optional[Dict[str, Any]] = None
+    diagnostics_summary: Optional[str] = None
+    portfolio_action: Optional[Dict[str, Any]] = None
+    portfolio_summary: Optional[str] = None
     signal_snapshot: Optional[Dict[str, Any]] = None
     summary: str
 
@@ -120,6 +126,35 @@ class ScheduleUpdate(BaseModel):
     interval_minutes: Optional[int] = Field(default=None, ge=30, le=10080)
     agents: Optional[str] = None
     enabled: Optional[bool] = None
+
+
+class PortfolioProfileUpdate(BaseModel):
+    """Request model for updating singleton portfolio profile."""
+    name: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    base_currency: Optional[str] = Field(default=None, min_length=3, max_length=3)
+    max_position_pct: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    max_sector_pct: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    risk_budget_pct: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+
+
+class PortfolioHoldingCreate(BaseModel):
+    """Request model for creating a portfolio holding."""
+    ticker: str = Field(..., min_length=1, max_length=5, description="Stock ticker symbol")
+    shares: float = Field(..., ge=0.0)
+    avg_cost: Optional[float] = Field(default=None, ge=0.0)
+    market_value: float = Field(..., ge=0.0)
+    sector: Optional[str] = Field(default=None, max_length=100)
+    beta: Optional[float] = None
+
+
+class PortfolioHoldingUpdate(BaseModel):
+    """Request model for updating a portfolio holding."""
+    ticker: Optional[str] = Field(default=None, min_length=1, max_length=5)
+    shares: Optional[float] = Field(default=None, ge=0.0)
+    avg_cost: Optional[float] = Field(default=None, ge=0.0)
+    market_value: Optional[float] = Field(default=None, ge=0.0)
+    sector: Optional[str] = Field(default=None, max_length=100)
+    beta: Optional[float] = None
 
 
 class AlertRuleCreate(BaseModel):

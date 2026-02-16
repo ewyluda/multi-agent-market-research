@@ -421,8 +421,55 @@ class TestScheduleDatabase:
         assert runs[0]["started_at"] == "2025-01-01T01:00:00"
         assert runs[0]["success"] == 0  # SQLite stores bool as int
         assert runs[0]["error"] == "error msg"
+        assert runs[0]["run_reason"] == "scheduled"
+        assert runs[0]["catalyst_event_type"] is None
+        assert runs[0]["catalyst_event_date"] is None
         assert runs[1]["started_at"] == "2025-01-01T00:00:00"
         assert runs[1]["success"] == 1
+
+    def test_insert_schedule_run_with_reason_and_event_fields(self, db_manager):
+        """schedule_runs persist catalyst metadata fields."""
+        created = db_manager.create_schedule("MSFT", 60)
+        sid = created["id"]
+
+        run_id = db_manager.insert_schedule_run(
+            sid,
+            None,
+            "2025-01-02T00:00:00",
+            "2025-01-02T00:01:00",
+            True,
+            run_reason="catalyst_pre",
+            catalyst_event_type="earnings",
+            catalyst_event_date="2025-01-03",
+        )
+        assert run_id > 0
+
+        runs = db_manager.get_schedule_runs(sid)
+        assert len(runs) == 1
+        assert runs[0]["run_reason"] == "catalyst_pre"
+        assert runs[0]["catalyst_event_type"] == "earnings"
+        assert runs[0]["catalyst_event_date"] == "2025-01-03"
+
+    def test_schedule_run_exists_for_reason_and_event(self, db_manager):
+        """schedule_run_exists deduplicates runs by reason/event tuple."""
+        created = db_manager.create_schedule("NVDA", 60)
+        sid = created["id"]
+
+        assert db_manager.schedule_run_exists(sid, "catalyst_pre", "earnings", "2025-02-01") is False
+
+        db_manager.insert_schedule_run(
+            sid,
+            None,
+            "2025-01-31T00:00:00",
+            "2025-01-31T00:01:00",
+            True,
+            run_reason="catalyst_pre",
+            catalyst_event_type="earnings",
+            catalyst_event_date="2025-02-01",
+        )
+
+        assert db_manager.schedule_run_exists(sid, "catalyst_pre", "earnings", "2025-02-01") is True
+        assert db_manager.schedule_run_exists(sid, "catalyst_post", "earnings", "2025-02-01") is False
 
     def test_schedule_tables_created(self, db_manager, tmp_db_path):
         """Verify schedules and schedule_runs tables exist after initialization."""
@@ -434,6 +481,142 @@ class TestScheduleDatabase:
 
         assert "schedules" in tables
         assert "schedule_runs" in tables
+
+    def test_schedule_runs_new_columns_exist(self, db_manager, tmp_db_path):
+        """schedule_runs includes run reason and catalyst metadata columns."""
+        conn = sqlite3.connect(tmp_db_path)
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA table_info(schedule_runs)")
+        columns = {row[1] for row in cursor.fetchall()}
+        conn.close()
+
+        assert "run_reason" in columns
+        assert "catalyst_event_type" in columns
+        assert "catalyst_event_date" in columns
+
+
+class TestPortfolioMacroCalibrationDatabase:
+    """Tests for portfolio, macro catalysts, and calibration persistence."""
+
+    def test_portfolio_profile_and_holdings_crud(self, db_manager):
+        profile = db_manager.get_portfolio_profile()
+        assert profile["id"] == 1
+        assert profile["base_currency"] == "USD"
+
+        updated = db_manager.upsert_portfolio_profile(
+            name="Primary Portfolio",
+            max_position_pct=0.12,
+            max_sector_pct=0.35,
+            risk_budget_pct=0.9,
+        )
+        assert updated["name"] == "Primary Portfolio"
+        assert updated["max_position_pct"] == 0.12
+
+        created = db_manager.create_portfolio_holding(
+            ticker="AAPL",
+            shares=10,
+            avg_cost=180.5,
+            market_value=2000.0,
+            sector="Technology",
+            beta=1.2,
+        )
+        assert created["ticker"] == "AAPL"
+
+        holdings = db_manager.list_portfolio_holdings()
+        assert len(holdings) == 1
+        assert holdings[0]["market_value"] == 2000.0
+
+        updated_holding = db_manager.update_portfolio_holding(created["id"], market_value=2200.0)
+        assert updated_holding["market_value"] == 2200.0
+
+        snapshot = db_manager.get_portfolio_snapshot()
+        assert snapshot["holdings_count"] == 1
+        assert snapshot["total_market_value"] == 2200.0
+        assert snapshot["by_sector"][0]["sector"] == "Technology"
+
+        assert db_manager.delete_portfolio_holding(created["id"]) is True
+        assert db_manager.list_portfolio_holdings() == []
+
+    def test_macro_event_seed_and_upsert(self, db_manager):
+        seeded = db_manager.list_macro_events(enabled_only=True)
+        assert len(seeded) > 0
+
+        processed = db_manager.upsert_macro_events(
+            [
+                {
+                    "event_type": "fomc",
+                    "event_date": "2026-02-01",
+                    "event_label": "FOMC Special",
+                    "source": "seeded",
+                    "enabled": True,
+                }
+            ]
+        )
+        assert processed == 1
+        assert db_manager.macro_event_exists("fomc", "2026-02-01") is True
+
+        events = db_manager.list_macro_events(
+            date_from="2026-02-01",
+            date_to="2026-02-01",
+            enabled_only=False,
+        )
+        assert len(events) == 1
+        assert events[0]["event_label"] == "FOMC Special"
+
+    def test_outcomes_and_snapshots_round_trip(self, db_manager):
+        analysis_id = db_manager.insert_analysis(
+            ticker="MSFT",
+            recommendation="BUY",
+            confidence_score=0.71,
+            overall_sentiment_score=0.2,
+            solution_agent_reasoning="Calibration test",
+            duration_seconds=3.2,
+            score=40,
+        )
+        inserted = db_manager.create_outcome_rows_for_analysis(
+            analysis_id=analysis_id,
+            ticker="MSFT",
+            baseline_price=300.0,
+            confidence=0.71,
+            predicted_up_probability=0.62,
+        )
+        assert inserted == 3
+
+        due = db_manager.list_due_outcomes("2100-01-01")
+        assert len(due) == 3
+
+        first = due[0]
+        completed = db_manager.complete_outcome(
+            first["id"],
+            realized_price=309.0,
+            realized_return_pct=3.0,
+            direction_correct=True,
+            outcome_up=True,
+            brier_component=0.12,
+            status="complete",
+        )
+        assert completed is True
+
+        rows = db_manager.list_completed_outcomes(horizon_days=first["horizon_days"], since_date="2000-01-01")
+        assert len(rows) == 1
+        assert rows[0]["direction_correct"] == 1
+
+        snap = db_manager.upsert_calibration_snapshot(
+            as_of_date="2026-02-15",
+            horizon_days=1,
+            sample_size=10,
+            directional_accuracy=0.7,
+            avg_realized_return_pct=1.2,
+            mean_confidence=0.64,
+            brier_score=0.19,
+        )
+        assert snap["horizon_days"] == 1
+
+        summary = db_manager.get_calibration_summary(window_days=365, horizons=[1])
+        assert summary["horizons"]["1d"]["sample_size"] == 10
+
+        ticker_outcomes = db_manager.get_outcomes_for_ticker("MSFT", limit=10)
+        assert len(ticker_outcomes) == 3
 
 
 class TestAlertDatabase:

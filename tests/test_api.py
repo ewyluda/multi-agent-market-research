@@ -92,6 +92,17 @@ class TestAnalyzeTicker:
                     "price_targets": None,
                     "position_size": None,
                     "time_horizon": None,
+                    "scenarios": {
+                        "bull": {"probability": 0.4, "expected_return_pct": 12.0, "thesis": "Upside"},
+                        "base": {"probability": 0.4, "expected_return_pct": 4.0, "thesis": "Base"},
+                        "bear": {"probability": 0.2, "expected_return_pct": -8.0, "thesis": "Downside"},
+                    },
+                    "scenario_summary": "Bull 40%; Base 40%; Bear 20%.",
+                    "diagnostics": {
+                        "disagreement": {"bullish_count": 2, "bearish_count": 1, "neutral_count": 1, "is_conflicted": False},
+                        "data_quality": {"agent_success_rate": 1.0, "failed_agents": [], "quality_level": "good", "warnings": []},
+                    },
+                    "diagnostics_summary": "Signals aligned. Data quality good.",
                 },
                 "agent_results": {},
                 "duration_seconds": 10.0,
@@ -104,6 +115,8 @@ class TestAnalyzeTicker:
         assert data["success"] is True
         assert data["ticker"] == "AAPL"
         assert data["analysis"]["recommendation"] == "BUY"
+        assert "scenarios" in data["analysis"]
+        assert "diagnostics" in data["analysis"]
 
 
 class TestGetLatestAnalysis:
@@ -229,6 +242,148 @@ class TestScheduleAPI:
         """DELETE /api/schedules/999 returns 404."""
         response = client.delete("/api/schedules/999")
         assert response.status_code == 404
+
+    def test_schedule_runs_endpoint_includes_catalyst_fields(self, client):
+        """GET /api/schedules/{id}/runs includes run_reason and catalyst metadata fields."""
+        import random
+        import string
+
+        ticker = "Y" + "".join(random.choices(string.ascii_uppercase, k=4))
+        create_resp = client.post(
+            "/api/schedules",
+            json={"ticker": ticker, "interval_minutes": 60},
+        )
+        assert create_resp.status_code == 200
+        schedule = create_resp.json()
+        schedule_id = schedule["id"]
+
+        db_manager.insert_schedule_run(
+            schedule_id=schedule_id,
+            analysis_id=None,
+            started_at="2025-02-15T10:00:00",
+            completed_at="2025-02-15T10:01:00",
+            success=True,
+            run_reason="catalyst_day",
+            catalyst_event_type="cpi",
+            catalyst_event_date="2025-02-15",
+        )
+
+        try:
+            runs_resp = client.get(f"/api/schedules/{schedule_id}/runs")
+            assert runs_resp.status_code == 200
+            runs = runs_resp.json()["runs"]
+            assert len(runs) >= 1
+            first = runs[0]
+            assert "run_reason" in first
+            assert "catalyst_event_type" in first
+            assert "catalyst_event_date" in first
+            assert first["run_reason"] == "catalyst_day"
+            assert first["catalyst_event_type"] == "cpi"
+        finally:
+            client.delete(f"/api/schedules/{schedule_id}")
+
+
+class TestPortfolioMacroCalibrationAPI:
+    """Tests for portfolio, macro-event, and calibration endpoints."""
+
+    def test_portfolio_profile_and_holdings_crud(self, client):
+        import random
+        import string
+
+        portfolio_resp = client.get("/api/portfolio")
+        assert portfolio_resp.status_code == 200
+        assert "profile" in portfolio_resp.json()
+        assert "snapshot" in portfolio_resp.json()
+
+        update_resp = client.put(
+            "/api/portfolio/profile",
+            json={"name": "Primary Test", "max_position_pct": 0.11},
+        )
+        assert update_resp.status_code == 200
+        assert update_resp.json()["name"] == "Primary Test"
+        assert update_resp.json()["max_position_pct"] == 0.11
+
+        ticker = "P" + "".join(random.choices(string.ascii_uppercase, k=4))
+        create_resp = client.post(
+            "/api/portfolio/holdings",
+            json={
+                "ticker": ticker,
+                "shares": 10,
+                "avg_cost": 100,
+                "market_value": 1000,
+                "sector": "Technology",
+            },
+        )
+        assert create_resp.status_code == 200
+        holding = create_resp.json()
+        holding_id = holding["id"]
+        assert holding["ticker"] == ticker
+
+        list_resp = client.get("/api/portfolio/holdings")
+        assert list_resp.status_code == 200
+        assert any(h["id"] == holding_id for h in list_resp.json()["holdings"])
+
+        patch_resp = client.put(
+            f"/api/portfolio/holdings/{holding_id}",
+            json={"market_value": 1250},
+        )
+        assert patch_resp.status_code == 200
+        assert patch_resp.json()["market_value"] == 1250
+
+        delete_resp = client.delete(f"/api/portfolio/holdings/{holding_id}")
+        assert delete_resp.status_code == 200
+        assert delete_resp.json()["success"] is True
+
+    def test_macro_events_endpoint_shape(self, client):
+        response = client.get("/api/macro-events?from=2026-01-01&to=2026-12-31")
+        assert response.status_code == 200
+        payload = response.json()
+        assert "events" in payload
+        assert "total_count" in payload
+        assert isinstance(payload["events"], list)
+
+    def test_calibration_endpoints_return_expected_schema(self, client):
+        aid = db_manager.insert_analysis(
+            ticker="CLBT",
+            recommendation="BUY",
+            confidence_score=0.7,
+            overall_sentiment_score=0.2,
+            solution_agent_reasoning="Calibration endpoint test",
+            duration_seconds=2.0,
+            score=40,
+        )
+        try:
+            db_manager.create_outcome_rows_for_analysis(
+                analysis_id=aid,
+                ticker="CLBT",
+                baseline_price=100.0,
+                confidence=0.7,
+                predicted_up_probability=0.65,
+            )
+            db_manager.upsert_calibration_snapshot(
+                as_of_date="2026-02-15",
+                horizon_days=1,
+                sample_size=5,
+                directional_accuracy=0.6,
+                avg_realized_return_pct=1.0,
+                mean_confidence=0.62,
+                brier_score=0.21,
+            )
+
+            summary_resp = client.get("/api/calibration/summary?window_days=365")
+            assert summary_resp.status_code == 200
+            summary = summary_resp.json()
+            assert "horizons" in summary
+            assert "1d" in summary["horizons"]
+
+            ticker_resp = client.get("/api/calibration/ticker/CLBT?limit=10")
+            assert ticker_resp.status_code == 200
+            ticker_payload = ticker_resp.json()
+            assert ticker_payload["ticker"] == "CLBT"
+            assert "outcomes" in ticker_payload
+            assert ticker_payload["total_count"] >= 1
+        finally:
+            db_manager.delete_analysis(aid)
 
 
 class TestAlertAPI:
