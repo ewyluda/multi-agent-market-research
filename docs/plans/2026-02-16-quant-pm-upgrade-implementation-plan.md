@@ -188,8 +188,8 @@ Idempotent migration guards remain implemented in `src/database.py`.
 ## Phase 7 Rollout Runbook
 
 Current rollout execution status:
-- Preflight (Day 0): In progress (Stage A scheduler-only config prepared; production validation pending; gate endpoint available).
-- Stage A (Days 1-3): Pending gate validation.
+- Preflight (Day 0): Completed in local/dev environment on 2026-02-16 with full canary pass (`12/12` checks).
+- Stage A (Days 1-3): In progress (scheduler-only rollout flags enabled; gate still blocked by insufficient scheduled-run window metrics and empty reliability bins).
 - Stage B (Days 4-5): Not started in production.
 - Stage C (Day 6): Not started in production.
 - Stage D (Day 7): Not started in production.
@@ -222,6 +222,13 @@ Current rollout execution status:
 - Rollback triggers:
   - Contract validation failures `>2%`.
   - Any breaking payload compatibility issue.
+
+Current checkpoint (2026-02-16):
+- Stage A flag posture is correctly applied (`global=false`, `scheduled signal/calibration=true`).
+- Gate blockers from `/api/rollout/phase7/status?window_hours=72`:
+  - `scheduled_runs.total_runs=0` (no scheduled execution yet in window)
+  - `reliability_bins.non_empty_horizon_count=0`
+- Earliest natural reliability population from newly created 1d outcomes is the next trading day (for runs created on 2026-02-16, earliest due date is 2026-02-17).
 
 ### Stage B (Days 4-5, internal users)
 - Enable:
