@@ -7,7 +7,7 @@ import time
 from typing import Dict, Any, Optional, Callable, List
 
 import aiohttp
-from datetime import datetime
+from datetime import datetime, timezone
 
 from .config import Config
 from .agents.news_agent import NewsAgent
@@ -21,6 +21,7 @@ from .agents.solution_agent import SolutionAgent
 from .database import DatabaseManager
 from .av_rate_limiter import AVRateLimiter
 from .av_cache import AVCache
+from .portfolio_engine import PortfolioEngine
 
 
 class Orchestrator:
@@ -180,14 +181,44 @@ class Orchestrator:
             final_analysis = await self._run_solution_agent(ticker, agent_results)
             previous_analysis = self.db_manager.get_latest_analysis(ticker)
             final_analysis["signal_snapshot"] = self._build_signal_snapshot(final_analysis, agent_results)
+            diagnostics = self._build_diagnostics(agent_results)
+            final_analysis["diagnostics"] = diagnostics
+            final_analysis["diagnostics_summary"] = self._build_diagnostics_summary(diagnostics)
             change_summary = self._build_change_summary(previous_analysis, final_analysis)
             final_analysis["changes_since_last_run"] = change_summary
             final_analysis["change_summary"] = change_summary
+
+            if self.config.get("PORTFOLIO_ACTIONS_ENABLED", True):
+                try:
+                    portfolio_snapshot = self.db_manager.get_portfolio_snapshot()
+                    portfolio_overlay = PortfolioEngine(portfolio_snapshot).evaluate(
+                        ticker=ticker,
+                        analysis=final_analysis,
+                        diagnostics=diagnostics,
+                    )
+                    final_analysis.update(portfolio_overlay)
+                except Exception as exc:
+                    self.logger.warning(f"Portfolio advisory overlay failed: {exc}")
 
             # Phase 3: Save to database
             await self._notify_progress("saving", ticker, 95)
 
             analysis_id = self._save_to_database(ticker, agent_results, final_analysis, time.time() - start_time)
+
+            if self.config.get("CALIBRATION_ENABLED", True):
+                try:
+                    baseline_price = self._extract_baseline_price(agent_results, final_analysis)
+                    predicted_up_probability = self._derive_predicted_up_probability(final_analysis)
+                    if baseline_price is not None:
+                        self.db_manager.create_outcome_rows_for_analysis(
+                            analysis_id=analysis_id,
+                            ticker=ticker,
+                            baseline_price=baseline_price,
+                            confidence=final_analysis.get("confidence"),
+                            predicted_up_probability=predicted_up_probability,
+                        )
+                except Exception as exc:
+                    self.logger.warning(f"Failed to enqueue calibration outcomes: {exc}")
 
             # Evaluate alert rules
             alerts_triggered = []
@@ -463,6 +494,64 @@ class Orchestrator:
         except (TypeError, ValueError):
             return None
 
+    def _derive_predicted_up_probability(self, final_analysis: Dict[str, Any]) -> float:
+        """Map analysis output into P(up) for calibration tracking."""
+        recommendation = str(final_analysis.get("recommendation", "HOLD")).upper()
+
+        def _fallback_for_recommendation() -> float:
+            if recommendation == "BUY":
+                return 0.65
+            if recommendation == "SELL":
+                return 0.35
+            return 0.50
+
+        scenarios = final_analysis.get("scenarios") if isinstance(final_analysis.get("scenarios"), dict) else {}
+        if scenarios:
+            prob_up = 0.0
+            informative_scenario_found = False
+            for scenario in scenarios.values():
+                if not isinstance(scenario, dict):
+                    continue
+                probability = self._safe_float(scenario.get("probability"))
+                if probability is None:
+                    continue
+                expected_return = self._safe_float(scenario.get("expected_return_pct"))
+                if expected_return is None:
+                    continue
+                informative_scenario_found = True
+                if expected_return > 0:
+                    prob_up += probability
+                elif expected_return == 0:
+                    prob_up += 0.5 * probability
+
+            if informative_scenario_found:
+                return max(0.0, min(1.0, prob_up))
+            return _fallback_for_recommendation()
+
+        return _fallback_for_recommendation()
+
+    def _extract_baseline_price(
+        self,
+        agent_results: Dict[str, Any],
+        final_analysis: Dict[str, Any],
+    ) -> Optional[float]:
+        """Extract baseline price for outcome tracking from market payload or fallback targets."""
+        market_data = (agent_results.get("market") or {}).get("data") or {}
+        candidate_values = [
+            market_data.get("current_price"),
+            market_data.get("price"),
+            market_data.get("close"),
+            (market_data.get("price_change_1m") or {}).get("current_price"),
+            (final_analysis.get("decision_card") or {}).get("entry_zone", {}).get("reference"),
+            (final_analysis.get("price_targets") or {}).get("entry"),
+        ]
+
+        for value in candidate_values:
+            parsed = self._safe_float(value)
+            if parsed is not None and parsed > 0:
+                return parsed
+        return None
+
     def _classify_market_regime(self, trend: Optional[str]) -> str:
         """Normalize free-form trend text into a regime bucket."""
         if not trend:
@@ -484,6 +573,257 @@ class Orchestrator:
         if score <= -0.2:
             return "bearish"
         return "neutral"
+
+    def _parse_datetime(self, value: Any) -> Optional[datetime]:
+        """Best-effort datetime parsing for freshness diagnostics."""
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            dt = value
+        elif isinstance(value, str):
+            text = value.strip()
+            if not text:
+                return None
+
+            dt = None
+            parse_attempts = [
+                lambda s: datetime.fromisoformat(s.replace("Z", "+00:00")),
+                lambda s: datetime.strptime(s, "%Y-%m-%d"),
+                lambda s: datetime.strptime(s, "%Y%m%dT%H%M%S"),
+            ]
+            for parser in parse_attempts:
+                try:
+                    dt = parser(text)
+                    break
+                except Exception:
+                    continue
+            if dt is None:
+                return None
+        else:
+            return None
+
+        if dt.tzinfo is None:
+            return dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+
+    def _direction_from_market(self, market_data: Dict[str, Any]) -> str:
+        """Infer directional stance from market trend."""
+        regime = self._classify_market_regime(market_data.get("trend"))
+        return regime if regime in {"bullish", "bearish"} else "neutral"
+
+    def _direction_from_fundamentals(self, fundamentals_data: Dict[str, Any]) -> str:
+        """Infer directional stance from fundamentals health and recommendation."""
+        health_score = self._safe_float(fundamentals_data.get("health_score"))
+        if health_score is not None:
+            if health_score >= 60:
+                return "bullish"
+            if health_score <= 40:
+                return "bearish"
+
+        recommendation = str(fundamentals_data.get("recommendation", "")).lower()
+        if recommendation in {"buy", "strong_buy"}:
+            return "bullish"
+        if recommendation in {"sell", "strong_sell"}:
+            return "bearish"
+        return "neutral"
+
+    def _direction_from_technical(self, technical_data: Dict[str, Any]) -> str:
+        """Infer directional stance from technical overall signal/strength."""
+        signal = str((technical_data.get("signals") or {}).get("overall", "")).lower()
+        if signal in {"buy", "bullish"}:
+            return "bullish"
+        if signal in {"sell", "bearish"}:
+            return "bearish"
+
+        strength = self._safe_float((technical_data.get("signals") or {}).get("strength"))
+        if strength is not None:
+            if strength >= 20:
+                return "bullish"
+            if strength <= -20:
+                return "bearish"
+        return "neutral"
+
+    def _direction_from_macro(self, macro_data: Dict[str, Any]) -> str:
+        """Infer directional stance from macro risk regime."""
+        risk_env = str(macro_data.get("risk_environment", "")).lower()
+        if risk_env in {"risk_on", "supportive"}:
+            return "bullish"
+        if risk_env in {"risk_off", "restrictive"}:
+            return "bearish"
+
+        cycle = str(macro_data.get("economic_cycle", "")).lower()
+        if cycle in {"expansion", "recovery"}:
+            return "bullish"
+        if cycle in {"contraction", "recession"}:
+            return "bearish"
+        return "neutral"
+
+    def _direction_from_options(self, options_data: Dict[str, Any]) -> str:
+        """Infer directional stance from options flow signal."""
+        signal = str(options_data.get("overall_signal", "")).lower()
+        if signal == "bullish":
+            return "bullish"
+        if signal == "bearish":
+            return "bearish"
+        return "neutral"
+
+    def _direction_from_sentiment(self, sentiment_data: Dict[str, Any]) -> str:
+        """Infer directional stance from sentiment score."""
+        score = self._safe_float(sentiment_data.get("overall_sentiment"))
+        if score is None:
+            return "neutral"
+        if score >= 0.2:
+            return "bullish"
+        if score <= -0.2:
+            return "bearish"
+        return "neutral"
+
+    def _build_disagreement_diagnostics(self, agent_results: Dict[str, Any]) -> Dict[str, Any]:
+        """Compute agent disagreement diagnostics."""
+        direction_resolvers = {
+            "market": self._direction_from_market,
+            "fundamentals": self._direction_from_fundamentals,
+            "technical": self._direction_from_technical,
+            "macro": self._direction_from_macro,
+            "options": self._direction_from_options,
+            "sentiment": self._direction_from_sentiment,
+        }
+
+        agent_directions: Dict[str, str] = {}
+        for agent_name, resolver in direction_resolvers.items():
+            result = agent_results.get(agent_name) or {}
+            if not result.get("success"):
+                continue
+            data = result.get("data") or {}
+            agent_directions[agent_name] = resolver(data)
+
+        bullish_agents = [name for name, d in agent_directions.items() if d == "bullish"]
+        bearish_agents = [name for name, d in agent_directions.items() if d == "bearish"]
+        neutral_agents = [name for name, d in agent_directions.items() if d == "neutral"]
+
+        is_conflicted = len(bullish_agents) >= 2 and len(bearish_agents) >= 2
+        conflicting_agents = bullish_agents + bearish_agents if is_conflicted else []
+
+        return {
+            "agent_directions": agent_directions,
+            "bullish_count": len(bullish_agents),
+            "bearish_count": len(bearish_agents),
+            "neutral_count": len(neutral_agents),
+            "is_conflicted": is_conflicted,
+            "conflicting_agents": conflicting_agents,
+        }
+
+    def _build_data_quality_diagnostics(self, agent_results: Dict[str, Any]) -> Dict[str, Any]:
+        """Compute data-quality diagnostics for the current run."""
+        total_agents = len(agent_results)
+        if total_agents == 0:
+            return {
+                "agent_success_rate": 0.0,
+                "failed_agents": [],
+                "fallback_source_agents": [],
+                "news_freshness_hours": None,
+                "quality_level": "poor",
+                "warnings": ["No agent results available for quality assessment."],
+            }
+
+        failed_agents = [
+            agent_name
+            for agent_name, result in agent_results.items()
+            if not (result or {}).get("success")
+        ]
+        success_count = total_agents - len(failed_agents)
+        success_rate = success_count / total_agents
+
+        fallback_source_agents = []
+        for agent_name, result in agent_results.items():
+            if not (result or {}).get("success"):
+                continue
+            data = (result or {}).get("data") or {}
+            source = str(data.get("data_source") or data.get("source") or "").lower()
+            if source in {"yfinance", "none"}:
+                fallback_source_agents.append({"agent": agent_name, "source": source})
+
+        news_freshness_hours = None
+        news_data = ((agent_results.get("news") or {}).get("data") or {})
+        articles = news_data.get("articles") or []
+        if isinstance(articles, list) and articles:
+            parsed_times = []
+            for article in articles:
+                if not isinstance(article, dict):
+                    continue
+                published_at = (
+                    article.get("published_at")
+                    or article.get("publishedAt")
+                    or article.get("time_published")
+                )
+                parsed = self._parse_datetime(published_at)
+                if parsed:
+                    parsed_times.append(parsed)
+
+            if parsed_times:
+                newest = max(parsed_times)
+                now = datetime.now(timezone.utc)
+                hours = max(0.0, (now - newest).total_seconds() / 3600.0)
+                news_freshness_hours = round(hours, 2)
+
+        critical_agents = {"news", "market", "fundamentals", "technical"}
+        critical_failure_count = sum(1 for agent in failed_agents if agent in critical_agents)
+
+        if success_rate < 0.60 or critical_failure_count >= 2:
+            quality_level = "poor"
+        elif success_rate >= 0.85 and not failed_agents:
+            quality_level = "good"
+        else:
+            quality_level = "warn"
+
+        warnings: List[str] = []
+        if failed_agents:
+            warnings.append(f"Failed agents: {', '.join(sorted(failed_agents))}.")
+        if critical_failure_count >= 2:
+            warnings.append("Multiple critical agents failed; confidence should be reduced.")
+        if fallback_source_agents:
+            labels = [f"{item['agent']}({item['source']})" for item in fallback_source_agents]
+            warnings.append(f"Fallback data sources used: {', '.join(labels)}.")
+        if news_freshness_hours is not None and news_freshness_hours > 24:
+            warnings.append(f"News freshness is stale ({news_freshness_hours:.1f}h old).")
+        elif news_data and news_freshness_hours is None:
+            warnings.append("News freshness is unavailable due to missing publish timestamps.")
+
+        return {
+            "agent_success_rate": round(success_rate, 4),
+            "failed_agents": sorted(failed_agents),
+            "fallback_source_agents": fallback_source_agents,
+            "news_freshness_hours": news_freshness_hours,
+            "quality_level": quality_level,
+            "warnings": warnings,
+        }
+
+    def _build_diagnostics(self, agent_results: Dict[str, Any]) -> Dict[str, Any]:
+        """Build combined disagreement and data-quality diagnostics."""
+        disagreement = self._build_disagreement_diagnostics(agent_results)
+        data_quality = self._build_data_quality_diagnostics(agent_results)
+        return {
+            "disagreement": disagreement,
+            "data_quality": data_quality,
+        }
+
+    def _build_diagnostics_summary(self, diagnostics: Dict[str, Any]) -> str:
+        """Create one-line diagnostics summary for compact displays."""
+        disagreement = diagnostics.get("disagreement") or {}
+        data_quality = diagnostics.get("data_quality") or {}
+
+        bullish_count = int(disagreement.get("bullish_count", 0))
+        bearish_count = int(disagreement.get("bearish_count", 0))
+        if disagreement.get("is_conflicted"):
+            conflict_text = f"Signals are conflicted ({bullish_count} bullish vs {bearish_count} bearish)."
+        else:
+            conflict_text = "Signals are broadly aligned."
+
+        success_rate = self._safe_float(data_quality.get("agent_success_rate")) or 0.0
+        quality_level = str(data_quality.get("quality_level", "warn")).lower()
+        quality_text = f"Data quality: {quality_level} ({success_rate:.0%} agent success)."
+
+        return f"{conflict_text} {quality_text}"
 
     def _build_signal_snapshot(self, final_analysis: Dict[str, Any], agent_results: Dict[str, Any]) -> Dict[str, Any]:
         """Capture high-signal fields so next runs can compute meaningful deltas."""
