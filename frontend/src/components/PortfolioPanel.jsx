@@ -187,7 +187,7 @@ const PortfolioPanel = ({ onBack }) => {
         <div className="flex items-center space-x-3">
           <button
             onClick={onBack}
-            className="p-2 rounded-lg border border-white/5 text-gray-400 hover:text-white hover:border-white/15 transition-all"
+            className="p-2.5 rounded-lg border border-white/5 text-gray-400 hover:text-white hover:border-white/15 transition-all"
           >
             <ArrowLeftIcon className="w-4 h-4" />
           </button>
@@ -316,7 +316,7 @@ const PortfolioPanel = ({ onBack }) => {
                 <button
                   type="submit"
                   disabled={savingProfile}
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-primary/20 text-accent-blue rounded-lg text-sm font-medium hover:bg-primary/30 transition-all disabled:opacity-40"
+                  className="inline-flex items-center gap-2 px-5 py-2 bg-primary/20 text-accent-blue rounded-lg text-sm font-medium hover:bg-primary/30 transition-all disabled:opacity-40"
                 >
                   {savingProfile && <LoadingSpinner size={12} />}
                   Save Profile
@@ -408,7 +408,7 @@ const PortfolioPanel = ({ onBack }) => {
                 <button
                   type="submit"
                   disabled={savingHolding}
-                  className="flex-1 px-3 py-2 bg-primary/20 text-accent-blue rounded-lg text-sm font-medium hover:bg-primary/30 transition-all disabled:opacity-40"
+                  className="flex-1 px-4 py-2 bg-primary/20 text-accent-blue rounded-lg text-sm font-medium hover:bg-primary/30 transition-all disabled:opacity-40"
                 >
                   {savingHolding ? 'Saving...' : editingHoldingId ? 'Update' : 'Add'}
                 </button>
@@ -416,7 +416,7 @@ const PortfolioPanel = ({ onBack }) => {
                   <button
                     type="button"
                     onClick={resetHoldingForm}
-                    className="px-3 py-2 bg-dark-inset border border-dark-border text-gray-300 rounded-lg text-sm hover:border-white/20"
+                    className="px-4 py-2 bg-dark-inset border border-dark-border text-gray-300 rounded-lg text-sm hover:border-white/20"
                   >
                     Cancel
                   </button>
@@ -455,13 +455,13 @@ const PortfolioPanel = ({ onBack }) => {
                       <div className="lg:col-span-3 flex items-center justify-end gap-2">
                         <button
                           onClick={() => startEditHolding(holding)}
-                          className="px-3 py-1.5 text-xs rounded-md border border-white/10 text-gray-300 hover:text-white hover:border-white/25"
+                          className="px-4 py-2 text-[11px] rounded-md border border-white/10 text-gray-300 hover:text-white hover:border-white/25"
                         >
                           Edit
                         </button>
                         <button
                           onClick={() => handleDeleteHolding(holding.id)}
-                          className="p-1.5 rounded-md text-gray-600 hover:text-danger-400 hover:bg-danger/10 transition-all"
+                          className="p-2 rounded-md text-gray-600 hover:text-danger-400 hover:bg-danger/10 transition-all"
                           title="Delete holding"
                         >
                           <TrashIcon className="w-3.5 h-3.5" />

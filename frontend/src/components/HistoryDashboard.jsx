@@ -240,7 +240,7 @@ const TickerChip = ({ ticker, isActive, count, recommendation, onClick }) => {
   return (
     <button
       onClick={() => onClick(ticker.ticker)}
-      className={`flex items-center space-x-2 px-3 py-2 rounded-lg border text-left transition-all ${
+      className={`flex items-center gap-2.5 px-4 py-2.5 rounded-lg border text-left transition-all ${
         isActive
           ? 'bg-primary/15 border-primary/40 text-white'
           : `bg-dark-card hover:bg-dark-card-hover ${borderColor} text-gray-300 hover:text-white`
@@ -426,8 +426,8 @@ const FilterBar = ({ filters, onApply }) => {
   const recs = [null, 'BUY', 'HOLD', 'SELL'];
 
   return (
-    <div className="flex items-center space-x-3 flex-wrap">
-      <div className="flex items-center space-x-1">
+    <div className="flex items-center gap-3 flex-wrap">
+      <div className="flex items-center gap-1.5">
         <FilterIcon className="w-3.5 h-3.5 text-gray-500" />
         <span className="text-[11px] text-gray-500 font-medium">Filter:</span>
       </div>
@@ -435,7 +435,7 @@ const FilterBar = ({ filters, onApply }) => {
         <button
           key={rec || 'all'}
           onClick={() => onApply({ recommendation: rec })}
-          className={`text-[11px] px-2.5 py-1 rounded-md border transition-all ${
+          className={`text-[11px] px-3 py-1.5 rounded-lg border transition-all ${
             filters.recommendation === rec
               ? 'bg-primary/15 border-primary/40 text-white font-semibold'
               : 'bg-dark-card border-white/5 text-gray-400 hover:text-white hover:border-white/15'
@@ -458,11 +458,11 @@ const Pagination = ({ page, pageSize, totalCount, hasMore, onPageChange }) => {
       <span className="text-[11px] text-gray-500">
         Showing {page * pageSize + 1}–{Math.min((page + 1) * pageSize, totalCount)} of {totalCount}
       </span>
-      <div className="flex items-center space-x-1">
+      <div className="flex items-center space-x-2">
         <button
           onClick={() => onPageChange(page - 1)}
           disabled={page === 0}
-          className="p-1.5 rounded-md border border-white/5 text-gray-400 hover:text-white hover:border-white/15 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+          className="p-2 rounded-md border border-white/5 text-gray-400 hover:text-white hover:border-white/15 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
         >
           <ChevronLeftIcon className="w-3.5 h-3.5" />
         </button>
@@ -472,7 +472,7 @@ const Pagination = ({ page, pageSize, totalCount, hasMore, onPageChange }) => {
         <button
           onClick={() => onPageChange(page + 1)}
           disabled={!hasMore}
-          className="p-1.5 rounded-md border border-white/5 text-gray-400 hover:text-white hover:border-white/15 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+          className="p-2 rounded-md border border-white/5 text-gray-400 hover:text-white hover:border-white/15 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
         >
           <ChevronRightIcon className="w-3.5 h-3.5" />
         </button>
@@ -588,7 +588,7 @@ const HistoryDashboard = ({ onBack, initialTicker }) => {
         <div className="flex items-center space-x-3">
           <button
             onClick={onBack}
-            className="p-2 rounded-lg border border-white/5 text-gray-400 hover:text-white hover:border-white/15 transition-all"
+            className="p-2.5 rounded-lg border border-white/5 text-gray-400 hover:text-white hover:border-white/15 transition-all"
           >
             <ArrowLeftIcon className="w-4 h-4" />
           </button>
@@ -618,7 +618,7 @@ const HistoryDashboard = ({ onBack, initialTicker }) => {
                 value={tickerSearch}
                 onChange={(e) => setTickerSearch(e.target.value.toUpperCase())}
                 placeholder="Search..."
-                className="w-full pl-8 pr-3 py-1.5 bg-dark-inset border border-dark-border rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-primary/30 focus:border-primary/40 transition-all uppercase"
+                className="w-full pl-8 pr-3 py-2 bg-dark-inset border border-dark-border rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-primary/30 focus:border-primary/40 transition-all uppercase"
                 maxLength={5}
               />
             </div>
@@ -632,7 +632,7 @@ const HistoryDashboard = ({ onBack, initialTicker }) => {
                 {tickers.length === 0 ? 'No analyses found. Run an analysis first.' : 'No matching tickers.'}
               </p>
             ) : (
-              <div className="space-y-1.5 max-h-[500px] overflow-y-auto">
+              <div className="space-y-2 max-h-[500px] overflow-y-auto pr-1">
                 {filteredTickers.map((t) => (
                   <TickerChip
                     key={t.ticker}
@@ -766,18 +766,18 @@ const HistoryDashboard = ({ onBack, initialTicker }) => {
                           <div className="col-span-2">
                             <OutcomeChips outcomes={item.outcomes} />
                           </div>
-                          <div className="col-span-2 flex justify-end space-x-1">
+                          <div className="col-span-2 flex justify-end space-x-2">
                             {confirmDelete === item.id ? (
-                              <div className="flex items-center space-x-1">
+                              <div className="flex items-center space-x-2">
                                 <button
                                   onClick={() => handleDelete(item.id)}
-                                  className="text-[10px] px-2 py-1 rounded bg-danger/20 text-danger-400 hover:bg-danger/30 transition-colors"
+                                  className="text-[11px] px-2.5 py-1.5 rounded-md bg-danger/20 text-danger-400 hover:bg-danger/30 transition-colors"
                                 >
                                   Confirm
                                 </button>
                                 <button
                                   onClick={() => setConfirmDelete(null)}
-                                  className="text-[10px] px-2 py-1 rounded bg-dark-card text-gray-400 hover:text-white transition-colors"
+                                  className="text-[11px] px-2.5 py-1.5 rounded-md bg-dark-card text-gray-400 hover:text-white transition-colors"
                                 >
                                   Cancel
                                 </button>
@@ -785,7 +785,7 @@ const HistoryDashboard = ({ onBack, initialTicker }) => {
                             ) : (
                               <button
                                 onClick={() => setConfirmDelete(item.id)}
-                                className="p-1.5 rounded-md text-gray-600 hover:text-danger-400 hover:bg-danger/10 transition-all"
+                                className="p-2 rounded-md text-gray-600 hover:text-danger-400 hover:bg-danger/10 transition-all"
                                 title="Delete analysis"
                               >
                                 <TrashIcon className="w-3.5 h-3.5" />

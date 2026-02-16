@@ -220,12 +220,12 @@ const ScheduleCard = ({ schedule, onToggle, onDelete, onRunNow, onExpand, expand
           </div>
         </div>
 
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center space-x-2.5">
           {/* Run Now */}
           <button
             onClick={handleRunNow}
             disabled={running}
-            className="flex items-center space-x-1 px-2.5 py-1.5 bg-primary/15 text-accent-blue text-[11px] font-medium rounded-lg hover:bg-primary/25 disabled:opacity-40 transition-all"
+            className="flex items-center space-x-1.5 px-3 py-2 bg-primary/15 text-accent-blue text-[11px] font-medium rounded-lg hover:bg-primary/25 disabled:opacity-40 transition-all"
           >
             {running ? (
               <><LoadingSpinner size={12} /><span>Running...</span></>
@@ -240,7 +240,7 @@ const ScheduleCard = ({ schedule, onToggle, onDelete, onRunNow, onExpand, expand
           {/* Expand runs */}
           <button
             onClick={() => onExpand(schedule.id)}
-            className={`p-1.5 rounded-lg text-gray-500 hover:text-gray-300 hover:bg-white/5 transition-all ${
+            className={`p-2 rounded-lg text-gray-500 hover:text-gray-300 hover:bg-white/5 transition-all ${
               expanded ? 'rotate-180' : ''
             }`}
             title="View recent runs"
@@ -252,7 +252,7 @@ const ScheduleCard = ({ schedule, onToggle, onDelete, onRunNow, onExpand, expand
           <button
             onClick={handleDelete}
             disabled={deleting}
-            className="p-1.5 rounded-lg text-gray-600 hover:text-danger-400 hover:bg-danger/10 transition-all disabled:opacity-40"
+            className="p-2 rounded-lg text-gray-600 hover:text-danger-400 hover:bg-danger/10 transition-all disabled:opacity-40"
             title="Delete schedule"
           >
             <TrashIcon className="w-3.5 h-3.5" />
@@ -401,7 +401,7 @@ const SchedulePanel = ({ onBack }) => {
         <div className="flex items-center space-x-3">
           <button
             onClick={onBack}
-            className="p-2 rounded-lg border border-white/5 text-gray-400 hover:text-white hover:border-white/15 transition-all"
+            className="p-2.5 rounded-lg border border-white/5 text-gray-400 hover:text-white hover:border-white/15 transition-all"
           >
             <ArrowLeftIcon className="w-4 h-4" />
           </button>
@@ -420,7 +420,7 @@ const SchedulePanel = ({ onBack }) => {
         <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
           New Schedule
         </h3>
-        <form onSubmit={handleCreate} className="flex items-end space-x-3">
+        <form onSubmit={handleCreate} className="flex items-end space-x-4">
           <div className="flex-1">
             <label className="text-xs font-medium text-gray-500 mb-1 block">Ticker</label>
             <input
@@ -451,7 +451,7 @@ const SchedulePanel = ({ onBack }) => {
           <button
             type="submit"
             disabled={creating || !tickerInput.trim()}
-            className="flex items-center space-x-1.5 px-4 py-2 bg-gradient-to-r from-primary-600 to-primary hover:from-primary hover:to-primary-400 disabled:from-zinc-700 disabled:to-zinc-700 disabled:cursor-not-allowed rounded-lg text-sm font-medium transition-all"
+            className="flex items-center space-x-1.5 px-5 py-2 bg-gradient-to-r from-primary-600 to-primary hover:from-primary hover:to-primary-400 disabled:from-zinc-700 disabled:to-zinc-700 disabled:cursor-not-allowed rounded-lg text-sm font-medium transition-all"
           >
             {creating ? (
               <><LoadingSpinner size={14} /><span>Creating...</span></>

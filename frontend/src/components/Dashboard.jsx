@@ -207,7 +207,7 @@ const Dashboard = () => {
                     {/* Left: Tabbed content area */}
                     <div className="flex-1 min-w-0">
                       {/* Tab bar */}
-                      <div className="sticky top-0 z-20 bg-dark-bg/80 backdrop-blur-xl px-6 pt-3">
+                      <div className="sticky top-0 z-20 bg-dark-bg/80 backdrop-blur-xl px-6 pt-3 pb-1">
                         <AnalysisTabs
                           activeTab={activeTab}
                           onTabChange={setActiveTab}

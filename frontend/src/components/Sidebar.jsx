@@ -65,7 +65,7 @@ const Sidebar = ({ activeView, onViewChange, unacknowledgedCount = 0 }) => {
 
       {/* ─── Nav items ─── */}
       <Motion.ul
-        className="flex flex-col items-center gap-2 list-none p-0 m-0"
+        className="flex flex-col items-center gap-3 list-none p-0 m-0"
         variants={listVariants}
         initial="hidden"
         animate="visible"
@@ -73,7 +73,7 @@ const Sidebar = ({ activeView, onViewChange, unacknowledgedCount = 0 }) => {
         {NAV_ITEMS.map(({ key, label, Icon: iconComponent }) => {
           const isActive = activeView === key;
           const isAlerts = key === 'alerts';
-          const iconNode = React.createElement(iconComponent, { className: 'w-[18px] h-[18px] relative z-10' });
+          const iconNode = React.createElement(iconComponent, { className: 'w-[19px] h-[19px] relative z-10' });
 
           return (
             <Motion.li key={key} variants={itemVariants}>

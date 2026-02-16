@@ -62,7 +62,7 @@ const formatUsd = (value) => {
 const TickerRow = ({ ticker, analysis, onRemove, onAnalyze, analyzing }) => {
   const a = analysis?.latest_analysis;
   return (
-    <div className="grid grid-cols-12 gap-2 px-3 py-2.5 items-center hover:bg-white/[0.02] transition-colors rounded group">
+    <div className="grid grid-cols-12 gap-2 px-3 py-3 items-center hover:bg-white/[0.02] transition-colors rounded group">
       <div className="col-span-2">
         <span className="font-mono text-sm font-semibold">{ticker}</span>
       </div>
@@ -81,17 +81,17 @@ const TickerRow = ({ ticker, analysis, onRemove, onAnalyze, analyzing }) => {
           <span className="text-[11px] text-gray-600">—</span>
         )}
       </div>
-      <div className="col-span-3 flex justify-end space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
+      <div className="col-span-3 flex justify-end gap-2 transition-opacity">
         <button
           onClick={() => onAnalyze(ticker)}
           disabled={analyzing}
-          className="text-[10px] px-2 py-1 rounded bg-primary/15 text-accent-blue hover:bg-primary/25 transition-colors disabled:opacity-40"
+          className="text-[11px] px-2.5 py-1.5 rounded-md bg-primary/15 text-accent-blue hover:bg-primary/25 transition-colors disabled:opacity-40"
         >
           {analyzing ? 'Running...' : 'Analyze'}
         </button>
         <button
           onClick={() => onRemove(ticker)}
-          className="p-1 rounded text-gray-600 hover:text-danger-400 hover:bg-danger/10 transition-all"
+          className="p-1.5 rounded-md text-gray-600 hover:text-danger-400 hover:bg-danger/10 transition-all"
           title="Remove from watchlist"
         >
           <TrashIcon className="w-3 h-3" />
@@ -457,7 +457,7 @@ const WatchlistPanel = ({ onBack }) => {
         <div className="flex items-center space-x-3">
           <button
             onClick={onBack}
-            className="p-2 rounded-lg border border-white/5 text-gray-400 hover:text-white hover:border-white/15 transition-all"
+            className="p-2.5 rounded-lg border border-white/5 text-gray-400 hover:text-white hover:border-white/15 transition-all"
           >
             <ArrowLeftIcon className="w-4 h-4" />
           </button>
@@ -478,20 +478,20 @@ const WatchlistPanel = ({ onBack }) => {
 
             {/* Create watchlist form */}
             <form onSubmit={handleCreateWatchlist} className="mb-3">
-              <div className="flex space-x-1.5">
+              <div className="flex space-x-2">
                 <input
                   type="text"
                   value={newWatchlistName}
                   onChange={(e) => setNewWatchlistName(e.target.value)}
                   placeholder="New watchlist..."
-                  className="flex-1 px-2.5 py-1.5 bg-dark-inset border border-dark-border rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-primary/30 focus:border-primary/40 transition-all"
+                  className="flex-1 px-3 py-2 bg-dark-inset border border-dark-border rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-primary/30 focus:border-primary/40 transition-all"
                   maxLength={50}
                   disabled={creatingWatchlist}
                 />
                 <button
                   type="submit"
                   disabled={creatingWatchlist || !newWatchlistName.trim()}
-                  className="px-2.5 py-1.5 bg-primary/15 text-accent-blue text-xs rounded-md hover:bg-primary/25 disabled:opacity-40 transition-all"
+                  className="px-3 py-2 bg-primary/15 text-accent-blue text-xs rounded-md hover:bg-primary/25 disabled:opacity-40 transition-all"
                 >
                   {creatingWatchlist ? '...' : 'Add'}
                 </button>
@@ -511,10 +511,10 @@ const WatchlistPanel = ({ onBack }) => {
                 {watchlists.map((wl) => (
                   <div
                     key={wl.id}
-                    className={`flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer transition-all group ${
+                    className={`flex items-center justify-between px-3.5 py-2.5 rounded-lg cursor-pointer transition-all group ${
                       activeWatchlist === wl.id
                         ? 'bg-primary/15 border border-primary/30 text-white'
-                        : 'bg-dark-card hover:bg-dark-card-hover border border-transparent text-gray-300'
+                      : 'bg-dark-card hover:bg-dark-card-hover border border-transparent text-gray-300'
                     }`}
                     onClick={() => setActiveWatchlist(wl.id)}
                   >
@@ -527,7 +527,7 @@ const WatchlistPanel = ({ onBack }) => {
                         e.stopPropagation();
                         handleDeleteWatchlist(wl.id);
                       }}
-                      className="p-1 rounded text-gray-600 hover:text-danger-400 hover:bg-danger/10 opacity-0 group-hover:opacity-100 transition-all"
+                      className="p-1.5 rounded text-gray-600 hover:text-danger-400 hover:bg-danger/10 opacity-60 group-hover:opacity-100 transition-all"
                     >
                       <TrashIcon className="w-3 h-3" />
                     </button>
@@ -560,19 +560,19 @@ const WatchlistPanel = ({ onBack }) => {
                   </div>
                   <div className="flex items-center space-x-2">
                     {/* Add ticker form */}
-                    <form onSubmit={handleAddTicker} className="flex space-x-1.5">
+                    <form onSubmit={handleAddTicker} className="flex space-x-2">
                       <input
                         type="text"
                         value={addTickerInput}
                         onChange={(e) => setAddTickerInput(e.target.value.toUpperCase())}
                         placeholder="Add ticker..."
-                        className="w-28 px-2.5 py-1.5 bg-dark-inset border border-dark-border rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-primary/30 uppercase"
+                        className="w-32 px-3 py-2 bg-dark-inset border border-dark-border rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-primary/30 uppercase"
                         maxLength={5}
                       />
                       <button
                         type="submit"
                         disabled={!addTickerInput.trim()}
-                        className="px-2.5 py-1.5 bg-primary/15 text-accent-blue text-xs rounded-md hover:bg-primary/25 disabled:opacity-40 transition-all"
+                        className="px-3 py-2 bg-primary/15 text-accent-blue text-xs rounded-md hover:bg-primary/25 disabled:opacity-40 transition-all"
                       >
                         Add
                       </button>
@@ -581,7 +581,7 @@ const WatchlistPanel = ({ onBack }) => {
                     <button
                       onClick={handleBatchAnalyze}
                       disabled={batchRunning || (watchlistDetail.tickers?.length || 0) === 0}
-                      className="flex items-center space-x-1.5 px-3 py-1.5 bg-gradient-to-r from-primary-600 to-primary hover:from-primary hover:to-primary-400 disabled:from-zinc-700 disabled:to-zinc-700 disabled:cursor-not-allowed rounded-md text-xs font-medium transition-all"
+                      className="flex items-center space-x-1.5 px-4 py-2 bg-gradient-to-r from-primary-600 to-primary hover:from-primary hover:to-primary-400 disabled:from-zinc-700 disabled:to-zinc-700 disabled:cursor-not-allowed rounded-md text-[11px] font-medium transition-all"
                     >
                       {batchRunning ? (
                         <><LoadingSpinner size={12} /><span>Running...</span></>

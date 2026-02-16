@@ -76,10 +76,10 @@ const ContentHeader = ({
   return (
     <div className="w-full">
       {/* ── Main header row ── */}
-      <div className="flex items-center justify-between gap-4 px-6 py-3">
+      <div className="flex items-center justify-between gap-5 px-6 py-3.5">
         {/* Left side: ticker info */}
         {hasAnalysis ? (
-          <div className="flex items-center gap-3 min-w-0">
+          <div className="flex items-center gap-3.5 min-w-0">
             {/* Ticker symbol */}
             <span className="text-2xl font-bold tracking-tight text-white shrink-0">
               {ticker}
@@ -126,20 +126,20 @@ const ContentHeader = ({
         )}
 
         {/* Right side: search + run button */}
-        <form onSubmit={onAnalyze} className="flex items-center gap-2 shrink-0">
+        <form onSubmit={onAnalyze} className="flex items-center gap-2.5 shrink-0">
           <input
             type="text"
             value={tickerInput}
             onChange={(e) => setTickerInput(e.target.value.toUpperCase())}
             placeholder="TICKER"
-            className="w-28 px-3 py-1.5 bg-dark-inset border border-dark-border rounded-lg text-sm font-mono uppercase text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-accent-blue/30 focus:border-accent-blue/50 focus:shadow-[0_0_15px_rgba(0,111,238,0.15)] transition-all"
+            className="w-32 px-4 py-2 bg-dark-inset border border-dark-border rounded-lg text-sm font-mono uppercase text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-accent-blue/30 focus:border-accent-blue/50 focus:shadow-[0_0_15px_rgba(0,111,238,0.15)] transition-all"
             maxLength={5}
             disabled={loading}
           />
           <button
             type="submit"
             disabled={loading || !tickerInput.trim()}
-            className="px-4 py-1.5 bg-gradient-to-r from-primary-600 to-primary hover:from-primary hover:to-primary-400 disabled:from-zinc-700 disabled:to-zinc-700 disabled:cursor-not-allowed rounded-lg font-medium text-sm transition-all flex items-center gap-2 whitespace-nowrap"
+            className="px-5 py-2 bg-gradient-to-r from-primary-600 to-primary hover:from-primary hover:to-primary-400 disabled:from-zinc-700 disabled:to-zinc-700 disabled:cursor-not-allowed rounded-lg font-medium text-sm transition-all flex items-center gap-2 whitespace-nowrap"
           >
             {loading ? (
               <>

@@ -259,30 +259,38 @@ code {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 40px;
-  border-radius: 10px;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  border: 1px solid transparent;
   color: var(--text-muted);
   cursor: pointer;
-  transition: color 0.2s ease, background-color 0.2s ease, transform 0.15s ease;
+  transition: color 0.2s ease, background-color 0.2s ease, border-color 0.2s ease, transform 0.15s ease;
   position: relative;
 }
 
 .sidebar-nav-item:hover {
   color: var(--text-secondary);
   background-color: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.1);
   transform: scale(1.05);
 }
 
 .sidebar-nav-item.active {
   color: var(--accent-blue);
   background-color: var(--bg-sidebar-active);
+  border-color: rgba(0, 111, 238, 0.35);
+}
+
+.sidebar-nav-item:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(0, 111, 238, 0.35);
 }
 
 .sidebar-nav-item.active::before {
   content: '';
   position: absolute;
-  left: -12px;
+  left: -10px;
   top: 50%;
   transform: translateY(-50%);
   width: 3px;

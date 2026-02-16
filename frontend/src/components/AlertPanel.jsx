@@ -128,7 +128,7 @@ const RuleCard = ({ rule, onToggle, onDelete }) => {
           <button
             onClick={handleDelete}
             disabled={deleting}
-            className="p-1.5 rounded-lg text-gray-600 hover:text-danger-400 hover:bg-danger/10 transition-all disabled:opacity-40"
+            className="p-2 rounded-lg text-gray-600 hover:text-danger-400 hover:bg-danger/10 transition-all disabled:opacity-40"
             title="Delete rule"
           >
             <TrashIcon className="w-3.5 h-3.5" />
@@ -153,7 +153,7 @@ const NotificationRow = ({ notification, onAcknowledge }) => {
 
   return (
     <div
-      className={`flex items-center justify-between px-4 py-3 rounded-lg transition-all ${
+      className={`flex items-center justify-between px-4 py-3.5 rounded-lg transition-all ${
         notification.acknowledged ? 'opacity-50' : 'glass-card-elevated'
       }`}
     >
@@ -214,7 +214,7 @@ const NotificationRow = ({ notification, onAcknowledge }) => {
         <button
           onClick={handleAck}
           disabled={acknowledging}
-          className="flex items-center space-x-1 px-2 py-1 text-[10px] font-medium text-success-400 bg-success/10 border border-success/20 rounded hover:bg-success/20 transition-all disabled:opacity-40 ml-2"
+          className="flex items-center space-x-1.5 px-2.5 py-1.5 text-[11px] font-medium text-success-400 bg-success/10 border border-success/20 rounded-md hover:bg-success/20 transition-all disabled:opacity-40 ml-2"
         >
           {acknowledging ? (
             <LoadingSpinner size={10} />
@@ -337,7 +337,7 @@ const AlertPanel = ({ onBack }) => {
         <div className="flex items-center space-x-3">
           <button
             onClick={onBack}
-            className="p-2 rounded-lg border border-white/5 text-gray-400 hover:text-white hover:border-white/15 transition-all"
+            className="p-2.5 rounded-lg border border-white/5 text-gray-400 hover:text-white hover:border-white/15 transition-all"
           >
             <ArrowLeftIcon className="w-4 h-4" />
           </button>
@@ -356,8 +356,8 @@ const AlertPanel = ({ onBack }) => {
         <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
           New Alert Rule
         </h3>
-        <form onSubmit={handleCreate} className="flex items-end space-x-3">
-          <div className="w-28">
+        <form onSubmit={handleCreate} className="flex items-end space-x-4">
+          <div className="w-32">
             <label className="text-xs font-medium text-gray-500 mb-1 block">Ticker</label>
             <input
               type="text"
@@ -385,7 +385,7 @@ const AlertPanel = ({ onBack }) => {
             </select>
           </div>
           {needsThreshold && (
-            <div className="w-28">
+            <div className="w-32">
               <label className="text-xs font-medium text-gray-500 mb-1 block">Threshold</label>
               <input
                 type="number"
@@ -407,7 +407,7 @@ const AlertPanel = ({ onBack }) => {
           <button
             type="submit"
             disabled={creating || !tickerInput.trim() || (needsThreshold && threshold === '')}
-            className="flex items-center space-x-1.5 px-4 py-2 bg-gradient-to-r from-primary-600 to-primary hover:from-primary hover:to-primary-400 disabled:from-zinc-700 disabled:to-zinc-700 disabled:cursor-not-allowed rounded-lg text-sm font-medium transition-all"
+            className="flex items-center space-x-1.5 px-5 py-2 bg-gradient-to-r from-primary-600 to-primary hover:from-primary hover:to-primary-400 disabled:from-zinc-700 disabled:to-zinc-700 disabled:cursor-not-allowed rounded-lg text-sm font-medium transition-all"
           >
             {creating ? (
               <><LoadingSpinner size={14} /><span>Creating...</span></>
@@ -455,7 +455,7 @@ const AlertPanel = ({ onBack }) => {
           </h3>
           <button
             onClick={() => setShowUnacknowledgedOnly((prev) => !prev)}
-            className={`text-[11px] font-medium px-2.5 py-1 rounded-lg border transition-all ${
+            className={`text-[11px] font-medium px-3 py-1.5 rounded-lg border transition-all ${
               showUnacknowledgedOnly
                 ? 'bg-warning/15 text-warning-400 border-warning/25'
                 : 'text-gray-500 border-white/5 hover:text-gray-300'

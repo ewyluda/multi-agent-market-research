@@ -147,9 +147,9 @@ const AgentPipelineBar = () => {
   const isComplete = !loading && analysis;
 
   return (
-    <div className="glass-card rounded-xl px-4 py-3">
+    <div className="glass-card rounded-xl px-5 py-3.5">
       {/* Header row with title and toggle */}
-      <div className="flex items-center justify-between mb-0">
+      <div className="flex items-center justify-between mb-0.5">
         <div className="flex items-center gap-2">
           <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
             Pipeline
@@ -174,10 +174,10 @@ const AgentPipelineBar = () => {
           )}
 
           {/* Collapse toggle - only show after completion */}
-        {isComplete && (
+          {isComplete && (
           <button
             onClick={() => setExpanded((prev) => !prev)}
-            className="text-[10px] text-gray-500 hover:text-gray-300 transition-colors flex items-center gap-0.5"
+            className="text-[10px] text-gray-500 hover:text-gray-300 transition-colors flex items-center gap-1 px-2 py-1 rounded-md hover:bg-white/[0.03]"
           >
             Pipeline
             <span
@@ -203,7 +203,7 @@ const AgentPipelineBar = () => {
             className="overflow-hidden"
           >
             <Motion.div
-              className="flex items-center justify-between gap-2 pt-3"
+              className="flex items-center justify-between gap-3 pt-3.5"
               variants={containerVariants}
               initial="hidden"
               animate="visible"
@@ -217,11 +217,11 @@ const AgentPipelineBar = () => {
                   <Motion.div
                     key={agent.id}
                     variants={itemVariants}
-                    className="group relative flex flex-col items-center gap-1 flex-1 min-w-0"
+                    className="group relative flex flex-col items-center gap-1.5 flex-1 min-w-0 px-1"
                   >
                     {/* Icon + status */}
                     <div
-                      className={`relative flex items-center justify-center w-9 h-9 rounded-lg transition-all ${
+                      className={`relative flex items-center justify-center w-10 h-10 rounded-lg transition-all ${
                         status === 'running'
                           ? 'bg-primary/10 ring-1 ring-primary/20'
                           : 'hover:bg-white/[0.03]'
@@ -239,7 +239,7 @@ const AgentPipelineBar = () => {
 
                     {/* Label */}
                     <span
-                      className={`text-[10px] font-medium tracking-wide ${
+                      className={`text-[11px] font-medium tracking-wide ${
                         status === 'running'
                           ? 'text-primary-400'
                           : status === 'success'
