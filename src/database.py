@@ -51,6 +51,17 @@ class DatabaseManager:
                     overall_sentiment_score REAL,
                     solution_agent_reasoning TEXT,
                     duration_seconds REAL,
+                    score REAL,
+                    decision_card TEXT,
+                    change_summary TEXT,
+                    analysis_payload TEXT,
+                    analysis_schema_version TEXT NOT NULL DEFAULT 'v1',
+                    signal_contract_v2 TEXT,
+                    ev_score_7d REAL,
+                    confidence_calibrated REAL,
+                    data_quality_score REAL,
+                    regime_label TEXT,
+                    rationale_summary TEXT,
                     UNIQUE(ticker, timestamp)
                 )
             """)
@@ -177,6 +188,9 @@ class DatabaseManager:
                     max_position_pct REAL NOT NULL DEFAULT 0.10,
                     max_sector_pct REAL NOT NULL DEFAULT 0.30,
                     risk_budget_pct REAL NOT NULL DEFAULT 1.00,
+                    target_portfolio_beta REAL NOT NULL DEFAULT 1.00,
+                    max_turnover_pct REAL NOT NULL DEFAULT 0.15,
+                    default_transaction_cost_bps REAL NOT NULL DEFAULT 10.00,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 )
@@ -228,6 +242,11 @@ class DatabaseManager:
                     predicted_up_probability REAL,
                     confidence REAL,
                     brier_component REAL,
+                    transaction_cost_bps REAL,
+                    slippage_bps REAL,
+                    realized_return_net_pct REAL,
+                    max_drawdown_pct REAL,
+                    utility_score REAL,
                     status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','complete','skipped')),
                     evaluated_at TEXT,
                     created_at TEXT NOT NULL,
@@ -247,10 +266,30 @@ class DatabaseManager:
                     avg_realized_return_pct REAL,
                     mean_confidence REAL,
                     brier_score REAL NOT NULL,
+                    mean_net_return_pct REAL,
+                    mean_drawdown_pct REAL,
+                    utility_mean REAL,
                     created_at TEXT NOT NULL,
                     UNIQUE(as_of_date, horizon_days)
                 )
             """)
+
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS confidence_reliability_bins (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    as_of_date TEXT NOT NULL,
+                    horizon_days INTEGER NOT NULL CHECK (horizon_days IN (1,7,30)),
+                    bin_index INTEGER NOT NULL,
+                    bin_lower REAL NOT NULL,
+                    bin_upper REAL NOT NULL,
+                    sample_size INTEGER NOT NULL,
+                    empirical_hit_rate REAL NOT NULL,
+                    created_at TEXT NOT NULL,
+                    UNIQUE(as_of_date, horizon_days, bin_index)
+                )
+                """
+            )
 
             # Alert rules
             cursor.execute("""
@@ -262,7 +301,12 @@ class DatabaseManager:
                         'score_above',
                         'score_below',
                         'confidence_above',
-                        'confidence_below'
+                        'confidence_below',
+                        'ev_above',
+                        'ev_below',
+                        'regime_change',
+                        'data_quality_below',
+                        'calibration_drop'
                     )),
                     threshold REAL,
                     enabled BOOLEAN DEFAULT 1,
@@ -293,6 +337,13 @@ class DatabaseManager:
             self._ensure_column(cursor, "analyses", "decision_card", "TEXT")
             self._ensure_column(cursor, "analyses", "change_summary", "TEXT")
             self._ensure_column(cursor, "analyses", "analysis_payload", "TEXT")
+            self._ensure_column(cursor, "analyses", "analysis_schema_version", "TEXT NOT NULL DEFAULT 'v1'")
+            self._ensure_column(cursor, "analyses", "signal_contract_v2", "TEXT")
+            self._ensure_column(cursor, "analyses", "ev_score_7d", "REAL")
+            self._ensure_column(cursor, "analyses", "confidence_calibrated", "REAL")
+            self._ensure_column(cursor, "analyses", "data_quality_score", "REAL")
+            self._ensure_column(cursor, "analyses", "regime_label", "TEXT")
+            self._ensure_column(cursor, "analyses", "rationale_summary", "TEXT")
             self._ensure_column(cursor, "alert_notifications", "trigger_context", "TEXT")
             self._ensure_column(cursor, "alert_notifications", "change_summary", "TEXT")
             self._ensure_column(cursor, "alert_notifications", "suggested_action", "TEXT")
@@ -304,6 +355,9 @@ class DatabaseManager:
             self._ensure_column(cursor, "portfolio_profile", "max_position_pct", "REAL NOT NULL DEFAULT 0.10")
             self._ensure_column(cursor, "portfolio_profile", "max_sector_pct", "REAL NOT NULL DEFAULT 0.30")
             self._ensure_column(cursor, "portfolio_profile", "risk_budget_pct", "REAL NOT NULL DEFAULT 1.00")
+            self._ensure_column(cursor, "portfolio_profile", "target_portfolio_beta", "REAL NOT NULL DEFAULT 1.00")
+            self._ensure_column(cursor, "portfolio_profile", "max_turnover_pct", "REAL NOT NULL DEFAULT 0.15")
+            self._ensure_column(cursor, "portfolio_profile", "default_transaction_cost_bps", "REAL NOT NULL DEFAULT 10.00")
             self._ensure_column(cursor, "portfolio_holdings", "sector", "TEXT")
             self._ensure_column(cursor, "portfolio_holdings", "beta", "REAL")
             self._ensure_column(cursor, "macro_catalyst_events", "source", "TEXT NOT NULL DEFAULT 'seeded'")
@@ -312,6 +366,14 @@ class DatabaseManager:
             self._ensure_column(cursor, "analysis_outcomes", "confidence", "REAL")
             self._ensure_column(cursor, "analysis_outcomes", "brier_component", "REAL")
             self._ensure_column(cursor, "analysis_outcomes", "status", "TEXT NOT NULL DEFAULT 'pending'")
+            self._ensure_column(cursor, "analysis_outcomes", "transaction_cost_bps", "REAL")
+            self._ensure_column(cursor, "analysis_outcomes", "slippage_bps", "REAL")
+            self._ensure_column(cursor, "analysis_outcomes", "realized_return_net_pct", "REAL")
+            self._ensure_column(cursor, "analysis_outcomes", "max_drawdown_pct", "REAL")
+            self._ensure_column(cursor, "analysis_outcomes", "utility_score", "REAL")
+            self._ensure_column(cursor, "calibration_snapshots", "mean_net_return_pct", "REAL")
+            self._ensure_column(cursor, "calibration_snapshots", "mean_drawdown_pct", "REAL")
+            self._ensure_column(cursor, "calibration_snapshots", "utility_mean", "REAL")
 
             # Create indexes for performance
             cursor.execute("""
@@ -362,8 +424,15 @@ class DatabaseManager:
                 CREATE INDEX IF NOT EXISTS idx_calibration_snapshots_horizon
                 ON calibration_snapshots(horizon_days, as_of_date DESC)
             """)
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_confidence_reliability_bins_horizon
+                ON confidence_reliability_bins(horizon_days, as_of_date DESC, bin_index ASC)
+                """
+            )
 
             # Ensure singleton portfolio profile exists and seed macro events.
+            self._ensure_alert_rule_schema(cursor)
             self._ensure_portfolio_profile_row(cursor)
             self._seed_macro_events_from_repo(cursor)
 
@@ -373,6 +442,68 @@ class DatabaseManager:
         existing = {row[1] for row in cursor.fetchall()}
         if column_name not in existing:
             cursor.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_def}")
+
+    def _ensure_alert_rule_schema(self, cursor: sqlite3.Cursor):
+        """Rebuild alert_rules table if legacy CHECK constraint lacks v2 rule types."""
+        cursor.execute(
+            """
+            SELECT sql
+            FROM sqlite_master
+            WHERE type = 'table'
+              AND name = 'alert_rules'
+            """
+        )
+        row = cursor.fetchone()
+        create_sql = str((row or [None])[0] or "").lower()
+        if "ev_above" in create_sql and "regime_change" in create_sql and "calibration_drop" in create_sql:
+            return
+
+        cursor.execute("ALTER TABLE alert_rules RENAME TO alert_rules_old")
+        cursor.execute(
+            """
+            CREATE TABLE alert_rules (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ticker TEXT NOT NULL,
+                rule_type TEXT NOT NULL CHECK(rule_type IN (
+                    'recommendation_change',
+                    'score_above',
+                    'score_below',
+                    'confidence_above',
+                    'confidence_below',
+                    'ev_above',
+                    'ev_below',
+                    'regime_change',
+                    'data_quality_below',
+                    'calibration_drop'
+                )),
+                threshold REAL,
+                enabled BOOLEAN DEFAULT 1,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        cursor.execute(
+            """
+            INSERT INTO alert_rules (id, ticker, rule_type, threshold, enabled, created_at, updated_at)
+            SELECT id, ticker, rule_type, threshold, enabled, created_at, updated_at
+            FROM alert_rules_old
+            WHERE rule_type IN (
+                'recommendation_change',
+                'score_above',
+                'score_below',
+                'confidence_above',
+                'confidence_below'
+            )
+            """
+        )
+        cursor.execute("DROP TABLE alert_rules_old")
+        cursor.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_alert_rules_ticker
+            ON alert_rules(ticker)
+            """
+        )
 
     def _ensure_portfolio_profile_row(self, cursor: sqlite3.Cursor):
         """Create singleton portfolio profile row when missing."""
@@ -384,9 +515,11 @@ class DatabaseManager:
         cursor.execute(
             """
             INSERT INTO portfolio_profile (
-                id, name, base_currency, max_position_pct, max_sector_pct, risk_budget_pct, created_at, updated_at
+                id, name, base_currency, max_position_pct, max_sector_pct, risk_budget_pct,
+                target_portfolio_beta, max_turnover_pct, default_transaction_cost_bps,
+                created_at, updated_at
             )
-            VALUES (1, 'Primary', 'USD', 0.10, 0.30, 1.00, ?, ?)
+            VALUES (1, 'Primary', 'USD', 0.10, 0.30, 1.00, 1.00, 0.15, 10.00, ?, ?)
             """,
             (now, now),
         )
@@ -457,7 +590,10 @@ class DatabaseManager:
 
     def _hydrate_analysis_record(self, record: Dict[str, Any]) -> Dict[str, Any]:
         """Decode analysis JSON fields and attach a normalized nested `analysis` payload."""
-        self._deserialize_json_fields(record, ["decision_card", "change_summary", "analysis_payload"])
+        self._deserialize_json_fields(
+            record,
+            ["decision_card", "change_summary", "analysis_payload", "signal_contract_v2"],
+        )
 
         payload = record.get("analysis_payload")
         normalized = dict(payload) if isinstance(payload, dict) else {}
@@ -472,6 +608,20 @@ class DatabaseManager:
         if record.get("change_summary"):
             normalized.setdefault("changes_since_last_run", record.get("change_summary"))
             normalized.setdefault("change_summary", record.get("change_summary"))
+        if record.get("signal_contract_v2") and not normalized.get("signal_contract_v2"):
+            normalized["signal_contract_v2"] = record.get("signal_contract_v2")
+        if record.get("analysis_schema_version"):
+            normalized.setdefault("analysis_schema_version", record.get("analysis_schema_version"))
+        if record.get("ev_score_7d") is not None and normalized.get("ev_score_7d") is None:
+            normalized["ev_score_7d"] = record.get("ev_score_7d")
+        if record.get("confidence_calibrated") is not None and normalized.get("confidence_calibrated") is None:
+            normalized["confidence_calibrated"] = record.get("confidence_calibrated")
+        if record.get("data_quality_score") is not None and normalized.get("data_quality_score") is None:
+            normalized["data_quality_score"] = record.get("data_quality_score")
+        if record.get("regime_label") and not normalized.get("regime_label"):
+            normalized["regime_label"] = record.get("regime_label")
+        if record.get("rationale_summary") and not normalized.get("rationale_summary"):
+            normalized["rationale_summary"] = record.get("rationale_summary")
 
         record["analysis"] = normalized
         return record
@@ -494,9 +644,12 @@ class DatabaseManager:
                 status,
                 target_date,
                 realized_return_pct,
+                realized_return_net_pct,
                 direction_correct,
                 brier_component,
                 predicted_up_probability,
+                max_drawdown_pct,
+                utility_score,
                 evaluated_at
             FROM analysis_outcomes
             WHERE analysis_id IN ({placeholders})
@@ -513,9 +666,12 @@ class DatabaseManager:
                 "status": row.get("status"),
                 "target_date": row.get("target_date"),
                 "realized_return_pct": row.get("realized_return_pct"),
+                "realized_return_net_pct": row.get("realized_return_net_pct"),
                 "direction_correct": row.get("direction_correct"),
                 "brier_component": row.get("brier_component"),
                 "predicted_up_probability": row.get("predicted_up_probability"),
+                "max_drawdown_pct": row.get("max_drawdown_pct"),
+                "utility_score": row.get("utility_score"),
                 "evaluated_at": row.get("evaluated_at"),
             }
 
@@ -536,6 +692,13 @@ class DatabaseManager:
         decision_card: Optional[Dict[str, Any]] = None,
         change_summary: Optional[Dict[str, Any]] = None,
         analysis_payload: Optional[Dict[str, Any]] = None,
+        analysis_schema_version: str = "v1",
+        signal_contract_v2: Optional[Dict[str, Any]] = None,
+        ev_score_7d: Optional[float] = None,
+        confidence_calibrated: Optional[float] = None,
+        data_quality_score: Optional[float] = None,
+        regime_label: Optional[str] = None,
+        rationale_summary: Optional[str] = None,
     ) -> int:
         """
         Insert a new analysis record.
@@ -551,6 +714,13 @@ class DatabaseManager:
             decision_card: Structured decision output
             change_summary: Delta vs previous run
             analysis_payload: Full synthesized analysis JSON
+            analysis_schema_version: Analysis schema version marker
+            signal_contract_v2: Deterministic signal contract payload
+            ev_score_7d: Expected-value score at 7-day horizon
+            confidence_calibrated: Reliability-calibrated confidence
+            data_quality_score: Data quality score (0-100)
+            regime_label: risk_on/risk_off/transition regime label
+            rationale_summary: concise rationale summary text
 
         Returns:
             ID of inserted analysis
@@ -561,13 +731,16 @@ class DatabaseManager:
             decision_card_json = json.dumps(decision_card) if decision_card is not None else None
             change_summary_json = json.dumps(change_summary) if change_summary is not None else None
             analysis_payload_json = json.dumps(analysis_payload) if analysis_payload is not None else None
+            signal_contract_v2_json = json.dumps(signal_contract_v2) if signal_contract_v2 is not None else None
 
             cursor.execute("""
                 INSERT INTO analyses (
                     ticker, timestamp, recommendation, confidence_score,
                     overall_sentiment_score, solution_agent_reasoning, duration_seconds,
-                    score, decision_card, change_summary, analysis_payload
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    score, decision_card, change_summary, analysis_payload,
+                    analysis_schema_version, signal_contract_v2, ev_score_7d,
+                    confidence_calibrated, data_quality_score, regime_label, rationale_summary
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 ticker,
                 timestamp,
@@ -580,6 +753,13 @@ class DatabaseManager:
                 decision_card_json,
                 change_summary_json,
                 analysis_payload_json,
+                analysis_schema_version or "v1",
+                signal_contract_v2_json,
+                ev_score_7d,
+                confidence_calibrated,
+                data_quality_score,
+                regime_label,
+                rationale_summary,
             ))
 
             return cursor.lastrowid
@@ -799,6 +979,167 @@ class DatabaseManager:
             rows = cursor.fetchall()
             return [self._hydrate_analysis_record(dict(row)) for row in rows]
 
+    def list_analyses_for_signal_contract_backfill(
+        self,
+        *,
+        since_timestamp: str,
+        last_id: int = 0,
+        batch_size: int = 200,
+    ) -> List[Dict[str, Any]]:
+        """List candidate analysis rows for signal_contract_v2 backfill in ID order."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT
+                    id,
+                    ticker,
+                    timestamp,
+                    recommendation,
+                    confidence_score,
+                    score,
+                    decision_card,
+                    change_summary,
+                    rationale_summary,
+                    solution_agent_reasoning,
+                    analysis_schema_version,
+                    signal_contract_v2,
+                    analysis_payload
+                FROM analyses
+                WHERE timestamp >= ?
+                  AND id > ?
+                ORDER BY id ASC
+                LIMIT ?
+                """,
+                (since_timestamp, int(last_id), int(batch_size)),
+            )
+            rows = [dict(row) for row in cursor.fetchall()]
+            for row in rows:
+                self._deserialize_json_fields(
+                    row,
+                    ["signal_contract_v2", "analysis_payload", "decision_card", "change_summary"],
+                )
+            return rows
+
+    def get_agent_results_map(self, analysis_id: int) -> Dict[str, Dict[str, Any]]:
+        """Get analysis agent results as an orchestrator-compatible map."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT agent_type, success, data, error, duration_seconds
+                FROM agent_results
+                WHERE analysis_id = ?
+                """,
+                (analysis_id,),
+            )
+            rows = cursor.fetchall()
+
+            mapped: Dict[str, Dict[str, Any]] = {}
+            for row in rows:
+                raw_data = row["data"]
+                parsed_data: Dict[str, Any] = {}
+                if raw_data:
+                    try:
+                        value = json.loads(raw_data)
+                        if isinstance(value, dict):
+                            parsed_data = value
+                    except (json.JSONDecodeError, TypeError):
+                        parsed_data = {}
+
+                mapped[str(row["agent_type"])] = {
+                    "success": bool(row["success"]),
+                    "data": parsed_data,
+                    "error": row["error"],
+                    "duration_seconds": float(row["duration_seconds"] or 0.0),
+                    "agent_type": str(row["agent_type"]),
+                }
+
+            return mapped
+
+    def update_analysis_signal_contract_v2(
+        self,
+        *,
+        analysis_id: int,
+        signal_contract_v2: Dict[str, Any],
+        analysis_schema_version: str = "v2",
+        ev_score_7d: Optional[float] = None,
+        confidence_calibrated: Optional[float] = None,
+        data_quality_score: Optional[float] = None,
+        regime_label: Optional[str] = None,
+        rationale_summary: Optional[str] = None,
+        merge_into_payload: bool = True,
+    ) -> bool:
+        """
+        Persist signal_contract_v2 backfill fields.
+
+        This is additive and preserves legacy payload keys.
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT analysis_payload
+                FROM analyses
+                WHERE id = ?
+                """,
+                (analysis_id,),
+            )
+            row = cursor.fetchone()
+            if not row:
+                return False
+
+            analysis_payload_json: Optional[str] = None
+            if merge_into_payload:
+                payload: Dict[str, Any] = {}
+                raw_payload = row["analysis_payload"]
+                if isinstance(raw_payload, str) and raw_payload:
+                    try:
+                        parsed = json.loads(raw_payload)
+                        if isinstance(parsed, dict):
+                            payload = parsed
+                    except (json.JSONDecodeError, TypeError):
+                        payload = {}
+                elif isinstance(raw_payload, dict):
+                    payload = dict(raw_payload)
+
+                payload["analysis_schema_version"] = analysis_schema_version or "v2"
+                payload["signal_contract_v2"] = signal_contract_v2
+                payload["ev_score_7d"] = ev_score_7d
+                payload["confidence_calibrated"] = confidence_calibrated
+                payload["data_quality_score"] = data_quality_score
+                payload["regime_label"] = regime_label
+                if rationale_summary is not None:
+                    payload["rationale_summary"] = rationale_summary
+                analysis_payload_json = json.dumps(payload)
+
+            cursor.execute(
+                """
+                UPDATE analyses
+                SET analysis_schema_version = ?,
+                    signal_contract_v2 = ?,
+                    ev_score_7d = ?,
+                    confidence_calibrated = ?,
+                    data_quality_score = ?,
+                    regime_label = ?,
+                    rationale_summary = ?,
+                    analysis_payload = COALESCE(?, analysis_payload)
+                WHERE id = ?
+                """,
+                (
+                    analysis_schema_version or "v2",
+                    json.dumps(signal_contract_v2) if signal_contract_v2 is not None else None,
+                    ev_score_7d,
+                    confidence_calibrated,
+                    data_quality_score,
+                    regime_label,
+                    rationale_summary,
+                    analysis_payload_json,
+                    analysis_id,
+                ),
+            )
+            return cursor.rowcount > 0
+
     def get_cached_price_data(
         self,
         ticker: str,
@@ -841,6 +1182,12 @@ class DatabaseManager:
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
         recommendation: Optional[str] = None,
+        min_ev_score: Optional[float] = None,
+        max_ev_score: Optional[float] = None,
+        min_confidence_calibrated: Optional[float] = None,
+        max_confidence_calibrated: Optional[float] = None,
+        min_data_quality_score: Optional[float] = None,
+        regime_label: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Get paginated, filtered analysis history for a ticker.
@@ -871,6 +1218,24 @@ class DatabaseManager:
             if recommendation:
                 conditions.append("recommendation = ?")
                 params.append(recommendation.upper())
+            if min_ev_score is not None:
+                conditions.append("ev_score_7d >= ?")
+                params.append(float(min_ev_score))
+            if max_ev_score is not None:
+                conditions.append("ev_score_7d <= ?")
+                params.append(float(max_ev_score))
+            if min_confidence_calibrated is not None:
+                conditions.append("confidence_calibrated >= ?")
+                params.append(float(min_confidence_calibrated))
+            if max_confidence_calibrated is not None:
+                conditions.append("confidence_calibrated <= ?")
+                params.append(float(max_confidence_calibrated))
+            if min_data_quality_score is not None:
+                conditions.append("data_quality_score >= ?")
+                params.append(float(min_data_quality_score))
+            if regime_label:
+                conditions.append("regime_label = ?")
+                params.append(str(regime_label))
 
             where_clause = " AND ".join(conditions)
 
@@ -1074,6 +1439,76 @@ class DatabaseManager:
                 })
             return results
 
+    def get_watchlist_opportunities(
+        self,
+        watchlist_id: int,
+        limit: int = 20,
+        min_quality: Optional[float] = None,
+        min_ev: Optional[float] = None,
+    ) -> List[Dict[str, Any]]:
+        """Get ranked watchlist opportunities from latest per-ticker analysis rows."""
+        analyses = self.get_watchlist_latest_analyses(watchlist_id)
+        opportunities: List[Dict[str, Any]] = []
+        for item in analyses:
+            ticker = item.get("ticker")
+            latest = item.get("latest_analysis")
+            if not ticker or not latest:
+                continue
+
+            analysis_payload = latest.get("analysis") or latest.get("analysis_payload") or {}
+            signal = analysis_payload.get("signal_contract_v2")
+            if not isinstance(signal, dict):
+                signal = latest.get("signal_contract_v2") if isinstance(latest.get("signal_contract_v2"), dict) else None
+            if not signal:
+                continue
+
+            ev_score = signal.get("ev_score_7d")
+            quality_score = ((signal.get("risk") or {}).get("data_quality_score")) if isinstance(signal.get("risk"), dict) else None
+            confidence_calibrated = ((signal.get("confidence") or {}).get("calibrated")) if isinstance(signal.get("confidence"), dict) else None
+            liquidity = signal.get("liquidity") if isinstance(signal.get("liquidity"), dict) else {}
+            capacity_usd = liquidity.get("capacity_usd")
+            recommended_action = ((analysis_payload.get("portfolio_action_v2") or {}).get("recommended_action")) or (
+                (analysis_payload.get("portfolio_action") or {}).get("action")
+            )
+
+            try:
+                ev_score_num = float(ev_score) if ev_score is not None else None
+            except (TypeError, ValueError):
+                ev_score_num = None
+            try:
+                quality_num = float(quality_score) if quality_score is not None else None
+            except (TypeError, ValueError):
+                quality_num = None
+
+            if min_ev is not None and (ev_score_num is None or ev_score_num < float(min_ev)):
+                continue
+            if min_quality is not None and (quality_num is None or quality_num < float(min_quality)):
+                continue
+
+            opportunities.append(
+                {
+                    "ticker": ticker,
+                    "analysis_id": latest.get("id"),
+                    "timestamp": latest.get("timestamp"),
+                    "recommendation": signal.get("recommendation") or latest.get("recommendation"),
+                    "ev_score_7d": ev_score_num,
+                    "confidence_calibrated": confidence_calibrated,
+                    "data_quality_score": quality_num,
+                    "capacity_usd": capacity_usd,
+                    "regime_label": ((signal.get("risk") or {}).get("regime_label")) if isinstance(signal.get("risk"), dict) else None,
+                    "recommended_action": recommended_action,
+                }
+            )
+
+        opportunities.sort(
+            key=lambda row: (
+                -float(row.get("ev_score_7d") or -9999.0),
+                -float(row.get("confidence_calibrated") or -9999.0),
+                -float(row.get("data_quality_score") or -9999.0),
+            )
+        )
+        return opportunities[: max(1, int(limit))]
+
     # ─── Portfolio Methods ──────────────────────────────────────────────
 
     def get_portfolio_profile(self) -> Dict[str, Any]:
@@ -1092,6 +1527,9 @@ class DatabaseManager:
         max_position_pct: Optional[float] = None,
         max_sector_pct: Optional[float] = None,
         risk_budget_pct: Optional[float] = None,
+        target_portfolio_beta: Optional[float] = None,
+        max_turnover_pct: Optional[float] = None,
+        default_transaction_cost_bps: Optional[float] = None,
     ) -> Dict[str, Any]:
         """Update singleton portfolio profile and return latest values."""
         with self.get_connection() as conn:
@@ -1107,12 +1545,22 @@ class DatabaseManager:
                 "max_position_pct": max_position_pct if max_position_pct is not None else current.get("max_position_pct"),
                 "max_sector_pct": max_sector_pct if max_sector_pct is not None else current.get("max_sector_pct"),
                 "risk_budget_pct": risk_budget_pct if risk_budget_pct is not None else current.get("risk_budget_pct"),
+                "target_portfolio_beta": (
+                    target_portfolio_beta if target_portfolio_beta is not None else current.get("target_portfolio_beta")
+                ),
+                "max_turnover_pct": max_turnover_pct if max_turnover_pct is not None else current.get("max_turnover_pct"),
+                "default_transaction_cost_bps": (
+                    default_transaction_cost_bps
+                    if default_transaction_cost_bps is not None
+                    else current.get("default_transaction_cost_bps")
+                ),
                 "updated_at": now,
             }
             cursor.execute(
                 """
                 UPDATE portfolio_profile
-                SET name = ?, base_currency = ?, max_position_pct = ?, max_sector_pct = ?, risk_budget_pct = ?, updated_at = ?
+                SET name = ?, base_currency = ?, max_position_pct = ?, max_sector_pct = ?, risk_budget_pct = ?,
+                    target_portfolio_beta = ?, max_turnover_pct = ?, default_transaction_cost_bps = ?, updated_at = ?
                 WHERE id = 1
                 """,
                 (
@@ -1121,6 +1569,9 @@ class DatabaseManager:
                     values["max_position_pct"],
                     values["max_sector_pct"],
                     values["risk_budget_pct"],
+                    values["target_portfolio_beta"],
+                    values["max_turnover_pct"],
+                    values["default_transaction_cost_bps"],
                     values["updated_at"],
                 ),
             )
@@ -1144,7 +1595,7 @@ class DatabaseManager:
         ticker: str,
         shares: float,
         avg_cost: Optional[float],
-        market_value: float,
+        market_value: Optional[float],
         sector: Optional[str] = None,
         beta: Optional[float] = None,
     ) -> Dict[str, Any]:
@@ -1163,7 +1614,7 @@ class DatabaseManager:
                     ticker.upper(),
                     float(shares),
                     float(avg_cost) if avg_cost is not None else None,
-                    float(market_value),
+                    float(market_value) if market_value is not None else 0.0,
                     sector,
                     float(beta) if beta is not None else None,
                     now,
@@ -1364,6 +1815,8 @@ class DatabaseManager:
         baseline_price: float,
         confidence: Optional[float],
         predicted_up_probability: Optional[float],
+        transaction_cost_bps: Optional[float] = None,
+        slippage_bps: Optional[float] = None,
     ) -> int:
         """Create pending 1d/7d/30d outcome rows for an analysis."""
         try:
@@ -1408,9 +1861,9 @@ class DatabaseManager:
                     """
                     INSERT OR IGNORE INTO analysis_outcomes (
                         analysis_id, ticker, horizon_days, target_date, baseline_price,
-                        predicted_up_probability, confidence, status, created_at
+                        predicted_up_probability, confidence, transaction_cost_bps, slippage_bps, status, created_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
                     """,
                     (
                         analysis_id,
@@ -1420,6 +1873,8 @@ class DatabaseManager:
                         baseline,
                         pred_prob,
                         conf_val,
+                        transaction_cost_bps,
+                        slippage_bps,
                         now,
                     ),
                 )
@@ -1453,9 +1908,12 @@ class DatabaseManager:
         *,
         realized_price: Optional[float] = None,
         realized_return_pct: Optional[float] = None,
+        realized_return_net_pct: Optional[float] = None,
         direction_correct: Optional[bool] = None,
         outcome_up: Optional[bool] = None,
         brier_component: Optional[float] = None,
+        max_drawdown_pct: Optional[float] = None,
+        utility_score: Optional[float] = None,
         status: str = "complete",
         evaluated_at: Optional[str] = None,
     ) -> bool:
@@ -1466,9 +1924,12 @@ class DatabaseManager:
         updates = {
             "realized_price": realized_price,
             "realized_return_pct": realized_return_pct,
+            "realized_return_net_pct": realized_return_net_pct,
             "direction_correct": direction_correct,
             "outcome_up": outcome_up,
             "brier_component": brier_component,
+            "max_drawdown_pct": max_drawdown_pct,
+            "utility_score": utility_score,
             "status": status,
             "evaluated_at": evaluated_at or datetime.utcnow().isoformat(),
         }
@@ -1490,6 +1951,9 @@ class DatabaseManager:
         avg_realized_return_pct: Optional[float],
         mean_confidence: Optional[float],
         brier_score: float,
+        mean_net_return_pct: Optional[float] = None,
+        mean_drawdown_pct: Optional[float] = None,
+        utility_mean: Optional[float] = None,
     ) -> Dict[str, Any]:
         """Insert/update a calibration snapshot."""
         now = datetime.utcnow().isoformat()
@@ -1499,15 +1963,19 @@ class DatabaseManager:
                 """
                 INSERT INTO calibration_snapshots (
                     as_of_date, horizon_days, sample_size, directional_accuracy,
-                    avg_realized_return_pct, mean_confidence, brier_score, created_at
+                    avg_realized_return_pct, mean_confidence, brier_score,
+                    mean_net_return_pct, mean_drawdown_pct, utility_mean, created_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(as_of_date, horizon_days) DO UPDATE SET
                     sample_size = excluded.sample_size,
                     directional_accuracy = excluded.directional_accuracy,
                     avg_realized_return_pct = excluded.avg_realized_return_pct,
                     mean_confidence = excluded.mean_confidence,
-                    brier_score = excluded.brier_score
+                    brier_score = excluded.brier_score,
+                    mean_net_return_pct = excluded.mean_net_return_pct,
+                    mean_drawdown_pct = excluded.mean_drawdown_pct,
+                    utility_mean = excluded.utility_mean
                 """,
                 (
                     as_of_date,
@@ -1517,6 +1985,9 @@ class DatabaseManager:
                     avg_realized_return_pct,
                     mean_confidence,
                     float(brier_score),
+                    mean_net_return_pct,
+                    mean_drawdown_pct,
+                    utility_mean,
                     now,
                 ),
             )
@@ -1563,6 +2034,156 @@ class DatabaseManager:
             "horizons": summary,
         }
 
+    def replace_confidence_reliability_bins(
+        self,
+        *,
+        as_of_date: str,
+        horizon_days: int,
+        bins: List[Dict[str, Any]],
+    ) -> int:
+        """Replace reliability bins for a date/horizon."""
+        now = datetime.utcnow().isoformat()
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                DELETE FROM confidence_reliability_bins
+                WHERE as_of_date = ? AND horizon_days = ?
+                """,
+                (as_of_date, int(horizon_days)),
+            )
+            inserted = 0
+            for idx, row in enumerate(bins):
+                lower = float(row.get("bin_lower", 0.0))
+                upper = float(row.get("bin_upper", 1.0))
+                sample_size = int(row.get("sample_size", 0))
+                empirical_hit_rate = float(row.get("empirical_hit_rate", 0.5))
+                cursor.execute(
+                    """
+                    INSERT INTO confidence_reliability_bins (
+                        as_of_date, horizon_days, bin_index, bin_lower, bin_upper,
+                        sample_size, empirical_hit_rate, created_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        as_of_date,
+                        int(horizon_days),
+                        int(row.get("bin_index", idx)),
+                        lower,
+                        upper,
+                        sample_size,
+                        empirical_hit_rate,
+                        now,
+                    ),
+                )
+                inserted += 1
+            return inserted
+
+    def get_latest_confidence_reliability_bins(self, horizon_days: int) -> List[Dict[str, Any]]:
+        """Get the latest reliability bins for a horizon."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT MAX(as_of_date) AS as_of_date
+                FROM confidence_reliability_bins
+                WHERE horizon_days = ?
+                """,
+                (int(horizon_days),),
+            )
+            row = cursor.fetchone()
+            as_of_date = row["as_of_date"] if row else None
+            if not as_of_date:
+                return []
+
+            cursor.execute(
+                """
+                SELECT *
+                FROM confidence_reliability_bins
+                WHERE horizon_days = ? AND as_of_date = ?
+                ORDER BY bin_index ASC
+                """,
+                (int(horizon_days), as_of_date),
+            )
+            return [dict(item) for item in cursor.fetchall()]
+
+    def get_reliability_hit_rate(self, horizon_days: int, confidence_raw: Optional[float]) -> Optional[Dict[str, Any]]:
+        """Resolve empirical hit rate for a confidence value from latest bins."""
+        parsed_conf = None
+        if confidence_raw is not None:
+            try:
+                parsed_conf = float(confidence_raw)
+            except (TypeError, ValueError):
+                parsed_conf = None
+
+        bins = self.get_latest_confidence_reliability_bins(horizon_days)
+        if not bins:
+            return None
+
+        if parsed_conf is None:
+            weighted = 0.0
+            sample_total = 0
+            for row in bins:
+                sample = int(row.get("sample_size") or 0)
+                weighted += float(row.get("empirical_hit_rate") or 0.0) * sample
+                sample_total += sample
+            if sample_total <= 0:
+                return None
+            return {
+                "hit_rate": weighted / sample_total,
+                "sample_size": sample_total,
+                "as_of_date": bins[0].get("as_of_date"),
+            }
+
+        for row in bins:
+            lower = float(row.get("bin_lower") or 0.0)
+            upper = float(row.get("bin_upper") or 1.0)
+            if lower <= parsed_conf < upper or (parsed_conf == 1.0 and upper == 1.0):
+                return {
+                    "hit_rate": float(row.get("empirical_hit_rate") or 0.0),
+                    "sample_size": int(row.get("sample_size") or 0),
+                    "as_of_date": row.get("as_of_date"),
+                    "bin_index": int(row.get("bin_index") or 0),
+                    "bin_lower": lower,
+                    "bin_upper": upper,
+                }
+
+        nearest = min(
+            bins,
+            key=lambda row: abs(
+                float(row.get("bin_lower") or 0.0) - float(parsed_conf)
+            ),
+        )
+        return {
+            "hit_rate": float(nearest.get("empirical_hit_rate") or 0.0),
+            "sample_size": int(nearest.get("sample_size") or 0),
+            "as_of_date": nearest.get("as_of_date"),
+            "bin_index": int(nearest.get("bin_index") or 0),
+            "bin_lower": float(nearest.get("bin_lower") or 0.0),
+            "bin_upper": float(nearest.get("bin_upper") or 1.0),
+        }
+
+    def get_confidence_reliability_summary(self, horizon_days: int) -> Dict[str, Any]:
+        """Get latest reliability bins with summary metadata for a horizon."""
+        bins = self.get_latest_confidence_reliability_bins(horizon_days)
+        if not bins:
+            return {
+                "horizon_days": int(horizon_days),
+                "as_of_date": None,
+                "total_samples": 0,
+                "bins": [],
+            }
+
+        total_samples = sum(int(row.get("sample_size") or 0) for row in bins)
+        as_of_date = bins[0].get("as_of_date")
+        return {
+            "horizon_days": int(horizon_days),
+            "as_of_date": as_of_date,
+            "total_samples": total_samples,
+            "bins": bins,
+        }
+
     def list_completed_outcomes(
         self,
         *,
@@ -1586,9 +2207,15 @@ class DatabaseManager:
                     horizon_days,
                     target_date,
                     realized_return_pct,
+                    realized_return_net_pct,
                     direction_correct,
                     confidence,
-                    brier_component
+                    predicted_up_probability,
+                    brier_component,
+                    transaction_cost_bps,
+                    slippage_bps,
+                    max_drawdown_pct,
+                    utility_score
                 FROM analysis_outcomes
                 WHERE {where_clause}
                 ORDER BY target_date DESC

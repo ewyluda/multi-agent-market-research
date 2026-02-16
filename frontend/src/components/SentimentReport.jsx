@@ -3,7 +3,7 @@
  */
 
 import React from 'react';
-import { motion } from 'framer-motion';
+import { motion as Motion } from 'framer-motion';
 
 const SentimentReport = ({ analysis }) => {
 
@@ -57,7 +57,7 @@ const SentimentReport = ({ analysis }) => {
   const hasFactors = Object.keys(factors).length > 0;
 
   return (
-    <motion.div
+    <Motion.div
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, delay: 0.15 }}
@@ -166,7 +166,7 @@ const SentimentReport = ({ analysis }) => {
 
                   {/* Centered bar chart */}
                   <div className="relative h-2 bg-gray-700/50 rounded-full overflow-hidden">
-                    <motion.div
+                    <Motion.div
                       className={`absolute h-full rounded-full ${score > 0 ? 'bg-success' : 'bg-danger'}`}
                       initial={{ width: 0 }}
                       animate={{ width: `${barWidth}%` }}
@@ -185,7 +185,7 @@ const SentimentReport = ({ analysis }) => {
           </div>
         </div>
       )}
-    </motion.div>
+    </Motion.div>
   );
 };
 

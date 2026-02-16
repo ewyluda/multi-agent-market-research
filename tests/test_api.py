@@ -85,6 +85,43 @@ class TestAnalyzeTicker:
                     "recommendation": "BUY",
                     "score": 50,
                     "confidence": 0.7,
+                    "analysis_schema_version": "v2",
+                    "signal_contract_v2": {
+                        "schema_version": "2.0",
+                        "instrument_type": "US_EQUITY",
+                        "recommendation": "BUY",
+                        "expected_return_pct": {"1d": 1.0, "7d": 7.0, "30d": 30.0},
+                        "downside_risk_pct": {"1d": 0.5, "7d": 3.5, "30d": 15.0},
+                        "hit_rate": {"1d": 0.6, "7d": 0.6, "30d": 0.6},
+                        "ev_score_7d": 2.8,
+                        "confidence": {"raw": 0.7, "calibrated": 0.68, "uncertainty_band_pct": 12.0},
+                        "risk": {
+                            "risk_reward_ratio_7d": 2.0,
+                            "max_drawdown_est_pct_7d": 3.5,
+                            "data_quality_score": 82.0,
+                            "conflict_score": 10.0,
+                            "regime_label": "risk_on",
+                        },
+                        "liquidity": {
+                            "avg_dollar_volume_20d": 100000000.0,
+                            "est_spread_bps": 12.0,
+                            "capacity_usd": 2000000.0,
+                        },
+                        "execution_plan": {
+                            "entry_zone": {"low": 100.0, "high": 102.0, "reference": 101.0},
+                            "stop_loss": 96.0,
+                            "targets": [108.0, 112.0],
+                            "invalidation_conditions": ["Breaks support"],
+                            "max_holding_days": 30,
+                        },
+                        "rationale_summary": "Deterministic summary",
+                        "evidence": [],
+                    },
+                    "ev_score_7d": 2.8,
+                    "confidence_calibrated": 0.68,
+                    "data_quality_score": 82.0,
+                    "regime_label": "risk_on",
+                    "rationale_summary": "Deterministic summary",
                     "reasoning": "Strong fundamentals.",
                     "risks": ["Valuation"],
                     "opportunities": ["AI growth"],
@@ -115,6 +152,10 @@ class TestAnalyzeTicker:
         assert data["success"] is True
         assert data["ticker"] == "AAPL"
         assert data["analysis"]["recommendation"] == "BUY"
+        assert data["analysis"]["analysis_schema_version"] == "v2"
+        assert data["analysis"]["signal_contract_v2"]["schema_version"] == "2.0"
+        assert data["analysis"]["ev_score_7d"] == 2.8
+        assert data["analysis"]["confidence_calibrated"] == 0.68
         assert "scenarios" in data["analysis"]
         assert "diagnostics" in data["analysis"]
 
@@ -283,6 +324,29 @@ class TestScheduleAPI:
             client.delete(f"/api/schedules/{schedule_id}")
 
 
+class TestWatchlistAnalyzeAgents:
+    """Tests for watchlist analyze agent filtering."""
+
+    def test_watchlist_analyze_rejects_invalid_agents(self, client):
+        import random
+        import string
+
+        wl_name = "WL" + "".join(random.choices(string.ascii_uppercase, k=6))
+        create_resp = client.post("/api/watchlists", json={"name": wl_name})
+        assert create_resp.status_code == 200
+        watchlist_id = create_resp.json()["id"]
+
+        try:
+            add_resp = client.post(f"/api/watchlists/{watchlist_id}/tickers", json={"ticker": "AAPL"})
+            assert add_resp.status_code == 200
+
+            bad_resp = client.post(f"/api/watchlists/{watchlist_id}/analyze?agents=market,bogus_agent")
+            assert bad_resp.status_code == 400
+            assert "Invalid agent names" in bad_resp.json()["detail"]
+        finally:
+            client.delete(f"/api/watchlists/{watchlist_id}")
+
+
 class TestPortfolioMacroCalibrationAPI:
     """Tests for portfolio, macro-event, and calibration endpoints."""
 
@@ -384,6 +448,36 @@ class TestPortfolioMacroCalibrationAPI:
             assert ticker_payload["total_count"] >= 1
         finally:
             db_manager.delete_analysis(aid)
+
+
+class TestRolloutStatusAPI:
+    """Tests for Phase 7 rollout status endpoint."""
+
+    def test_rollout_status_endpoint_returns_gate_payload(self, client):
+        response = client.get("/api/rollout/phase7/status?window_hours=24")
+        assert response.status_code == 200
+        payload = response.json()
+
+        assert "generated_at" in payload
+        assert payload["window_hours"] == 24
+        assert "since_timestamp" in payload
+
+        assert "metrics" in payload
+        assert "scheduled_runs" in payload["metrics"]
+        assert "scheduled_analyses" in payload["metrics"]
+        assert "all_analyses" in payload["metrics"]
+        assert "reliability_bins" in payload["metrics"]
+        assert "alert_rules" in payload["metrics"]
+
+        assert "gates" in payload
+        assert "stage_a" in payload["gates"]
+        assert "stage_b" in payload["gates"]
+        assert "stage_c" in payload["gates"]
+        assert "stage_d" in payload["gates"]
+
+        assert "feature_flags" in payload
+        assert "SIGNAL_CONTRACT_V2_ENABLED" in payload["feature_flags"]
+        assert "SCHEDULED_SIGNAL_CONTRACT_V2_ENABLED" in payload["feature_flags"]
 
 
 class TestAlertAPI:

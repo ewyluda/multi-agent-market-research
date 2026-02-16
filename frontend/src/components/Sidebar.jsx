@@ -10,7 +10,7 @@
  */
 
 import React from 'react';
-import { motion } from 'framer-motion';
+import { motion as Motion } from 'framer-motion';
 import {
   PulseIcon,
   HistoryIcon,
@@ -64,18 +64,19 @@ const Sidebar = ({ activeView, onViewChange, unacknowledgedCount = 0 }) => {
       <div className="w-7 h-px bg-white/[0.06] mb-4" />
 
       {/* ─── Nav items ─── */}
-      <motion.ul
+      <Motion.ul
         className="flex flex-col items-center gap-2 list-none p-0 m-0"
         variants={listVariants}
         initial="hidden"
         animate="visible"
       >
-        {NAV_ITEMS.map(({ key, label, Icon }) => {
+        {NAV_ITEMS.map(({ key, label, Icon: iconComponent }) => {
           const isActive = activeView === key;
           const isAlerts = key === 'alerts';
+          const iconNode = React.createElement(iconComponent, { className: 'w-[18px] h-[18px] relative z-10' });
 
           return (
-            <motion.li key={key} variants={itemVariants}>
+            <Motion.li key={key} variants={itemVariants}>
               <button
                 onClick={() => onViewChange(key)}
                 className={`sidebar-nav-item group ${isActive ? 'active' : ''}`}
@@ -83,7 +84,7 @@ const Sidebar = ({ activeView, onViewChange, unacknowledgedCount = 0 }) => {
                 aria-current={isActive ? 'page' : undefined}
               >
                 {/* Icon */}
-                <Icon className="w-[18px] h-[18px] relative z-10" />
+                {iconNode}
 
                 {/* Alert badge */}
                 {isAlerts && unacknowledgedCount > 0 && (
@@ -97,10 +98,10 @@ const Sidebar = ({ activeView, onViewChange, unacknowledgedCount = 0 }) => {
                   {label}
                 </span>
               </button>
-            </motion.li>
+            </Motion.li>
           );
         })}
-      </motion.ul>
+      </Motion.ul>
     </nav>
   );
 };

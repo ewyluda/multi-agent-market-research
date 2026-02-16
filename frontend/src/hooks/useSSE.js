@@ -72,7 +72,7 @@ export const useSSE = () => {
         try {
           const data = JSON.parse(event.data);
           if (onError) onError(data.error || 'Analysis failed');
-        } catch (err) {
+        } catch {
           if (onError) onError('Analysis failed');
         }
       } else if (eventSource.readyState === EventSource.CLOSED) {

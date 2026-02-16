@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion as Motion, AnimatePresence } from 'framer-motion';
 import { useAnalysis } from '../hooks/useAnalysis';
 import { useAnalysisContext } from '../context/AnalysisContext';
 import Sidebar from './Sidebar';
@@ -12,13 +12,11 @@ import ContentHeader from './ContentHeader';
 import AnalysisTabs from './AnalysisTabs';
 import AgentPipelineBar from './AgentPipelineBar';
 import Recommendation from './Recommendation';
-import SentimentReport from './SentimentReport';
 import PriceChart from './PriceChart';
 import { OverviewMetrics, ResearchContent, ChangeSummaryPanel } from './Summary';
 import ScenarioPanel from './ScenarioPanel';
 import DiagnosticsPanel from './DiagnosticsPanel';
 import NewsFeed from './NewsFeed';
-import SocialBuzz from './SocialBuzz';
 import OptionsFlow from './OptionsFlow';
 import MacroSnapshot from './MacroSnapshot';
 import HistoryDashboard from './HistoryDashboard';
@@ -178,7 +176,7 @@ const Dashboard = () => {
               {/* Error Display */}
               {error && (
                 <div className="px-6 pb-3">
-                  <motion.div
+                  <Motion.div
                     initial={{ opacity: 0, y: -8 }}
                     animate={{ opacity: 1, y: 0 }}
                     className="p-3 bg-danger/10 border border-danger/30 rounded-lg text-danger-400 text-sm flex items-center space-x-2"
@@ -188,7 +186,7 @@ const Dashboard = () => {
                       <path d="M10 7v3M10 12.5v.5" />
                     </svg>
                     <span>{error}</span>
-                  </motion.div>
+                  </Motion.div>
                 </div>
               )}
             </div>
@@ -198,7 +196,7 @@ const Dashboard = () => {
               <AnimatePresence mode="wait">
                 {showAnalysisContent ? (
                   /* ─────── Analysis Content with Tabs ─────── */
-                  <motion.div
+                  <Motion.div
                     key="analysis-content"
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
@@ -213,7 +211,6 @@ const Dashboard = () => {
                         <AnalysisTabs
                           activeTab={activeTab}
                           onTabChange={setActiveTab}
-                          analysis={analysis}
                         />
                       </div>
 
@@ -222,7 +219,7 @@ const Dashboard = () => {
                         <AnimatePresence mode="wait">
                           {/* Overview Tab */}
                           {activeTab === 'overview' && (
-                            <motion.div
+                            <Motion.div
                               key="tab-overview"
                               initial={{ opacity: 0, y: 8 }}
                               animate={{ opacity: 1, y: 0 }}
@@ -232,110 +229,63 @@ const Dashboard = () => {
                             >
                               <PriceChart analysis={analysis} />
                               <OverviewMetrics analysis={analysis} />
-                            </motion.div>
+                            </Motion.div>
                           )}
 
-                          {/* Changes Tab */}
-                          {activeTab === 'changes' && (
-                            <motion.div
-                              key="tab-changes"
-                              initial={{ opacity: 0, y: 8 }}
-                              animate={{ opacity: 1, y: 0 }}
-                              exit={{ opacity: 0, y: -8 }}
-                              transition={{ duration: 0.2 }}
-                            >
-                              <ChangeSummaryPanel
-                                analysis={analysis}
-                                showFallbackWhenEmpty
-                              />
-                            </motion.div>
-                          )}
-
-                          {/* Scenarios Tab */}
-                          {activeTab === 'scenarios' && (
-                            <motion.div
-                              key="tab-scenarios"
-                              initial={{ opacity: 0, y: 8 }}
-                              animate={{ opacity: 1, y: 0 }}
-                              exit={{ opacity: 0, y: -8 }}
-                              transition={{ duration: 0.2 }}
-                            >
-                              <ScenarioPanel analysis={analysis} />
-                            </motion.div>
-                          )}
-
-                          {/* Diagnostics Tab */}
-                          {activeTab === 'diagnostics' && (
-                            <motion.div
-                              key="tab-diagnostics"
-                              initial={{ opacity: 0, y: 8 }}
-                              animate={{ opacity: 1, y: 0 }}
-                              exit={{ opacity: 0, y: -8 }}
-                              transition={{ duration: 0.2 }}
-                            >
-                              <DiagnosticsPanel analysis={analysis} />
-                            </motion.div>
-                          )}
-
-                          {/* Research Tab */}
-                          {activeTab === 'research' && (
-                            <motion.div
-                              key="tab-research"
-                              initial={{ opacity: 0, y: 8 }}
-                              animate={{ opacity: 1, y: 0 }}
-                              exit={{ opacity: 0, y: -8 }}
-                              transition={{ duration: 0.2 }}
-                            >
-                              <ResearchContent analysis={analysis} />
-                            </motion.div>
-                          )}
-
-                          {/* Sentiment Tab */}
-                          {activeTab === 'sentiment' && (
-                            <motion.div
-                              key="tab-sentiment"
+                          {/* Risk Tab */}
+                          {activeTab === 'risk' && (
+                            <Motion.div
+                              key="tab-risk"
                               initial={{ opacity: 0, y: 8 }}
                               animate={{ opacity: 1, y: 0 }}
                               exit={{ opacity: 0, y: -8 }}
                               transition={{ duration: 0.2 }}
                               className="space-y-6"
                             >
-                              <SentimentReport analysis={analysis} />
-                              <SocialBuzz analysis={analysis} />
-                            </motion.div>
+                              <ScenarioPanel analysis={analysis} />
+                              <ChangeSummaryPanel
+                                analysis={analysis}
+                                showFallbackWhenEmpty
+                              />
+                            </Motion.div>
                           )}
 
-                          {/* News Tab */}
-                          {activeTab === 'news' && (
-                            <motion.div
-                              key="tab-news"
+                          {/* Diagnostics Tab */}
+                          {activeTab === 'diagnostics' && (
+                            <Motion.div
+                              key="tab-diagnostics"
                               initial={{ opacity: 0, y: 8 }}
                               animate={{ opacity: 1, y: 0 }}
                               exit={{ opacity: 0, y: -8 }}
                               transition={{ duration: 0.2 }}
+                              className="space-y-6"
                             >
+                              <DiagnosticsPanel analysis={analysis} />
+                              <AgentPipelineBar />
+                            </Motion.div>
+                          )}
+
+                          {/* Opportunities Tab */}
+                          {activeTab === 'opportunities' && (
+                            <Motion.div
+                              key="tab-opportunities"
+                              initial={{ opacity: 0, y: 8 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              exit={{ opacity: 0, y: -8 }}
+                              transition={{ duration: 0.2 }}
+                              className="space-y-6"
+                            >
+                              <ResearchContent analysis={analysis} />
                               <NewsFeed analysis={analysis} />
-                            </motion.div>
-                          )}
-
-                          {/* Options Tab */}
-                          {activeTab === 'options' && (
-                            <motion.div
-                              key="tab-options"
-                              initial={{ opacity: 0, y: 8 }}
-                              animate={{ opacity: 1, y: 0 }}
-                              exit={{ opacity: 0, y: -8 }}
-                              transition={{ duration: 0.2 }}
-                            >
                               <OptionsFlow analysis={analysis} />
-                            </motion.div>
+                            </Motion.div>
                           )}
                         </AnimatePresence>
                       </div>
                     </div>
 
                     {/* Right sidebar — Recommendation + Macro */}
-                    <motion.div
+                    <Motion.div
                       initial={{ opacity: 0, x: 12 }}
                       animate={{ opacity: 1, x: 0 }}
                       transition={{ duration: 0.4, ease: 'easeOut' }}
@@ -343,11 +293,11 @@ const Dashboard = () => {
                     >
                       <Recommendation analysis={analysis} />
                       <MacroSnapshot analysis={analysis} />
-                    </motion.div>
-                  </motion.div>
+                    </Motion.div>
+                  </Motion.div>
                 ) : (
                   /* ─────── Welcome Screen ─────── */
-                  <motion.div
+                  <Motion.div
                     key="welcome-screen"
                     initial="hidden"
                     animate="visible"
@@ -365,25 +315,25 @@ const Dashboard = () => {
                     />
 
                     {/* Animated Chart Icon */}
-                    <motion.div variants={fadeUp} className="flex justify-center relative z-10">
+                    <Motion.div variants={fadeUp} className="flex justify-center relative z-10">
                       <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-primary/20 to-primary-300/20 border border-primary/20 flex items-center justify-center">
                         <PulseIcon className="w-10 h-10 text-primary-400" />
                       </div>
-                    </motion.div>
+                    </Motion.div>
 
-                    <motion.h2
+                    <Motion.h2
                       variants={fadeUp}
                       className="text-4xl sm:text-5xl font-bold mt-6 mb-3 tracking-tight bg-gradient-to-r from-white via-white to-gray-400 bg-clip-text text-transparent relative z-10"
                     >
                       AI Trading Analyst
-                    </motion.h2>
+                    </Motion.h2>
 
-                    <motion.p variants={fadeUp} className="text-gray-400 text-lg max-w-md mx-auto text-center relative z-10">
+                    <Motion.p variants={fadeUp} className="text-gray-400 text-lg max-w-md mx-auto text-center relative z-10">
                       Multi-agent research platform
-                    </motion.p>
+                    </Motion.p>
 
                     {/* Hero search input */}
-                    <motion.form
+                    <Motion.form
                       variants={fadeUp}
                       onSubmit={handleAnalyze}
                       className="mt-8 flex items-center gap-3 relative z-10"
@@ -412,10 +362,10 @@ const Dashboard = () => {
                           <span>Analyze</span>
                         )}
                       </button>
-                    </motion.form>
+                    </Motion.form>
 
                     {/* Quick Start Tickers */}
-                    <motion.div variants={fadeUp} className="mt-5 flex items-center justify-center flex-wrap gap-2 relative z-10">
+                    <Motion.div variants={fadeUp} className="mt-5 flex items-center justify-center flex-wrap gap-2 relative z-10">
                       <span className="text-xs text-gray-500 mr-1">Quick start:</span>
                       {['AAPL', 'NVDA', 'TSLA', 'MSFT', 'AMZN', 'GOOGL'].map((ticker) => (
                         <button
@@ -426,14 +376,14 @@ const Dashboard = () => {
                           {ticker}
                         </button>
                       ))}
-                    </motion.div>
+                    </Motion.div>
 
                     {/* Feature Cards */}
-                    <motion.div
+                    <Motion.div
                       variants={containerVariants}
                       className="mt-12 grid grid-cols-1 sm:grid-cols-3 gap-5 max-w-2xl mx-auto relative z-10"
                     >
-                      <motion.div
+                      <Motion.div
                         variants={fadeUp}
                         className="glass-card-elevated rounded-xl p-5 text-left border-t-2 border-t-accent-blue"
                       >
@@ -442,9 +392,9 @@ const Dashboard = () => {
                         </div>
                         <div className="font-semibold text-sm mb-1">7 Specialized Agents</div>
                         <div className="text-xs text-gray-400 leading-relaxed">Market, Fundamentals, News, Technical, Macro, Options, Sentiment</div>
-                      </motion.div>
+                      </Motion.div>
 
-                      <motion.div
+                      <Motion.div
                         variants={fadeUp}
                         className="glass-card-elevated rounded-xl p-5 text-left border-t-2 border-t-accent-green"
                       >
@@ -453,20 +403,20 @@ const Dashboard = () => {
                         </div>
                         <div className="font-semibold text-sm mb-1">Real-time Analysis</div>
                         <div className="text-xs text-gray-400 leading-relaxed">Live updates as agents complete their work</div>
-                      </motion.div>
+                      </Motion.div>
 
-                      <motion.div
+                      <Motion.div
                         variants={fadeUp}
                         className="glass-card-elevated rounded-xl p-5 text-left border-t-2 border-t-accent-purple"
                       >
                         <div className="w-9 h-9 rounded-lg bg-accent-purple/15 flex items-center justify-center mb-3">
                           <SparklesIcon className="w-5 h-5 text-accent-purple" />
                         </div>
-                        <div className="font-semibold text-sm mb-1">AI-Powered Insights</div>
-                        <div className="text-xs text-gray-400 leading-relaxed">Chain-of-thought reasoning for recommendations</div>
-                      </motion.div>
-                    </motion.div>
-                  </motion.div>
+                        <div className="font-semibold text-sm mb-1">PM Workflow</div>
+                        <div className="text-xs text-gray-400 leading-relaxed">Action, risk, and evidence surfaced in one view</div>
+                      </Motion.div>
+                    </Motion.div>
+                  </Motion.div>
                 )}
               </AnimatePresence>
             </div>

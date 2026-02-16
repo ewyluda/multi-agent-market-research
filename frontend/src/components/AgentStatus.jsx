@@ -3,7 +3,7 @@
  */
 
 import React from 'react';
-import { motion } from 'framer-motion';
+import { motion as Motion } from 'framer-motion';
 import { useAnalysisContext } from '../context/AnalysisContext';
 import { ChartBarIcon, BuildingIcon, NewspaperIcon, ChartLineIcon, GlobeIcon, BrainIcon, SparklesIcon, OptionsIcon, CheckCircleIcon, XCircleIcon, ClockIcon } from './Icons';
 
@@ -111,7 +111,7 @@ const AgentStatus = () => {
     <div className="glass-card-elevated rounded-xl p-4">
       <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider mb-4">Agent Pipeline</h3>
 
-      <motion.div
+      <Motion.div
         className="space-y-1.5"
         variants={containerVariants}
         initial="hidden"
@@ -124,7 +124,7 @@ const AgentStatus = () => {
           const isLast = index === agents.length - 1;
 
           return (
-            <motion.div key={agent.id} variants={rowVariants}>
+            <Motion.div key={agent.id} variants={rowVariants}>
               <div
                 className={`flex items-center justify-between p-2.5 rounded-lg transition-all ${
                   status === 'running'
@@ -162,10 +162,10 @@ const AgentStatus = () => {
                   }`} />
                 </div>
               )}
-            </motion.div>
+            </Motion.div>
           );
         })}
-      </motion.div>
+      </Motion.div>
 
       {/* Completion Summary */}
       {!loading && analysis && (

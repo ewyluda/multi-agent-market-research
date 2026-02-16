@@ -4,7 +4,7 @@
 
 import React, { useEffect, useState, useMemo } from 'react';
 import { useHistory } from '../hooks/useHistory';
-import { getCalibrationSummary } from '../utils/api';
+import { getCalibrationSummary, getCalibrationReliability } from '../utils/api';
 import {
   HistoryIcon,
   FilterIcon,
@@ -99,6 +99,8 @@ const CalibrationSummaryCards = ({ summary, loading }) => {
         const row = summary?.horizons?.[horizon] || null;
         const accuracy = row?.directional_accuracy != null ? `${(row.directional_accuracy * 100).toFixed(1)}%` : '—';
         const brier = row?.brier_score != null ? Number(row.brier_score).toFixed(3) : '—';
+        const meanNet = row?.mean_net_return_pct != null ? `${Number(row.mean_net_return_pct).toFixed(2)}%` : '—';
+        const meanDrawdown = row?.mean_drawdown_pct != null ? `${Number(row.mean_drawdown_pct).toFixed(2)}%` : '—';
         const sample = row?.sample_size ?? 0;
 
         return (
@@ -122,12 +124,108 @@ const CalibrationSummaryCards = ({ summary, loading }) => {
                   <span className="text-gray-500">Sample</span>
                   <span className="font-mono text-gray-200">{sample}</span>
                 </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Net Return</span>
+                  <span className="font-mono text-gray-200">{meanNet}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Drawdown</span>
+                  <span className="font-mono text-gray-200">{meanDrawdown}</span>
+                </div>
               </div>
             )}
           </div>
         );
       })}
     </div>
+  );
+};
+
+const ReliabilityBins = ({ reliabilityByHorizon, loading }) => {
+  const horizons = ['1d', '7d', '30d'];
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+      {horizons.map((horizon) => {
+        const row = reliabilityByHorizon?.[horizon] || null;
+        const bins = Array.isArray(row?.bins) ? row.bins : [];
+        const topBins = bins.slice(0, 3);
+
+        return (
+          <div key={horizon} className="bg-dark-inset border border-white/5 rounded-lg p-3">
+            <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-2">{horizon} Reliability</div>
+            {loading ? (
+              <div className="flex justify-center py-3">
+                <LoadingSpinner size={12} className="text-gray-500" />
+              </div>
+            ) : topBins.length === 0 ? (
+              <div className="text-xs text-gray-500">No samples</div>
+            ) : (
+              <div className="space-y-1.5">
+                {topBins.map((bin) => (
+                  <div key={`${horizon}-${bin.bin_index}`} className="text-[11px] flex justify-between">
+                    <span className="text-gray-500">
+                      {(Number(bin.bin_lower) * 100).toFixed(0)}-{(Number(bin.bin_upper) * 100).toFixed(0)}%
+                    </span>
+                    <span className="font-mono text-gray-200">
+                      {(Number(bin.empirical_hit_rate) * 100).toFixed(0)}% ({bin.sample_size})
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
+const NetReturnTrend = ({ data }) => {
+  const points = useMemo(() => {
+    if (!Array.isArray(data)) return [];
+    return [...data]
+      .reverse()
+      .map((item) => {
+        const outcome = item?.outcomes?.['7d'] || item?.outcomes?.['1d'] || null;
+        if (!outcome) return null;
+        const value = outcome.realized_return_net_pct ?? outcome.realized_return_pct;
+        if (value == null) return null;
+        return { timestamp: item.timestamp, value: Number(value) };
+      })
+      .filter((row) => row && Number.isFinite(row.value));
+  }, [data]);
+
+  if (points.length < 2) {
+    return <div className="text-xs text-gray-500 py-4">Not enough evaluated outcomes yet.</div>;
+  }
+
+  const width = 600;
+  const height = 120;
+  const padX = 30;
+  const padY = 16;
+  const chartW = width - padX * 2;
+  const chartH = height - padY * 2;
+  const values = points.map((p) => p.value);
+  const minVal = Math.min(...values, -1);
+  const maxVal = Math.max(...values, 1);
+  const range = maxVal - minVal || 1;
+  const mapped = points.map((p, idx) => ({
+    x: padX + (idx / (points.length - 1)) * chartW,
+    y: padY + chartH - ((p.value - minVal) / range) * chartH,
+    value: p.value,
+    timestamp: p.timestamp,
+  }));
+  const path = mapped.map((p, idx) => `${idx === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ');
+
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} className="w-full" preserveAspectRatio="xMidYMid meet">
+      <line x1={padX} y1={padY + chartH} x2={padX + chartW} y2={padY + chartH} stroke="rgba(255,255,255,0.08)" strokeWidth="1" />
+      <path d={path} fill="none" stroke="#17c964" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      {mapped.map((p, idx) => (
+        <circle key={idx} cx={p.x} cy={p.y} r="3" fill="#17c964" />
+      ))}
+    </svg>
   );
 };
 
@@ -408,6 +506,8 @@ const HistoryDashboard = ({ onBack, initialTicker }) => {
   const [tickerSearch, setTickerSearch] = useState('');
   const [calibrationSummary, setCalibrationSummary] = useState(null);
   const [calibrationLoading, setCalibrationLoading] = useState(false);
+  const [reliabilityByHorizon, setReliabilityByHorizon] = useState({});
+  const [reliabilityLoading, setReliabilityLoading] = useState(false);
 
   // Load tickers on mount
   useEffect(() => {
@@ -436,6 +536,35 @@ const HistoryDashboard = ({ onBack, initialTicker }) => {
     };
 
     loadCalibration();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    const loadReliability = async () => {
+      setReliabilityLoading(true);
+      try {
+        const [r1, r7, r30] = await Promise.all([
+          getCalibrationReliability(1),
+          getCalibrationReliability(7),
+          getCalibrationReliability(30),
+        ]);
+        if (!mounted) return;
+        setReliabilityByHorizon({
+          '1d': r1,
+          '7d': r7,
+          '30d': r30,
+        });
+      } catch {
+        if (mounted) setReliabilityByHorizon({});
+      } finally {
+        if (mounted) setReliabilityLoading(false);
+      }
+    };
+
+    loadReliability();
     return () => {
       mounted = false;
     };
@@ -533,6 +662,12 @@ const HistoryDashboard = ({ onBack, initialTicker }) => {
                   Calibration Summary (180d)
                 </h3>
                 <CalibrationSummaryCards summary={calibrationSummary} loading={calibrationLoading} />
+                <div className="mt-4">
+                  <h4 className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                    Reliability Bins
+                  </h4>
+                  <ReliabilityBins reliabilityByHorizon={reliabilityByHorizon} loading={reliabilityLoading} />
+                </div>
               </div>
 
               {/* Trend chart */}
@@ -547,6 +682,20 @@ const HistoryDashboard = ({ onBack, initialTicker }) => {
                   </div>
                 ) : (
                   <TrendChart data={history} />
+                )}
+              </div>
+
+              <div className="glass-card-elevated rounded-xl p-5">
+                <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3 flex items-center space-x-2">
+                  <TrendingDownIcon className="w-3.5 h-3.5 text-success-400" />
+                  <span>Net Return Trend (Evaluated Outcomes)</span>
+                </h3>
+                {historyLoading ? (
+                  <div className="h-24 flex items-center justify-center">
+                    <LoadingSpinner size={16} className="text-gray-500" />
+                  </div>
+                ) : (
+                  <NetReturnTrend data={history} />
                 )}
               </div>
 

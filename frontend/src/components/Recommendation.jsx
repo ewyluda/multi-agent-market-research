@@ -3,7 +3,7 @@
  */
 
 import React from 'react';
-import { motion } from 'framer-motion';
+import { motion as Motion } from 'framer-motion';
 import {
   BuildingIcon,
   ChartBarIcon,
@@ -104,15 +104,16 @@ const AgentConsensus = ({ agentResults }) => {
         Agent Signals
       </div>
       <div className="space-y-1">
-        {signals.map(({ id, label, icon: Icon, signal }) => {
+        {signals.map(({ id, label, icon: iconComponent, signal }) => {
           const style = signalStyle(signal);
+          const iconNode = React.createElement(iconComponent, { className: `w-3 h-3 ${style.text}` });
           return (
             <div
               key={id}
               className={`flex items-center justify-between px-2.5 py-1.5 rounded border ${style.bg} ${style.border}`}
             >
               <div className="flex items-center gap-1.5">
-                <Icon className={`w-3 h-3 ${style.text}`} />
+                {iconNode}
                 <span className="text-[11px] text-gray-300 leading-tight">{label}</span>
               </div>
               <span className={`text-[11px] font-mono font-semibold ${style.text}`}>
@@ -138,12 +139,48 @@ const Recommendation = ({ analysis }) => {
     );
   }
 
-  const { recommendation, score, confidence } = analysis.analysis || {};
-  const portfolioAction = analysis.analysis?.portfolio_action || null;
-  const portfolioSummary = analysis.analysis?.portfolio_summary || null;
+  const payload = analysis?.analysis || analysis || {};
+  const signal = payload?.signal_contract_v2 || {};
+  const toNumber = (value, fallback = 0) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  };
+  const recommendation =
+    signal.recommendation
+    || payload.recommendation
+    || 'HOLD';
+  const score = toNumber(payload.score ?? signal.ev_score_7d, 0);
+  const confidence = toNumber(
+    signal?.confidence?.calibrated
+    ?? signal?.confidence?.raw
+    ?? payload.confidence_calibrated
+    ?? payload.confidence
+    ?? 0.5,
+    0.5,
+  );
+  const confidencePct = Math.max(0, Math.min(100, confidence * 100));
+  const regimeLabel = signal?.risk?.regime_label || payload.regime_label || 'transition';
+
+  const portfolioActionV2 = payload.portfolio_action_v2 || null;
+  const portfolioActionLegacy = payload.portfolio_action || null;
+  const portfolioAction = portfolioActionV2
+    ? {
+        action: portfolioActionV2.recommended_action,
+        fit_score: portfolioActionV2.fit_score,
+        current_position_pct: portfolioActionV2.current_position_pct,
+        projected_position_pct: portfolioActionV2.target_position_pct,
+        constraint_checks: Array.isArray(portfolioActionV2.constraint_trace)
+          ? portfolioActionV2.constraint_trace.map((check) => ({
+              name: check.name,
+              status: check.status,
+            }))
+          : [],
+      }
+    : portfolioActionLegacy;
+  const portfolioSummary = payload.portfolio_summary_v2 || payload.portfolio_summary || null;
 
   // Needle rotation: -90 for strong SELL, 0 for HOLD, +90 for strong BUY
-  const needleAngle = (score / 100) * 90;
+  const needleAngle = (Math.max(-100, Math.min(100, score)) / 100) * 90;
 
   const centerX = 120;
   const centerY = 115;
@@ -189,7 +226,7 @@ const Recommendation = ({ analysis }) => {
   };
 
   return (
-    <motion.div
+    <Motion.div
       initial={{ opacity: 0, x: 16 }}
       animate={{ opacity: 1, x: 0 }}
       transition={{ duration: 0.4, ease: 'easeOut' }}
@@ -298,7 +335,7 @@ const Recommendation = ({ analysis }) => {
           ))}
 
           {/* Needle with spring animation */}
-          <motion.g
+          <Motion.g
             initial={{ rotate: -90 }}
             animate={{ rotate: needleAngle }}
             transition={{ type: 'spring', stiffness: 50, damping: 12 }}
@@ -346,7 +383,7 @@ const Recommendation = ({ analysis }) => {
               stroke="white"
               strokeWidth="2"
             />
-          </motion.g>
+          </Motion.g>
 
           {/* Labels */}
           <text x="20" y="126" fill="#f31260" fontSize="10" fontWeight="600" opacity="0.6">
@@ -365,7 +402,7 @@ const Recommendation = ({ analysis }) => {
       <div className="text-center space-y-1.5">
         <div className={`text-4xl font-bold font-mono ${colors.text}`}>
           {score > 0 ? '+' : ''}
-          {score}
+          {Number.isFinite(score) ? score.toFixed(0) : '0'}
         </div>
         <div className={`text-xl font-bold tracking-wide ${colors.text}`}>
           {recommendation}
@@ -378,14 +415,14 @@ const Recommendation = ({ analysis }) => {
               Confidence
             </span>
             <span className="text-xs font-semibold font-mono">
-              {(confidence * 100).toFixed(0)}%
+              {confidencePct.toFixed(0)}%
             </span>
           </div>
           <div className="h-[2px] bg-dark-inset rounded-full overflow-hidden">
             <div
               className={`h-full rounded-full ${colors.bg} transition-all duration-500`}
               style={{
-                width: `${confidence * 100}%`,
+                width: `${confidencePct}%`,
                 opacity: 0.8,
                 boxShadow: colors.barGlow,
               }}
@@ -394,27 +431,31 @@ const Recommendation = ({ analysis }) => {
         </div>
       </div>
 
+      <div className="mt-4 text-[11px] text-gray-500 uppercase tracking-wider">
+        Regime: <span className="text-gray-300">{String(regimeLabel).replace('_', ' ')}</span>
+      </div>
+
       {/* Additional info */}
-      {analysis.analysis?.position_size && (
+      {payload?.position_size && (
         <div className="mt-5 pt-4 border-t border-white/5 space-y-3">
           <div className="flex justify-between items-center">
             <span className="text-xs text-gray-500">Position Size</span>
             <span
               className={`text-xs font-semibold font-mono px-2 py-0.5 rounded ${
-                analysis.analysis.position_size === 'LARGE'
+                payload.position_size === 'LARGE'
                   ? 'bg-success/15 text-success-400'
-                  : analysis.analysis.position_size === 'MEDIUM'
+                  : payload.position_size === 'MEDIUM'
                     ? 'bg-primary/15 text-primary-400'
                     : 'bg-gray-500/15 text-gray-400'
               }`}
             >
-              {analysis.analysis.position_size}
+              {payload.position_size}
             </span>
           </div>
           <div className="flex justify-between items-center">
             <span className="text-xs text-gray-500">Time Horizon</span>
             <span className="text-xs font-semibold font-mono px-2 py-0.5 rounded bg-accent-purple/15 text-accent-purple">
-              {analysis.analysis.time_horizon?.replace(/_/g, ' ')}
+              {payload.time_horizon?.replace(/_/g, ' ')}
             </span>
           </div>
         </div>
@@ -463,7 +504,7 @@ const Recommendation = ({ analysis }) => {
       {analysis.agent_results && (
         <AgentConsensus agentResults={analysis.agent_results} />
       )}
-    </motion.div>
+    </Motion.div>
   );
 };
 

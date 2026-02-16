@@ -3,7 +3,7 @@
  */
 
 import React from 'react';
-import { motion } from 'framer-motion';
+import { motion as Motion } from 'framer-motion';
 import { OptionsIcon, ArrowUpIcon, ArrowDownIcon } from './Icons';
 
 /**
@@ -37,7 +37,7 @@ const PcRatioBar = ({ ratio }) => {
 
       {/* Bullish fill - extends left from center */}
       {direction === 'bullish' && (
-        <motion.div
+        <Motion.div
           className="absolute right-1/2 top-0 bottom-0 rounded-l-full bg-success/60"
           initial={{ width: 0 }}
           animate={{ width: `${fillPercent / 2}%` }}
@@ -47,7 +47,7 @@ const PcRatioBar = ({ ratio }) => {
 
       {/* Bearish fill - extends right from center */}
       {direction === 'bearish' && (
-        <motion.div
+        <Motion.div
           className="absolute left-1/2 top-0 bottom-0 rounded-r-full bg-danger/60"
           initial={{ width: 0 }}
           animate={{ width: `${fillPercent / 2}%` }}
@@ -89,7 +89,7 @@ const OptionsFlow = ({ analysis }) => {
   };
 
   return (
-    <motion.div
+    <Motion.div
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, ease: 'easeOut' }}
@@ -199,7 +199,7 @@ const OptionsFlow = ({ analysis }) => {
           </div>
         </div>
       )}
-    </motion.div>
+    </Motion.div>
   );
 };
 

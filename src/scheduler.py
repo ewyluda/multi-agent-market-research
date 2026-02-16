@@ -132,6 +132,33 @@ class AnalysisScheduler:
             parsed = int(default)
         return max(0, parsed)
 
+    def _resolve_scheduled_rollout_flag(self, scheduled_key: str, global_key: str) -> bool:
+        """Resolve rollout flag for scheduler-triggered runs."""
+        if bool(self.config.get(scheduled_key, False)):
+            return True
+        return bool(self.config.get(global_key, False))
+
+    def _build_orchestrator_config_for_schedule(self) -> Dict[str, Any]:
+        """Build per-run orchestrator config with scheduler rollout overrides applied."""
+        config = dict(self.config)
+        config["SIGNAL_CONTRACT_V2_ENABLED"] = self._resolve_scheduled_rollout_flag(
+            "SCHEDULED_SIGNAL_CONTRACT_V2_ENABLED",
+            "SIGNAL_CONTRACT_V2_ENABLED",
+        )
+        config["CALIBRATION_ECONOMICS_ENABLED"] = self._resolve_scheduled_rollout_flag(
+            "SCHEDULED_CALIBRATION_ECONOMICS_ENABLED",
+            "CALIBRATION_ECONOMICS_ENABLED",
+        )
+        config["PORTFOLIO_OPTIMIZER_V2_ENABLED"] = self._resolve_scheduled_rollout_flag(
+            "SCHEDULED_PORTFOLIO_OPTIMIZER_V2_ENABLED",
+            "PORTFOLIO_OPTIMIZER_V2_ENABLED",
+        )
+        config["ALERTS_V2_ENABLED"] = self._resolve_scheduled_rollout_flag(
+            "SCHEDULED_ALERTS_V2_ENABLED",
+            "ALERTS_V2_ENABLED",
+        )
+        return config
+
     def _add_catalyst_scan_job(self):
         """Add periodic catalyst scan job if enabled."""
         if not (self._is_earnings_catalyst_enabled() or self._is_macro_catalyst_enabled()):
@@ -415,8 +442,9 @@ class AnalysisScheduler:
         logger.info(f"Running {run_reason} analysis for {ticker} (schedule {schedule_id})")
 
         try:
+            orch_config = self._build_orchestrator_config_for_schedule()
             orch = Orchestrator(
-                config=self.config,
+                config=orch_config,
                 db_manager=self.db_manager,
                 rate_limiter=self.rate_limiter,
                 av_cache=self.av_cache,
@@ -519,6 +547,59 @@ class AnalysisScheduler:
             return None, None
         return result[0], result[1]
 
+    async def _resolve_close_and_drawdown_on_or_after(
+        self, ticker: str, target_date: str
+    ) -> Tuple[Optional[float], Optional[str], Optional[float]]:
+        """Resolve first close on/after target date and min low in lookahead window."""
+
+        def _fetch_history():
+            target = datetime.fromisoformat(target_date).date()
+            end = target + timedelta(days=10)
+            hist = yf.Ticker(ticker).history(
+                start=target.isoformat(),
+                end=end.isoformat(),
+                interval="1d",
+                auto_adjust=False,
+            )
+            if hist is None or getattr(hist, "empty", True):
+                return None
+
+            first_close = None
+            first_trade_date = None
+            min_low = None
+            for index, row in hist.iterrows():
+                close = row.get("Close")
+                low = row.get("Low")
+                if low is not None:
+                    try:
+                        low_value = float(low)
+                        if low_value > 0:
+                            min_low = low_value if min_low is None else min(min_low, low_value)
+                    except (TypeError, ValueError):
+                        pass
+
+                if first_close is None and close is not None:
+                    try:
+                        close_value = float(close)
+                    except (TypeError, ValueError):
+                        continue
+                    if close_value <= 0:
+                        continue
+                    first_close = close_value
+                    if hasattr(index, "date"):
+                        first_trade_date = index.date().isoformat()
+                    else:
+                        first_trade_date = str(index)[:10]
+
+            if first_close is None:
+                return None
+            return first_close, first_trade_date, min_low
+
+        result = await asyncio.to_thread(_fetch_history)
+        if not result:
+            return None, None, None
+        return result[0], result[1], result[2]
+
     def _mean_or_none(self, values: List[Optional[float]]) -> Optional[float]:
         """Compute arithmetic mean ignoring null values."""
         valid = [float(v) for v in values if v is not None]
@@ -531,6 +612,10 @@ class AnalysisScheduler:
         if not self._is_calibration_enabled():
             return
 
+        economics_enabled = self._resolve_scheduled_rollout_flag(
+            "SCHEDULED_CALIBRATION_ECONOMICS_ENABLED",
+            "CALIBRATION_ECONOMICS_ENABLED",
+        )
         as_of_date = datetime.now(timezone.utc).date().isoformat()
         due_outcomes = self.db_manager.list_due_outcomes(as_of_date)
         if due_outcomes:
@@ -555,11 +640,20 @@ class AnalysisScheduler:
                 )
                 continue
 
+            realized_price = None
+            min_low = None
             try:
-                realized_price, _ = await self._resolve_close_on_or_after(ticker, target_date)
+                realized_price, _, min_low = await self._resolve_close_and_drawdown_on_or_after(ticker, target_date)
             except Exception as exc:
-                logger.warning("Calibration price lookup failed for %s: %s", ticker, exc)
-                realized_price = None
+                logger.warning("Calibration drawdown lookup failed for %s: %s", ticker, exc)
+
+            # Backward-compatible fallback path used by existing tests/mocks.
+            if realized_price is None:
+                try:
+                    realized_price, _ = await self._resolve_close_on_or_after(ticker, target_date)
+                except Exception as exc:
+                    logger.warning("Calibration price lookup failed for %s: %s", ticker, exc)
+                    realized_price = None
 
             if realized_price is None:
                 self.db_manager.complete_outcome(
@@ -569,8 +663,33 @@ class AnalysisScheduler:
                 continue
 
             realized_return_pct = ((realized_price - baseline) / baseline) * 100.0
-            direction_correct = self._is_direction_correct(recommendation, realized_return_pct)
-            outcome_up = realized_return_pct > 0
+            if economics_enabled:
+                tx_bps = outcome.get("transaction_cost_bps")
+                slippage_bps = outcome.get("slippage_bps")
+                try:
+                    tx_bps_val = float(tx_bps) if tx_bps is not None else 10.0
+                except (TypeError, ValueError):
+                    tx_bps_val = 10.0
+                try:
+                    slippage_bps_val = float(slippage_bps) if slippage_bps is not None else 5.0
+                except (TypeError, ValueError):
+                    slippage_bps_val = 5.0
+                total_cost_pct = (tx_bps_val + slippage_bps_val) / 100.0
+                realized_return_net_pct = realized_return_pct - total_cost_pct
+
+                if min_low is not None and min_low > 0:
+                    max_drawdown_pct = max(0.0, ((baseline - min_low) / baseline) * 100.0)
+                else:
+                    max_drawdown_pct = max(0.0, -realized_return_pct)
+
+                utility_score = realized_return_net_pct - (0.5 * max_drawdown_pct)
+            else:
+                realized_return_net_pct = realized_return_pct
+                max_drawdown_pct = max(0.0, -realized_return_pct)
+                utility_score = realized_return_pct
+
+            direction_correct = self._is_direction_correct(recommendation, realized_return_net_pct)
+            outcome_up = realized_return_net_pct > 0
 
             predicted_up_probability = outcome.get("predicted_up_probability")
             try:
@@ -585,9 +704,12 @@ class AnalysisScheduler:
                 outcome_id,
                 realized_price=realized_price,
                 realized_return_pct=realized_return_pct,
+                realized_return_net_pct=realized_return_net_pct,
                 direction_correct=direction_correct,
                 outcome_up=outcome_up,
                 brier_component=brier_component,
+                max_drawdown_pct=max_drawdown_pct,
+                utility_score=utility_score,
                 status="complete",
                 evaluated_at=datetime.utcnow().isoformat(),
             )
@@ -605,6 +727,21 @@ class AnalysisScheduler:
             directional_hits = sum(1 for row in completed if bool(row.get("direction_correct")))
             directional_accuracy = directional_hits / sample_size
             avg_realized_return = self._mean_or_none([row.get("realized_return_pct") for row in completed])
+            mean_net_return = (
+                self._mean_or_none([row.get("realized_return_net_pct") for row in completed])
+                if economics_enabled
+                else None
+            )
+            mean_drawdown = (
+                self._mean_or_none([row.get("max_drawdown_pct") for row in completed])
+                if economics_enabled
+                else None
+            )
+            utility_mean = (
+                self._mean_or_none([row.get("utility_score") for row in completed])
+                if economics_enabled
+                else None
+            )
             mean_confidence = self._mean_or_none([row.get("confidence") for row in completed])
             brier_values = [row.get("brier_component") for row in completed]
             brier_score = self._mean_or_none(brier_values) or 0.0
@@ -617,7 +754,52 @@ class AnalysisScheduler:
                 avg_realized_return_pct=avg_realized_return,
                 mean_confidence=mean_confidence,
                 brier_score=brier_score,
+                mean_net_return_pct=mean_net_return,
+                mean_drawdown_pct=mean_drawdown,
+                utility_mean=utility_mean,
             )
+
+            # Build confidence reliability bins for calibrated confidence mapping.
+            bin_rows = []
+            bin_count = 5
+            for bin_idx in range(bin_count):
+                lower = bin_idx / bin_count
+                upper = (bin_idx + 1) / bin_count
+                members = []
+                for row in completed:
+                    raw_conf = row.get("confidence")
+                    if raw_conf is None:
+                        raw_conf = row.get("predicted_up_probability")
+                    try:
+                        conf_val = float(raw_conf)
+                    except (TypeError, ValueError):
+                        continue
+                    if conf_val < 0.0 or conf_val > 1.0:
+                        continue
+                    in_bin = (lower <= conf_val < upper) or (conf_val == 1.0 and upper == 1.0)
+                    if in_bin:
+                        members.append(bool(row.get("direction_correct")))
+
+                if not members:
+                    continue
+
+                hit_rate = sum(1 for item in members if item) / len(members)
+                bin_rows.append(
+                    {
+                        "bin_index": bin_idx,
+                        "bin_lower": lower,
+                        "bin_upper": upper,
+                        "sample_size": len(members),
+                        "empirical_hit_rate": hit_rate,
+                    }
+                )
+
+            if bin_rows:
+                self.db_manager.replace_confidence_reliability_bins(
+                    as_of_date=as_of_date,
+                    horizon_days=horizon,
+                    bins=bin_rows,
+                )
 
     def add_schedule(self, schedule: Dict[str, Any]):
         """Add a new schedule job (call after DB insert)."""

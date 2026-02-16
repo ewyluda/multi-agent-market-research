@@ -3,7 +3,7 @@
  */
 
 import React from 'react';
-import { motion } from 'framer-motion';
+import { motion as Motion } from 'framer-motion';
 import { NewspaperIcon } from './Icons';
 
 const NewsFeed = ({ analysis }) => {
@@ -68,7 +68,7 @@ const NewsFeed = ({ analysis }) => {
   };
 
   return (
-    <motion.div
+    <Motion.div
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, delay: 0.2 }}
@@ -158,7 +158,7 @@ const NewsFeed = ({ analysis }) => {
           {newsData.recent_count} articles in the last 24 hours
         </div>
       )}
-    </motion.div>
+    </Motion.div>
   );
 };
 

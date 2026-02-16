@@ -6,8 +6,8 @@
  * Includes duration tooltips, total completion time, and collapse toggle.
  */
 
-import React, { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import React, { useState } from 'react';
+import { motion as Motion, AnimatePresence } from 'framer-motion';
 import { useAnalysisContext } from '../context/AnalysisContext';
 import {
   ChartBarIcon,
@@ -76,13 +76,7 @@ const itemVariants = {
 const AgentPipelineBar = () => {
   const { analysis, loading, stage } = useAnalysisContext();
   const [expanded, setExpanded] = useState(true);
-
-  // Auto-expand when loading starts
-  useEffect(() => {
-    if (loading) {
-      setExpanded(true);
-    }
-  }, [loading]);
+  const shouldExpand = loading || expanded;
 
   const getAgentStatus = (agentId) => {
     if (!loading && !analysis) return 'idle';
@@ -180,35 +174,35 @@ const AgentPipelineBar = () => {
           )}
 
           {/* Collapse toggle - only show after completion */}
-          {isComplete && (
-            <button
-              onClick={() => setExpanded((prev) => !prev)}
-              className="text-[10px] text-gray-500 hover:text-gray-300 transition-colors flex items-center gap-0.5"
-            >
-              Pipeline
-              <span
-                className={`inline-block transition-transform duration-200 ${
-                  expanded ? '' : '-rotate-90'
+        {isComplete && (
+          <button
+            onClick={() => setExpanded((prev) => !prev)}
+            className="text-[10px] text-gray-500 hover:text-gray-300 transition-colors flex items-center gap-0.5"
+          >
+            Pipeline
+            <span
+              className={`inline-block transition-transform duration-200 ${
+                  shouldExpand ? '' : '-rotate-90'
                 }`}
-              >
-                &#9662;
-              </span>
-            </button>
+            >
+              &#9662;
+            </span>
+          </button>
           )}
         </div>
       </div>
 
       {/* Agent items row */}
       <AnimatePresence>
-        {expanded && (
-          <motion.div
+        {shouldExpand && (
+          <Motion.div
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
             transition={{ duration: 0.2, ease: 'easeInOut' }}
             className="overflow-hidden"
           >
-            <motion.div
+            <Motion.div
               className="flex items-center justify-between gap-2 pt-3"
               variants={containerVariants}
               initial="hidden"
@@ -220,7 +214,7 @@ const AgentPipelineBar = () => {
                 const duration = getDuration(agent.id);
 
                 return (
-                  <motion.div
+                  <Motion.div
                     key={agent.id}
                     variants={itemVariants}
                     className="group relative flex flex-col items-center gap-1 flex-1 min-w-0"
@@ -264,11 +258,11 @@ const AgentPipelineBar = () => {
                         {duration}s
                       </span>
                     )}
-                  </motion.div>
+                  </Motion.div>
                 );
               })}
-            </motion.div>
-          </motion.div>
+            </Motion.div>
+          </Motion.div>
         )}
       </AnimatePresence>
     </div>

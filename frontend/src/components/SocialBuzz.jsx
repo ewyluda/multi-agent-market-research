@@ -4,7 +4,7 @@
  */
 
 import React, { useState } from 'react';
-import { motion } from 'framer-motion';
+import { motion as Motion } from 'framer-motion';
 import { XLogoIcon, HeartIcon, RepeatIcon, ChatBubbleIcon, FireIcon, ChevronDownIcon } from './Icons';
 
 const SocialBuzz = ({ analysis }) => {
@@ -12,7 +12,6 @@ const SocialBuzz = ({ analysis }) => {
 
   const newsData = analysis?.agent_results?.news?.data;
   const twitterBuzz = newsData?.twitter_buzz;
-  const twitterPosts = newsData?.twitter_posts || [];
 
   // Don't render if no Twitter data at all
   if (!twitterBuzz || twitterBuzz.total_tweets === 0) return null;
@@ -65,7 +64,7 @@ const SocialBuzz = ({ analysis }) => {
   };
 
   return (
-    <motion.div
+    <Motion.div
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, delay: 0.18 }}
@@ -114,7 +113,7 @@ const SocialBuzz = ({ analysis }) => {
           </span>
         </div>
         <div className="h-1.5 bg-dark-inset rounded-full overflow-hidden">
-          <motion.div
+          <Motion.div
             className={`h-full rounded-full ${
               buzzLevel === 'high' ? 'bg-gradient-to-r from-accent-amber/70 to-accent-amber' :
               buzzLevel === 'medium' ? 'bg-gradient-to-r from-accent-cyan/50 to-accent-cyan' :
@@ -135,15 +134,15 @@ const SocialBuzz = ({ analysis }) => {
             className="flex items-center justify-between w-full px-3 py-2 rounded-lg text-xs font-medium text-gray-400 hover:text-gray-200 hover:bg-white/[0.03] transition-all"
           >
             <span className="uppercase tracking-wider text-[10px]">Top Tweets</span>
-            <motion.div
+            <Motion.div
               animate={{ rotate: expanded ? 180 : 0 }}
               transition={{ duration: 0.2 }}
             >
               <ChevronDownIcon className="w-3.5 h-3.5" />
-            </motion.div>
+            </Motion.div>
           </button>
 
-          <motion.div
+          <Motion.div
             initial={false}
             animate={{ height: expanded ? 'auto' : 0, opacity: expanded ? 1 : 0 }}
             transition={{ duration: 0.25, ease: 'easeInOut' }}
@@ -151,7 +150,7 @@ const SocialBuzz = ({ analysis }) => {
           >
             <div className="space-y-3 pt-2 max-h-[400px] overflow-y-auto pr-1">
               {topTweets.map((tweet, index) => (
-                <motion.div
+                <Motion.div
                   key={tweet.id || index}
                   initial={{ opacity: 0, x: -8 }}
                   animate={{ opacity: 1, x: 0 }}
@@ -190,10 +189,10 @@ const SocialBuzz = ({ analysis }) => {
                     </span>
                     <span className="ml-auto text-gray-600">{formatDate(tweet.created_at)}</span>
                   </div>
-                </motion.div>
+                </Motion.div>
               ))}
             </div>
-          </motion.div>
+          </Motion.div>
         </div>
       )}
 
@@ -205,7 +204,7 @@ const SocialBuzz = ({ analysis }) => {
           <span>twitter.com</span>
         </span>
       </div>
-    </motion.div>
+    </Motion.div>
   );
 };
 

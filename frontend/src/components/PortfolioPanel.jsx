@@ -25,6 +25,9 @@ const DEFAULT_PROFILE = {
   max_position_pct: 0.1,
   max_sector_pct: 0.3,
   risk_budget_pct: 1.0,
+  target_portfolio_beta: 1.0,
+  max_turnover_pct: 0.15,
+  default_transaction_cost_bps: 10,
 };
 
 const EMPTY_HOLDING = {
@@ -73,6 +76,9 @@ const PortfolioPanel = ({ onBack }) => {
         max_position_pct: Number(profile.max_position_pct ?? 0.1),
         max_sector_pct: Number(profile.max_sector_pct ?? 0.3),
         risk_budget_pct: Number(profile.risk_budget_pct ?? 1.0),
+        target_portfolio_beta: Number(profile.target_portfolio_beta ?? 1.0),
+        max_turnover_pct: Number(profile.max_turnover_pct ?? 0.15),
+        default_transaction_cost_bps: Number(profile.default_transaction_cost_bps ?? 10),
       });
     } catch (err) {
       setError(err.response?.data?.detail || err.message || 'Failed to load portfolio');
@@ -105,6 +111,9 @@ const PortfolioPanel = ({ onBack }) => {
         max_position_pct: Number(profileForm.max_position_pct),
         max_sector_pct: Number(profileForm.max_sector_pct),
         risk_budget_pct: Number(profileForm.risk_budget_pct),
+        target_portfolio_beta: Number(profileForm.target_portfolio_beta),
+        max_turnover_pct: Number(profileForm.max_turnover_pct),
+        default_transaction_cost_bps: Number(profileForm.default_transaction_cost_bps),
       });
       await loadPortfolio();
     } catch (err) {
@@ -129,7 +138,7 @@ const PortfolioPanel = ({ onBack }) => {
       ticker: holdingForm.ticker.toUpperCase().trim(),
       shares: Number(holdingForm.shares),
       avg_cost: holdingForm.avg_cost === '' ? null : Number(holdingForm.avg_cost),
-      market_value: Number(holdingForm.market_value),
+      market_value: holdingForm.market_value === '' ? null : Number(holdingForm.market_value),
       sector: holdingForm.sector || null,
       beta: holdingForm.beta === '' ? null : Number(holdingForm.beta),
     };
@@ -263,6 +272,45 @@ const PortfolioPanel = ({ onBack }) => {
                       className="mt-1 w-full px-3 py-2 bg-dark-inset border border-dark-border rounded-lg text-sm focus:outline-none focus:border-primary/40"
                     />
                   </label>
+                  <label className="text-xs text-gray-400">
+                    Target Beta
+                    <input
+                      type="number"
+                      min="0"
+                      max="5"
+                      step="0.01"
+                      value={profileForm.target_portfolio_beta}
+                      onChange={(e) => setProfileForm((prev) => ({ ...prev, target_portfolio_beta: Number(e.target.value) }))}
+                      className="mt-1 w-full px-3 py-2 bg-dark-inset border border-dark-border rounded-lg text-sm focus:outline-none focus:border-primary/40"
+                    />
+                  </label>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <label className="text-xs text-gray-400">
+                    Max Turnover (%)
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="0.1"
+                      value={(Number(profileForm.max_turnover_pct) * 100).toString()}
+                      onChange={(e) => setProfileForm((prev) => ({ ...prev, max_turnover_pct: Number(e.target.value) / 100 }))}
+                      className="mt-1 w-full px-3 py-2 bg-dark-inset border border-dark-border rounded-lg text-sm focus:outline-none focus:border-primary/40"
+                    />
+                  </label>
+                  <label className="text-xs text-gray-400">
+                    Tx Cost (bps)
+                    <input
+                      type="number"
+                      min="0"
+                      max="500"
+                      step="1"
+                      value={profileForm.default_transaction_cost_bps}
+                      onChange={(e) => setProfileForm((prev) => ({ ...prev, default_transaction_cost_bps: Number(e.target.value) }))}
+                      className="mt-1 w-full px-3 py-2 bg-dark-inset border border-dark-border rounded-lg text-sm focus:outline-none focus:border-primary/40"
+                    />
+                  </label>
                 </div>
 
                 <button
@@ -343,6 +391,7 @@ const PortfolioPanel = ({ onBack }) => {
                   step="0.01"
                   value={holdingForm.market_value}
                   onChange={(e) => setHoldingForm((prev) => ({ ...prev, market_value: e.target.value }))}
+                  placeholder="Optional (auto MTM if blank)"
                   className="mt-1 w-full px-3 py-2 bg-dark-inset border border-dark-border rounded-lg text-sm focus:outline-none focus:border-primary/40"
                 />
               </label>

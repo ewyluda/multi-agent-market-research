@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from typing import Optional
+from typing import Optional, Dict, Any
 import json
 import logging
 import io
@@ -33,6 +33,7 @@ from .config import Config
 from .database import DatabaseManager
 from .av_rate_limiter import AVRateLimiter
 from .av_cache import AVCache
+from .rollout_metrics import compute_phase7_rollout_status
 
 # Configure logging
 logging.basicConfig(
@@ -106,11 +107,14 @@ async def root():
             "export_pdf": "GET /api/analysis/{ticker}/export/pdf",
             "watchlists": "GET /api/watchlists",
             "watchlist_analyze": "POST /api/watchlists/{id}/analyze",
+            "watchlist_opportunities": "GET /api/watchlists/{id}/opportunities",
             "schedules": "POST/GET /api/schedules",
             "schedule_runs": "GET /api/schedules/{id}/runs",
             "portfolio": "GET /api/portfolio",
             "macro_events": "GET /api/macro-events",
             "calibration_summary": "GET /api/calibration/summary",
+            "calibration_reliability": "GET /api/calibration/reliability",
+            "rollout_phase7_status": "GET /api/rollout/phase7/status",
             "alerts": "POST/GET /api/alerts",
             "alert_notifications": "GET /api/alerts/notifications",
             "health": "GET /health"
@@ -195,6 +199,7 @@ async def analyze_ticker(
                 success=True,
                 ticker=ticker,
                 analysis_id=result.get("analysis_id"),
+                analysis_schema_version=((result.get("analysis") or {}).get("analysis_schema_version")),
                 analysis=result.get("analysis"),
                 agent_results=result.get("agent_results"),
                 duration_seconds=result.get("duration_seconds", 0.0)
@@ -427,6 +432,12 @@ async def get_detailed_history(
     start_date: Optional[str] = Query(default=None, description="Start date filter (ISO format)"),
     end_date: Optional[str] = Query(default=None, description="End date filter (ISO format)"),
     recommendation: Optional[str] = Query(default=None, description="Filter by recommendation: BUY, HOLD, SELL"),
+    min_ev_score: Optional[float] = Query(default=None, description="Minimum EV score (7d)"),
+    max_ev_score: Optional[float] = Query(default=None, description="Maximum EV score (7d)"),
+    min_confidence_calibrated: Optional[float] = Query(default=None, ge=0.0, le=1.0),
+    max_confidence_calibrated: Optional[float] = Query(default=None, ge=0.0, le=1.0),
+    min_data_quality_score: Optional[float] = Query(default=None, ge=0.0, le=100.0),
+    regime_label: Optional[str] = Query(default=None, description="risk_on, risk_off, or transition"),
 ):
     """
     Get paginated, filtered analysis history for a ticker.
@@ -455,6 +466,12 @@ async def get_detailed_history(
             start_date=start_date,
             end_date=end_date,
             recommendation=recommendation,
+            min_ev_score=min_ev_score,
+            max_ev_score=max_ev_score,
+            min_confidence_calibrated=min_confidence_calibrated,
+            max_confidence_calibrated=max_confidence_calibrated,
+            min_data_quality_score=min_data_quality_score,
+            regime_label=regime_label,
         )
         return {"ticker": ticker, **result}
     except Exception as e:
@@ -614,7 +631,16 @@ async def remove_ticker_from_watchlist(watchlist_id: int, ticker: str):
 
 
 @app.post("/api/watchlists/{watchlist_id}/analyze")
-async def analyze_watchlist(watchlist_id: int):
+async def analyze_watchlist(
+    watchlist_id: int,
+    agents: Optional[str] = Query(
+        default=None,
+        description=(
+            "Comma-separated list of agents to run per ticker: "
+            "news,sentiment,fundamentals,market,technical,macro,options. Default: all."
+        ),
+    ),
+):
     """
     Run analysis for all tickers in a watchlist.
     Returns results as they complete.
@@ -627,21 +653,72 @@ async def analyze_watchlist(watchlist_id: int):
     if not tickers:
         raise HTTPException(status_code=400, detail="Watchlist has no tickers")
 
-    async def batch_generator():
-        for ticker in tickers:
-            orchestrator = Orchestrator(
-                db_manager=db_manager,
-                rate_limiter=av_rate_limiter,
-                av_cache=av_cache,
+    requested_agents = None
+    if agents:
+        valid_agents = {"news", "sentiment", "fundamentals", "market", "technical", "macro", "options"}
+        requested_agents = [a.strip().lower() for a in agents.split(",") if a.strip()]
+        invalid = set(requested_agents) - valid_agents
+        if invalid:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid agent names: {', '.join(sorted(invalid))}. Valid: {', '.join(sorted(valid_agents))}",
             )
-            try:
-                result = await orchestrator.analyze_ticker(ticker)
-                yield f"event: result\ndata: {json.dumps({'ticker': ticker, 'success': result.get('success', False), 'analysis_id': result.get('analysis_id'), 'recommendation': (result.get('analysis') or {}).get('recommendation'), 'score': (result.get('analysis') or {}).get('score'), 'confidence': (result.get('analysis') or {}).get('confidence'), 'duration_seconds': result.get('duration_seconds', 0)}, default=str)}\n\n"
-            except Exception as e:
-                logger.error(f"Watchlist analysis failed for {ticker}: {e}")
-                yield f"event: error\ndata: {json.dumps({'ticker': ticker, 'error': str(e)})}\n\n"
 
-        yield f"event: done\ndata: {json.dumps({'message': 'All analyses complete', 'ticker_count': len(tickers)})}\n\n"
+    async def batch_generator():
+        concurrency = 4
+        semaphore = asyncio.Semaphore(concurrency)
+
+        async def _analyze_one(ticker: str) -> Dict[str, Any]:
+            async with semaphore:
+                orchestrator = Orchestrator(
+                    db_manager=db_manager,
+                    rate_limiter=av_rate_limiter,
+                    av_cache=av_cache,
+                )
+                result = await orchestrator.analyze_ticker(ticker, requested_agents=requested_agents)
+                return {
+                    "ticker": ticker,
+                    "success": result.get("success", False),
+                    "analysis_id": result.get("analysis_id"),
+                    "analysis_schema_version": ((result.get("analysis") or {}).get("analysis_schema_version")),
+                    "recommendation": (result.get("analysis") or {}).get("recommendation"),
+                    "score": (result.get("analysis") or {}).get("score"),
+                    "confidence": (result.get("analysis") or {}).get("confidence"),
+                    "ev_score_7d": (result.get("analysis") or {}).get("ev_score_7d"),
+                    "confidence_calibrated": (result.get("analysis") or {}).get("confidence_calibrated"),
+                    "data_quality_score": (result.get("analysis") or {}).get("data_quality_score"),
+                    "duration_seconds": result.get("duration_seconds", 0),
+                    "error": result.get("error"),
+                }
+
+        tasks = [asyncio.create_task(_analyze_one(ticker)) for ticker in tickers]
+        completed = 0
+        for task in asyncio.as_completed(tasks):
+            completed += 1
+            try:
+                payload = await task
+            except Exception as e:
+                logger.error("Watchlist analysis task failed: %s", e)
+                payload = {"success": False, "error": str(e), "ticker": "UNKNOWN"}
+
+            if payload.get("success"):
+                yield f"event: result\ndata: {json.dumps(payload, default=str)}\n\n"
+            else:
+                yield f"event: error\ndata: {json.dumps(payload, default=str)}\n\n"
+
+        opportunities = []
+        if Config.WATCHLIST_RANKING_ENABLED:
+            try:
+                opportunities = db_manager.get_watchlist_opportunities(
+                    watchlist_id=watchlist_id,
+                    limit=max(1, len(tickers)),
+                    min_quality=None,
+                    min_ev=None,
+                )
+            except Exception as exc:
+                logger.warning("Failed to compute watchlist opportunities: %s", exc)
+
+        yield f"event: done\ndata: {json.dumps({'message': 'All analyses complete', 'ticker_count': len(tickers), 'completed': completed, 'opportunities': opportunities}, default=str)}\n\n"
 
     return StreamingResponse(
         batch_generator(),
@@ -652,6 +729,27 @@ async def analyze_watchlist(watchlist_id: int):
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@app.get("/api/watchlists/{watchlist_id}/opportunities")
+async def get_watchlist_opportunities(
+    watchlist_id: int,
+    limit: int = Query(default=20, ge=1, le=100),
+    min_quality: Optional[float] = Query(default=None, ge=0.0, le=100.0),
+    min_ev: Optional[float] = Query(default=None),
+):
+    """Return ranked watchlist opportunities from latest analyses."""
+    wl = db_manager.get_watchlist(watchlist_id)
+    if not wl:
+        raise HTTPException(status_code=404, detail=f"Watchlist {watchlist_id} not found")
+
+    opportunities = db_manager.get_watchlist_opportunities(
+        watchlist_id=watchlist_id,
+        limit=limit,
+        min_quality=min_quality,
+        min_ev=min_ev,
+    )
+    return {"watchlist_id": watchlist_id, "opportunities": opportunities, "total_count": len(opportunities)}
 
 
 # ─── Schedule Endpoints ─────────────────────────────────────────────
@@ -809,17 +907,38 @@ async def get_portfolio_holdings():
 async def create_portfolio_holding(body: PortfolioHoldingCreate):
     """Create a portfolio holding."""
     import re
+    import yfinance as yf
 
     ticker = body.ticker.upper()
     if not re.match(r"^[A-Z]{1,5}$", ticker):
         raise HTTPException(status_code=400, detail="Invalid ticker symbol format")
+
+    market_value = body.market_value
+    if market_value is None:
+        inferred_price = None
+        try:
+            fast_info = await asyncio.to_thread(lambda: yf.Ticker(ticker).fast_info)
+            inferred_price = (
+                fast_info.get("lastPrice")
+                or fast_info.get("regularMarketPrice")
+                or fast_info.get("previousClose")
+            )
+        except Exception:
+            inferred_price = None
+
+        if inferred_price is None and body.avg_cost is not None:
+            inferred_price = body.avg_cost
+        if inferred_price is not None:
+            market_value = float(inferred_price) * float(body.shares)
+        else:
+            market_value = 0.0
 
     try:
         holding = db_manager.create_portfolio_holding(
             ticker=ticker,
             shares=body.shares,
             avg_cost=body.avg_cost,
-            market_value=body.market_value,
+            market_value=market_value,
             sector=body.sector,
             beta=body.beta,
         )
@@ -919,17 +1038,82 @@ async def get_ticker_calibration(ticker: str, limit: int = Query(default=100, ge
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/calibration/reliability")
+async def get_calibration_reliability(horizon_days: int = Query(default=7, ge=1, le=30)):
+    """Get latest reliability bins for a horizon (supported: 1, 7, 30)."""
+    if horizon_days not in {1, 7, 30}:
+        raise HTTPException(status_code=400, detail="horizon_days must be 1, 7, or 30")
+    try:
+        return db_manager.get_confidence_reliability_summary(horizon_days=horizon_days)
+    except Exception as e:
+        logger.error(f"Failed to get reliability bins for {horizon_days}d: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/rollout/phase7/status")
+async def get_phase7_rollout_status(window_hours: int = Query(default=72, ge=1, le=720)):
+    """Return rollout metrics and gate status for Phase 7 production enablement."""
+    try:
+        status = compute_phase7_rollout_status(
+            db_manager=db_manager,
+            window_hours=window_hours,
+        )
+        status["feature_flags"] = {
+            "SIGNAL_CONTRACT_V2_ENABLED": Config.SIGNAL_CONTRACT_V2_ENABLED,
+            "CALIBRATION_ECONOMICS_ENABLED": Config.CALIBRATION_ECONOMICS_ENABLED,
+            "PORTFOLIO_OPTIMIZER_V2_ENABLED": Config.PORTFOLIO_OPTIMIZER_V2_ENABLED,
+            "ALERTS_V2_ENABLED": Config.ALERTS_V2_ENABLED,
+            "WATCHLIST_RANKING_ENABLED": Config.WATCHLIST_RANKING_ENABLED,
+            "UI_PM_DASHBOARD_ENABLED": Config.UI_PM_DASHBOARD_ENABLED,
+            "SCHEDULED_SIGNAL_CONTRACT_V2_ENABLED": Config.SCHEDULED_SIGNAL_CONTRACT_V2_ENABLED,
+            "SCHEDULED_CALIBRATION_ECONOMICS_ENABLED": Config.SCHEDULED_CALIBRATION_ECONOMICS_ENABLED,
+            "SCHEDULED_PORTFOLIO_OPTIMIZER_V2_ENABLED": Config.SCHEDULED_PORTFOLIO_OPTIMIZER_V2_ENABLED,
+            "SCHEDULED_ALERTS_V2_ENABLED": Config.SCHEDULED_ALERTS_V2_ENABLED,
+        }
+        return status
+    except Exception as e:
+        logger.error(f"Failed to build Phase 7 rollout status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ─── Alert Endpoints ────────────────────────────────────────────
 
 @app.post("/api/alerts")
 async def create_alert_rule(body: AlertRuleCreate):
     """Create a new alert rule."""
     ticker = body.ticker.upper()
-    valid_types = {"recommendation_change", "score_above", "score_below", "confidence_above", "confidence_below"}
+    base_types = {
+        "recommendation_change",
+        "score_above",
+        "score_below",
+        "confidence_above",
+        "confidence_below",
+    }
+    v2_types = {
+        "ev_above",
+        "ev_below",
+        "regime_change",
+        "data_quality_below",
+        "calibration_drop",
+    }
+    valid_types = set(base_types)
+    if Config.ALERTS_V2_ENABLED:
+        valid_types.update(v2_types)
     if body.rule_type not in valid_types:
         raise HTTPException(status_code=400, detail=f"Invalid rule_type. Valid: {', '.join(sorted(valid_types))}")
-    if body.rule_type != "recommendation_change" and body.threshold is None:
-        raise HTTPException(status_code=400, detail="threshold required for score/confidence rules")
+    threshold_optional_types = {"recommendation_change", "regime_change"} if Config.ALERTS_V2_ENABLED else {
+        "recommendation_change"
+    }
+    if body.rule_type not in threshold_optional_types and body.threshold is None:
+        threshold_msg = (
+            "threshold required for score/confidence rules"
+            if not Config.ALERTS_V2_ENABLED
+            else "threshold required for score/confidence/ev/data_quality/calibration_drop rules"
+        )
+        raise HTTPException(
+            status_code=400,
+            detail=threshold_msg,
+        )
     try:
         rule = db_manager.create_alert_rule(ticker, body.rule_type, body.threshold)
         return rule
@@ -986,6 +1170,29 @@ async def update_alert_rule(rule_id: int, body: AlertRuleUpdate):
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
+    if "rule_type" in updates:
+        base_types = {
+            "recommendation_change",
+            "score_above",
+            "score_below",
+            "confidence_above",
+            "confidence_below",
+        }
+        v2_types = {
+            "ev_above",
+            "ev_below",
+            "regime_change",
+            "data_quality_below",
+            "calibration_drop",
+        }
+        valid_types = set(base_types)
+        if Config.ALERTS_V2_ENABLED:
+            valid_types.update(v2_types)
+        if updates["rule_type"] not in valid_types:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid rule_type. Valid: {', '.join(sorted(valid_types))}",
+            )
     success = db_manager.update_alert_rule(rule_id, **updates)
     if not success:
         raise HTTPException(status_code=404, detail=f"Alert rule {rule_id} not found")
@@ -1059,6 +1266,7 @@ async def analyze_ticker_stream(
                         "success": True,
                         "ticker": ticker,
                         "analysis_id": result.get("analysis_id"),
+                        "analysis_schema_version": ((result.get("analysis") or {}).get("analysis_schema_version")),
                         "analysis": result.get("analysis"),
                         "agent_results": result.get("agent_results"),
                         "duration_seconds": result.get("duration_seconds", 0.0),

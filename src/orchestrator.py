@@ -22,6 +22,7 @@ from .database import DatabaseManager
 from .av_rate_limiter import AVRateLimiter
 from .av_cache import AVCache
 from .portfolio_engine import PortfolioEngine
+from .signal_contract import build_signal_contract_v2, validate_signal_contract_v2
 
 
 class Orchestrator:
@@ -187,6 +188,15 @@ class Orchestrator:
             change_summary = self._build_change_summary(previous_analysis, final_analysis)
             final_analysis["changes_since_last_run"] = change_summary
             final_analysis["change_summary"] = change_summary
+            self._attach_signal_contract_v2(ticker, final_analysis, agent_results, diagnostics)
+
+            # Baseline observability for rollout gating and regression tracking.
+            self._log_baseline_metrics(
+                ticker=ticker,
+                started_at=start_time,
+                agent_results=agent_results,
+                diagnostics=diagnostics,
+            )
 
             if self.config.get("PORTFOLIO_ACTIONS_ENABLED", True):
                 try:
@@ -196,6 +206,9 @@ class Orchestrator:
                         analysis=final_analysis,
                         diagnostics=diagnostics,
                     )
+                    if not self.config.get("PORTFOLIO_OPTIMIZER_V2_ENABLED", False):
+                        portfolio_overlay.pop("portfolio_action_v2", None)
+                        portfolio_overlay.pop("portfolio_summary_v2", None)
                     final_analysis.update(portfolio_overlay)
                 except Exception as exc:
                     self.logger.warning(f"Portfolio advisory overlay failed: {exc}")
@@ -210,12 +223,15 @@ class Orchestrator:
                     baseline_price = self._extract_baseline_price(agent_results, final_analysis)
                     predicted_up_probability = self._derive_predicted_up_probability(final_analysis)
                     if baseline_price is not None:
+                        portfolio_profile = self.db_manager.get_portfolio_profile()
                         self.db_manager.create_outcome_rows_for_analysis(
                             analysis_id=analysis_id,
                             ticker=ticker,
                             baseline_price=baseline_price,
                             confidence=final_analysis.get("confidence"),
                             predicted_up_probability=predicted_up_probability,
+                            transaction_cost_bps=portfolio_profile.get("default_transaction_cost_bps"),
+                            slippage_bps=5.0,
                         )
                 except Exception as exc:
                     self.logger.warning(f"Failed to enqueue calibration outcomes: {exc}")
@@ -445,12 +461,19 @@ class Orchestrator:
             recommendation=final_analysis.get("recommendation", "HOLD"),
             confidence_score=final_analysis.get("confidence", 0.0),
             overall_sentiment_score=((agent_results.get("sentiment") or {}).get("data") or {}).get("overall_sentiment", 0.0),
-            solution_agent_reasoning=final_analysis.get("reasoning", ""),
+            solution_agent_reasoning=self._reasoning_for_persistence(final_analysis),
             duration_seconds=duration,
             score=final_analysis.get("score"),
             decision_card=final_analysis.get("decision_card"),
             change_summary=final_analysis.get("changes_since_last_run") or final_analysis.get("change_summary"),
             analysis_payload=final_analysis,
+            analysis_schema_version=final_analysis.get("analysis_schema_version", "v1"),
+            signal_contract_v2=final_analysis.get("signal_contract_v2"),
+            ev_score_7d=final_analysis.get("ev_score_7d"),
+            confidence_calibrated=final_analysis.get("confidence_calibrated"),
+            data_quality_score=final_analysis.get("data_quality_score"),
+            regime_label=final_analysis.get("regime_label"),
+            rationale_summary=final_analysis.get("rationale_summary"),
         )
 
         # Insert agent results
@@ -484,6 +507,80 @@ class Orchestrator:
         self.logger.info(f"Saved analysis {analysis_id} for {ticker}")
 
         return analysis_id
+
+    def _reasoning_for_persistence(self, final_analysis: Dict[str, Any]) -> str:
+        """Persist concise rationale unless CoT persistence is explicitly enabled."""
+        if self.config.get("COT_PERSISTENCE_ENABLED", False):
+            return str(final_analysis.get("reasoning") or final_analysis.get("rationale_summary") or "")
+        return str(final_analysis.get("rationale_summary") or final_analysis.get("summary") or "").strip()
+
+    def _attach_signal_contract_v2(
+        self,
+        ticker: str,
+        final_analysis: Dict[str, Any],
+        agent_results: Dict[str, Any],
+        diagnostics: Dict[str, Any],
+    ) -> None:
+        """Attach deterministic signal_contract_v2 when the feature flag is enabled."""
+        if not self.config.get("SIGNAL_CONTRACT_V2_ENABLED", False):
+            final_analysis["analysis_schema_version"] = "v1"
+            return
+
+        confidence_raw = self._safe_float(final_analysis.get("confidence"))
+        hit_rate_by_horizon: Dict[str, Dict[str, Any]] = {}
+        for horizon in (1, 7, 30):
+            row = self.db_manager.get_reliability_hit_rate(horizon_days=horizon, confidence_raw=confidence_raw)
+            if row:
+                hit_rate_by_horizon[f"{horizon}d"] = row
+
+        contract = build_signal_contract_v2(
+            analysis=final_analysis,
+            agent_results=agent_results,
+            diagnostics=diagnostics,
+            hit_rate_by_horizon=hit_rate_by_horizon,
+        )
+        is_valid, errors = validate_signal_contract_v2(contract)
+        if not is_valid:
+            self.logger.warning(
+                "Signal contract validation failed for %s: %s",
+                ticker,
+                "; ".join(errors),
+            )
+
+        final_analysis["signal_contract_v2"] = contract
+        final_analysis["analysis_schema_version"] = "v2"
+        final_analysis["ev_score_7d"] = contract.get("ev_score_7d")
+        final_analysis["confidence_calibrated"] = (contract.get("confidence") or {}).get("calibrated")
+        final_analysis["data_quality_score"] = ((contract.get("risk") or {}).get("data_quality_score"))
+        final_analysis["regime_label"] = ((contract.get("risk") or {}).get("regime_label"))
+        final_analysis["rationale_summary"] = contract.get("rationale_summary")
+
+        # Enforce concise reasoning on outbound payloads when CoT persistence is disabled.
+        if not self.config.get("COT_PERSISTENCE_ENABLED", False):
+            final_analysis["reasoning"] = contract.get("rationale_summary") or final_analysis.get("summary", "")
+
+    def _log_baseline_metrics(
+        self,
+        *,
+        ticker: str,
+        started_at: float,
+        agent_results: Dict[str, Any],
+        diagnostics: Dict[str, Any],
+    ) -> None:
+        """Emit baseline metrics used for rollout and regression tracking."""
+        elapsed = max(0.0, time.time() - started_at)
+        data_quality = diagnostics.get("data_quality") or {}
+        success_rate = self._safe_float(data_quality.get("agent_success_rate")) or 0.0
+        freshness = self._safe_float(data_quality.get("news_freshness_hours"))
+        freshness_text = "n/a" if freshness is None else f"{freshness:.2f}h"
+        self.logger.info(
+            "baseline_metrics ticker=%s latency_s=%.3f agent_success_rate=%.3f news_freshness=%s agent_count=%d",
+            ticker,
+            elapsed,
+            success_rate,
+            freshness_text,
+            len(agent_results),
+        )
 
     def _safe_float(self, value: Any) -> Optional[float]:
         """Convert value to float when possible."""

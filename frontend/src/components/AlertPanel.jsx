@@ -26,6 +26,11 @@ const RULE_TYPE_OPTIONS = [
   { value: 'score_below', label: 'Score Below Threshold', needsThreshold: true },
   { value: 'confidence_above', label: 'Confidence Above Threshold', needsThreshold: true },
   { value: 'confidence_below', label: 'Confidence Below Threshold', needsThreshold: true },
+  { value: 'ev_above', label: 'EV Above Threshold', needsThreshold: true },
+  { value: 'ev_below', label: 'EV Below Threshold', needsThreshold: true },
+  { value: 'regime_change', label: 'Regime Change', needsThreshold: false },
+  { value: 'data_quality_below', label: 'Data Quality Below', needsThreshold: true },
+  { value: 'calibration_drop', label: 'Calibration Drop', needsThreshold: true },
 ];
 
 /* ──────── Helpers ──────── */
@@ -37,7 +42,7 @@ const formatRuleType = (ruleType) => {
 
 const formatThreshold = (ruleType, threshold) => {
   if (threshold === null || threshold === undefined) return '';
-  if (ruleType.startsWith('confidence_')) return `${(threshold * 100).toFixed(0)}%`;
+  if (ruleType.startsWith('confidence_') || ruleType === 'calibration_drop') return `${(threshold * 100).toFixed(0)}%`;
   return threshold.toString();
 };
 
@@ -188,8 +193,9 @@ const NotificationRow = ({ notification, onAcknowledge }) => {
           </div>
 
           {notification.suggested_action && (
-            <div className="mt-1.5 text-[11px] text-accent-blue">
-              Next action: <span className="text-gray-300">{notification.suggested_action}</span>
+            <div className="mt-2 p-2 rounded-md border border-accent-blue/20 bg-accent-blue/10">
+              <div className="text-[10px] uppercase tracking-wider text-accent-blue mb-1">Playbook Action</div>
+              <div className="text-[11px] text-gray-200 leading-relaxed">{notification.suggested_action}</div>
             </div>
           )}
 
@@ -386,7 +392,13 @@ const AlertPanel = ({ onBack }) => {
                 step="any"
                 value={threshold}
                 onChange={(e) => setThreshold(e.target.value)}
-                placeholder={ruleType.startsWith('confidence_') ? '0.0 - 1.0' : '-100 to 100'}
+                placeholder={
+                  ruleType.startsWith('confidence_') || ruleType === 'calibration_drop'
+                    ? '0.0 - 1.0'
+                    : ruleType.includes('quality')
+                      ? '0 - 100'
+                      : '-100 to 100'
+                }
                 className="w-full px-3 py-2 bg-dark-inset border border-dark-border rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-primary/30 focus:border-primary/40 transition-all"
                 disabled={creating}
               />

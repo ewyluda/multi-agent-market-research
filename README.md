@@ -1,696 +1,355 @@
 # Multi-Agent Market Research Platform
 
-Real-time AI-powered stock market analysis using specialized agents.
+Real-time AI-powered US equity analysis with a quant PM upgrade layer.
 
 ## Overview
+This platform runs specialized agents (news, sentiment, fundamentals, market, technical, macro, options) and synthesizes their outputs into a unified decision payload.
 
-This application uses 7 specialized AI agents to analyze stocks from different perspectives:
-- **News Agent**: Gathers financial news with ticker-specific relevance filtering + Twitter/X social posts
-- **Sentiment Agent**: LLM-based sentiment analysis on news articles + Twitter posts (enriched with AV per-article sentiment scores)
-- **Fundamentals Agent**: Company financial metrics, health scoring, and LLM equity research
-- **Market Agent**: Price trends, moving averages, and market conditions
-- **Technical Agent**: RSI, MACD, Bollinger Bands, SMA analysis
-- **Macro Agent**: US macroeconomic indicators (fed funds rate, CPI, GDP, treasury yields, unemployment, inflation)
-- **Options Agent**: Options chain data analysis — put/call ratios, unusual activity detection, max pain calculation
+The latest architecture adds a quant/PM-oriented interface:
+- Deterministic `signal_contract_v2`
+- Optimizer-driven `portfolio_action_v2`
+- Calibration economics and reliability bins
+- EV/regime/quality-aware alerts
+- Cross-sectional watchlist opportunity ranking
+- PM-focused dashboard tabs and cards
 
-A **Solution Agent** synthesizes all outputs using chain-of-thought reasoning to provide a final BUY/HOLD/SELL recommendation with price targets and risk assessment.
+By default, long-form chain-of-thought is not persisted or shown (`COT_PERSISTENCE_ENABLED=false`).
 
-## Features
-
-- Real-time multi-agent analysis with parallel execution
-- **Configurable agent pipeline** — select which agents to run per request via `?agents=` parameter
-- **Alpha Vantage as primary data source** across all data agents (22 endpoints)
-- **AV connection pooling** — shared `aiohttp` session across all agents per analysis
-- **AV rate limiting** — centralized sliding-window limiter (5/min, 25/day configurable)
-- **AV response caching** — in-memory TTL cache deduplicates repeated requests
-- Graceful fallback to yfinance, NewsAPI, and SEC EDGAR when AV is unavailable
-- `data_source` tracking in every agent output for transparency
-- LLM-powered equity research (Anthropic Claude / OpenAI / xAI Grok)
-- Server-Sent Events (SSE) for live progress streaming
-- Historical analysis tracking with SQLite
-- RESTful API built with FastAPI
-- React frontend with Hero UI dark theme, structured executive overview, and macro sidebar widget
-- **Analysis history dashboard** — browse past analyses, score trend charts, filter by recommendation, paginated tables
-- **Multi-ticker watchlists** — create watchlists, batch-analyze all tickers via SSE, side-by-side comparison table
-- **Options flow analysis** — put/call ratios, unusual activity detection, max pain, implied volatility
-- **PDF export** — branded downloadable reports with agent summaries and recommendation details
-- **Scheduled recurring analysis** — cron-style automatic re-analysis at configurable intervals
-- **Alert system** — notifications when recommendations change or scores cross thresholds
-- **Test suite** — 157 pytest tests covering agents, orchestrator, API, database, AV cache, and rate limiter
-- **Docker support** — Dockerfiles + docker-compose for one-command deployment (backend + nginx frontend)
+## Quant PM Upgrade (Implemented)
+- `signal_contract_v2` generation and validation in `src/signal_contract.py`
+- Versioned analysis payloads via `analysis_schema_version` (`v1`/`v2`)
+- Deterministic EV/risk/quality/conflict metrics in orchestrator contract build path
+- Portfolio optimizer v2 in `src/portfolio_engine.py`
+- Calibration economics in scheduler outcomes (`realized_return_net_pct`, drawdown proxy, utility)
+- Reliability bin snapshots (`confidence_reliability_bins`) + calibration API
+- Signal-contract backfill utility (`src/backfill_signal_contract.py`) with checkpointed 180-day backfill flow
+- Phase 7 canary runner (`src/rollout_canary.py`) for preflight + Stage A/B/C/D promotion checks
+- Alerts v2 rule taxonomy (`ev_*`, `regime_change`, `data_quality_below`, `calibration_drop`)
+- Watchlist bounded-concurrency analysis + opportunities ranking endpoint
+- Frontend PM workflow consolidation (`Overview`, `Risk`, `Opportunities`, `Diagnostics`)
 
 ## Architecture
 
 ```
-User Request → FastAPI → Orchestrator → [7 Agents in Parallel]
-                                              ↓
-                                        Solution Agent
-                                              ↓
-                                        Final Analysis → Database
-                                              ↓
-                                        Response to User
+Client -> FastAPI -> Orchestrator -> [Data Agents] -> Solution Agent
+                                                   -> signal_contract_v2
+                                                   -> PortfolioEngine
+                                                   -> SQLite
+                                                   -> REST/SSE response
 ```
 
-### Data Source Priority
+Scheduled flow:
 
-Each data agent tries Alpha Vantage first and falls back gracefully:
-
-| Agent | Primary (Alpha Vantage) | Fallback |
-|-------|------------------------|----------|
-| Market | `GLOBAL_QUOTE` + `TIME_SERIES_DAILY` | yfinance |
-| Fundamentals | `COMPANY_OVERVIEW` + `EARNINGS` + `BALANCE_SHEET` + `CASH_FLOW` + `INCOME_STATEMENT` | yfinance + SEC EDGAR |
-| News | `NEWS_SENTIMENT` | NewsAPI + Twitter/X API v2 |
-| Technical | `RSI` + `MACD` + `BBANDS` + `SMA` (x3) + `TIME_SERIES_DAILY` | yfinance + local calculation |
-| Macro | `FEDERAL_FUNDS_RATE` + `CPI` + `REAL_GDP` + `TREASURY_YIELD` (10Y & 2Y) + `UNEMPLOYMENT` + `INFLATION` | None |
-| Options | `REALTIME_OPTIONS` + `HISTORICAL_OPTIONS` | yfinance options chain |
+```
+APScheduler -> Orchestrator -> analysis_outcomes/calibration_snapshots/reliability_bins -> AlertEngine
+```
 
 ## Setup
 
 ### Prerequisites
+- Python 3.10+
+- Node.js 18+
+- API keys (at least one LLM provider; Alpha Vantage strongly recommended)
 
-- Python 3.9+
-- Node.js 18+ (for frontend)
-- API Keys:
-  - **Required**: Anthropic API key (or OpenAI / xAI Grok API key)
-  - **Recommended**: Alpha Vantage API key (primary data source for all agents)
-  - **Optional**: NewsAPI (fallback news source), Twitter/X Bearer Token (social sentiment)
-
-### Installation
-
-1. **Clone the repository**
-   ```bash
-   cd multi-agent-market-research
-   ```
-
-2. **Create and activate virtual environment**
-   ```bash
-   python3 -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   ```
-
-3. **Install backend dependencies**
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-4. **Install frontend dependencies**
-   ```bash
-   cd frontend
-   npm install
-   cd ..
-   ```
-
-5. **Configure environment variables**
-   ```bash
-   cp .env.example .env
-   # Edit .env and add your API keys
-   ```
-
-   **Minimum required:**
-   ```
-   ANTHROPIC_API_KEY=your_key_here
-   ```
-
-   **Recommended (enables Alpha Vantage as primary data source):**
-   ```
-   ALPHA_VANTAGE_API_KEY=your_key_here
-   ```
-
-### Running the Backend
-
+### Install
 ```bash
+# Backend
+python3 -m venv venv
 source venv/bin/activate
-python run.py
+pip install -r requirements.txt
+
+# Frontend
+cd frontend
+npm install
+cd ..
+
+# Configure env
+cp .env.example .env
 ```
 
-The API will be available at `http://localhost:8000`
-
-### Running the Frontend
-
+### Run
 ```bash
+# Backend
+source venv/bin/activate
+python run.py
+
+# Frontend
 cd frontend
 npm run dev
 ```
 
-The UI will be available at `http://localhost:5173`
+### Docker (dev)
+```bash
+docker compose -f docker-compose.dev.yml up --build
+```
 
 ## API Endpoints
 
-### Trigger Analysis
-```bash
-POST /api/analyze/{ticker}?agents={comma-separated agent names}
+### Analysis
+- `POST /api/analyze/{ticker}`
+- `GET /api/analyze/{ticker}/stream`
+- `GET /api/analysis/{ticker}/latest`
+- `GET /api/analysis/{ticker}/history`
+- `GET /api/analysis/{ticker}/history/detailed`
+  - supports filters for recommendation/date and v2 fields (`ev_score_7d`, `confidence_calibrated`, `data_quality_score`, `regime_label`)
+- `GET /api/analysis/tickers`
+- `DELETE /api/analysis/{analysis_id}`
 
-# Run all agents (default)
-curl -X POST http://localhost:8000/api/analyze/NVDA
-
-# Run only specific agents
-curl -X POST "http://localhost:8000/api/analyze/NVDA?agents=market,technical"
-
-# Sentiment auto-adds news (dependency)
-curl -X POST "http://localhost:8000/api/analyze/NVDA?agents=sentiment"
-```
-
-Valid agent names: `news`, `sentiment`, `fundamentals`, `market`, `technical`, `macro`, `options`. The solution agent always runs.
-
-### Get Latest Analysis
-```bash
-GET /api/analysis/{ticker}/latest
-
-Example:
-curl http://localhost:8000/api/analysis/NVDA/latest
-```
-
-### Get Analysis History
-```bash
-GET /api/analysis/{ticker}/history?limit=10
-
-Example:
-curl http://localhost:8000/api/analysis/NVDA/history
-```
-
-### Get Detailed History (Paginated + Filtered)
-```bash
-GET /api/analysis/{ticker}/history/detailed?limit=20&offset=0&recommendation=BUY
-
-Example:
-curl "http://localhost:8000/api/analysis/NVDA/history/detailed?recommendation=BUY"
-```
-
-### List All Analyzed Tickers
-```bash
-GET /api/analysis/tickers
-
-Example:
-curl http://localhost:8000/api/analysis/tickers
-```
-
-### Delete an Analysis
-```bash
-DELETE /api/analysis/{analysis_id}
-
-Example:
-curl -X DELETE http://localhost:8000/api/analysis/5
-```
+### Exports
+- `GET /api/analysis/{ticker}/export/csv`
+- `GET /api/analysis/{ticker}/export/pdf`
 
 ### Watchlists
-```bash
-# Create a watchlist
-curl -X POST http://localhost:8000/api/watchlists -H "Content-Type: application/json" -d '{"name":"Tech"}'
-
-# List all watchlists
-curl http://localhost:8000/api/watchlists
-
-# Get watchlist with latest analyses
-curl http://localhost:8000/api/watchlists/1
-
-# Add ticker to watchlist
-curl -X POST http://localhost:8000/api/watchlists/1/tickers -H "Content-Type: application/json" -d '{"ticker":"NVDA"}'
-
-# Remove ticker from watchlist
-curl -X DELETE http://localhost:8000/api/watchlists/1/tickers/NVDA
-
-# Batch analyze all tickers (SSE stream)
-curl -N -X POST http://localhost:8000/api/watchlists/1/analyze
-```
-
-### SSE Real-time Streaming
-```bash
-GET /api/analyze/{ticker}/stream?agents={optional}
-
-# Stream analysis with real-time progress
-curl -N http://localhost:8000/api/analyze/NVDA/stream
-```
-
-Events streamed:
-- `progress` — agent status updates (`{stage, progress, ticker, timestamp}`)
-- `result` — final analysis (same shape as POST response)
-- `error` — on failure (`{error, ticker}`)
-
-```javascript
-const es = new EventSource('http://localhost:8000/api/analyze/NVDA/stream');
-es.addEventListener('progress', (e) => console.log(JSON.parse(e.data)));
-es.addEventListener('result', (e) => { console.log(JSON.parse(e.data)); es.close(); });
-```
-
-### Export Analysis as CSV
-```bash
-GET /api/analysis/{ticker}/export/csv?analysis_id={optional_id}
-
-# Export latest analysis
-curl -O http://localhost:8000/api/analysis/NVDA/export/csv
-
-# Export specific analysis by ID
-curl -O http://localhost:8000/api/analysis/NVDA/export/csv?analysis_id=3
-```
-
-### Export Analysis as PDF
-```bash
-GET /api/analysis/{ticker}/export/pdf?analysis_id={optional_id}
-
-# Export latest analysis as PDF
-curl -O http://localhost:8000/api/analysis/NVDA/export/pdf
-
-# Export specific analysis
-curl -O "http://localhost:8000/api/analysis/NVDA/export/pdf?analysis_id=3"
-```
+- `/api/watchlists*` CRUD + ticker membership
+- `POST /api/watchlists/{watchlist_id}/analyze` (event stream, optional `?agents=` filter)
+- `GET /api/watchlists/{watchlist_id}/opportunities?limit=&min_quality=&min_ev=`
 
 ### Schedules
-```bash
-# Create a recurring analysis schedule
-curl -X POST http://localhost:8000/api/schedules -H "Content-Type: application/json" -d '{"ticker":"NVDA","interval_minutes":1440}'
+- `/api/schedules*` CRUD + run history
 
-# List all schedules
-curl http://localhost:8000/api/schedules
+### Portfolio
+- `GET /api/portfolio`
+- `PUT /api/portfolio/profile`
+- `/api/portfolio/holdings*` CRUD
 
-# Get schedule with recent runs
-curl http://localhost:8000/api/schedules/1
+### Calibration
+- `GET /api/calibration/summary`
+- `GET /api/calibration/ticker/{ticker}`
+- `GET /api/calibration/reliability?horizon_days=1|7|30`
 
-# Update schedule (interval, enable/disable)
-curl -X PUT http://localhost:8000/api/schedules/1 -H "Content-Type: application/json" -d '{"enabled":false}'
+### Rollout Operations
+- `GET /api/rollout/phase7/status?window_hours=`
+  - returns Stage A/B computed gate status, key metrics, and current feature-flag posture
 
-# Delete schedule
-curl -X DELETE http://localhost:8000/api/schedules/1
-```
+### Macro Catalysts
+- `GET /api/macro-events`
 
 ### Alerts
+- `/api/alerts*` CRUD + notifications + acknowledge + unacknowledged count
+- v2 rule types (feature-gated):
+  - `ev_above`, `ev_below`, `regime_change`, `data_quality_below`, `calibration_drop`
+
+### Health
+- `GET /health`
+
+## Analysis Payload Compatibility
+When `SIGNAL_CONTRACT_V2_ENABLED=true`, analysis responses include:
+- `analysis.analysis_schema_version = "v2"`
+- `analysis.signal_contract_v2`
+
+Legacy fields are still included for compatibility:
+- `recommendation`, `score`, `confidence`, `decision_card`, `change_summary`, `portfolio_action`
+
+Additional v2 fields:
+- `analysis.portfolio_action_v2`
+- `analysis.ev_score_7d`
+- `analysis.confidence_calibrated`
+- `analysis.data_quality_score`
+- `analysis.regime_label`
+
+## Migration Notes
+For existing API/UI consumers, the upgrade is designed to be additive-first.
+
+### 1) No immediate breaking changes
+- Legacy fields are still present: `recommendation`, `score`, `confidence`, `decision_card`, `change_summary`, `portfolio_action`.
+- Existing integrations can continue to run unchanged while you migrate.
+
+### 2) Preferred read order (new clients)
+1. Read `analysis.signal_contract_v2` when available.
+2. Fall back to legacy fields when `signal_contract_v2` is missing.
+3. Use `analysis.analysis_schema_version` to branch behavior (`v1` vs `v2`).
+
+### 3) Reasoning/CoT policy
+- Default behavior is concise rationale only (`rationale_summary`).
+- Do not depend on long-form reasoning text persistence unless explicitly enabling `COT_PERSISTENCE_ENABLED=true`.
+
+### 4) Portfolio action migration
+- Keep reading legacy `portfolio_action` for backward compatibility.
+- Prefer `portfolio_action_v2` when `PORTFOLIO_OPTIMIZER_V2_ENABLED=true` for optimizer trace and target-delta details.
+
+### 5) Alert rule migration
+- Base rules remain available at all times.
+- v2 rules (`ev_above`, `ev_below`, `regime_change`, `data_quality_below`, `calibration_drop`) are accepted only when `ALERTS_V2_ENABLED=true`.
+
+### 6) Watchlist migration
+- Watchlist SSE still emits `result`, `error`, and `done`.
+- When `WATCHLIST_RANKING_ENABLED=true`, `done` includes an `opportunities` array.
+- Ranked opportunities can also be fetched without rerun via:
+  - `GET /api/watchlists/{watchlist_id}/opportunities`
+
+### 7) Calibration migration
+- Existing calibration summary remains available.
+- New reliability endpoint is additive:
+  - `GET /api/calibration/reliability?horizon_days=1|7|30`
+
+### 8) Suggested rollout sequence
+1. Deploy with new flags off.
+2. Enable scheduler-only overrides first:
+   - `SCHEDULED_SIGNAL_CONTRACT_V2_ENABLED=true`
+   - `SCHEDULED_CALIBRATION_ECONOMICS_ENABLED=true`
+   - keep global `SIGNAL_CONTRACT_V2_ENABLED=false` and `CALIBRATION_ECONOMICS_ENABLED=false`.
+3. Monitor rollout gates with:
+   - `GET /api/rollout/phase7/status?window_hours=72`
+4. Migrate readers to v2-first with legacy fallback.
+5. Enable optimizer/alerts/watchlist ranking flags incrementally.
+6. Remove legacy-only paths after your deprecation window.
+
+### 9) Canary automation
+Run API canaries against a deployed environment:
 ```bash
-# Create an alert rule
-curl -X POST http://localhost:8000/api/alerts -H "Content-Type: application/json" -d '{"ticker":"NVDA","rule_type":"recommendation_change"}'
-
-# Create a threshold alert
-curl -X POST http://localhost:8000/api/alerts -H "Content-Type: application/json" -d '{"ticker":"NVDA","rule_type":"score_above","threshold":50}'
-
-# List all alert rules
-curl http://localhost:8000/api/alerts
-
-# Get notifications
-curl http://localhost:8000/api/alerts/notifications
-
-# Get unacknowledged count (for badge)
-curl http://localhost:8000/api/alerts/notifications/count
-
-# Acknowledge a notification
-curl -X POST http://localhost:8000/api/alerts/notifications/1/acknowledge
-
-# Delete an alert rule
-curl -X DELETE http://localhost:8000/api/alerts/1
+source venv/bin/activate
+python -m src.rollout_canary --base-url http://localhost:8000 --stage all --window-hours 72
 ```
 
-Alert rule types: `recommendation_change`, `score_above`, `score_below`, `confidence_above`, `confidence_below`.
-
-### Health Check
+Stage-specific runs:
 ```bash
-GET /health
-
-Example:
-curl http://localhost:8000/health
+python -m src.rollout_canary --base-url http://localhost:8000 --stage preflight
+python -m src.rollout_canary --base-url http://localhost:8000 --stage stage_a --window-hours 72
+python -m src.rollout_canary --base-url http://localhost:8000 --stage stage_b --window-hours 72
+python -m src.rollout_canary --base-url http://localhost:8000 --stage stage_c --window-hours 72
+python -m src.rollout_canary --base-url http://localhost:8000 --stage stage_d --window-hours 72 --frontend-url http://localhost:5173
 ```
 
-## API Response Format
+Low-pressure Stage C run for tighter Alpha Vantage quotas:
+```bash
+python -m src.rollout_canary \
+  --base-url http://localhost:8000 \
+  --stage stage_c \
+  --window-hours 72 \
+  --stage-c-tickers AAPL,MSFT,NVDA,AMZN \
+  --stage-c-agents market,technical
+```
 
-### Analysis Response
-
-```json
-{
-  "success": true,
-  "ticker": "NVDA",
-  "analysis_id": 1,
-  "analysis": {
-    "recommendation": "HOLD",
-    "score": -15,
-    "confidence": 0.75,
-    "reasoning": "Mixed signals across agents...",
-    "risks": [
-      "Valuation concerns",
-      "Market volatility"
-    ],
-    "opportunities": [
-      "Strong fundamentals",
-      "Revenue growth momentum"
-    ],
-    "price_targets": {
-      "entry": 130.00,
-      "target": 155.00,
-      "stop_loss": 115.00
-    },
-    "position_size": "MEDIUM",
-    "time_horizon": "MEDIUM_TERM"
-  },
-  "agent_results": {
-    "news": { "data_source": "alpha_vantage", "..." : "..." },
-    "sentiment": { "..." : "..." },
-    "fundamentals": { "data_source": "alpha_vantage", "..." : "..." },
-    "market": { "data_source": "alpha_vantage", "..." : "..." },
-    "technical": { "data_source": "alpha_vantage", "..." : "..." },
-    "macro": { "data_source": "alpha_vantage", "..." : "..." },
-    "options": { "data_source": "yfinance", "..." : "..." }
-  },
-  "duration_seconds": 32.5
-}
+Production-grade Stage C benchmark (20 tickers, >=2x target):
+```bash
+python -m src.rollout_canary \
+  --base-url http://localhost:8000 \
+  --stage stage_c \
+  --window-hours 72 \
+  --stage-c-tickers AAPL,MSFT,NVDA,AMZN,GOOGL,META,TSLA,JPM,UNH,AVGO,LLY,XOM,JNJ,V,PG,MA,HD,COST,MRK,NFLX \
+  --stage-c-agents market,technical \
+  --stage-c-required-speedup 2.0
 ```
 
 ## Configuration
+All runtime configuration is in `.env` (`src/config.py`, `.env.example`).
 
-All configuration is in `.env` file. Key settings:
+### Key Feature Flags
+- `SIGNAL_CONTRACT_V2_ENABLED`
+- `COT_PERSISTENCE_ENABLED`
+- `PORTFOLIO_OPTIMIZER_V2_ENABLED`
+- `CALIBRATION_ECONOMICS_ENABLED`
+- `ALERTS_V2_ENABLED`
+- `WATCHLIST_RANKING_ENABLED`
+- `UI_PM_DASHBOARD_ENABLED`
+- Scheduled-run rollout overrides:
+  - `SCHEDULED_SIGNAL_CONTRACT_V2_ENABLED`
+  - `SCHEDULED_CALIBRATION_ECONOMICS_ENABLED`
+  - `SCHEDULED_PORTFOLIO_OPTIMIZER_V2_ENABLED`
+  - `SCHEDULED_ALERTS_V2_ENABLED`
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `LLM_PROVIDER` | LLM provider (`anthropic` / `openai` / `xai`) | `anthropic` |
-| `LLM_MODEL` | Model to use | `claude-3-5-sonnet-20241022` |
-| `ALPHA_VANTAGE_API_KEY` | Alpha Vantage API key (primary data source) | _(empty)_ |
-| `NEWS_API_KEY` | NewsAPI key (fallback news source) | _(empty)_ |
-| `TWITTER_BEARER_TOKEN` | Twitter/X API v2 Bearer Token (social data) | _(empty)_ |
-| `TWITTER_MAX_RESULTS` | Max tweets to fetch per analysis | `50` |
-| `TWITTER_MIN_ENGAGEMENT` | Minimum engagement filter for tweets | `0` |
-| `AGENT_TIMEOUT` | Agent execution timeout (seconds) | `30` |
-| `AGENT_MAX_RETRIES` | Retry attempts per data fetch | `2` |
-| `NEWS_LOOKBACK_DAYS` | Days of news to fetch | `7` |
-| `MAX_NEWS_ARTICLES` | Max articles per request | `20` |
-| `FUNDAMENTALS_LLM_ENABLED` | Enable LLM equity research | `true` |
-| `PARALLEL_AGENTS` | Run agents in parallel | `true` |
-| `AV_RATE_LIMIT_PER_MINUTE` | AV requests allowed per minute | `5` |
-| `AV_RATE_LIMIT_PER_DAY` | AV requests allowed per day | `25` |
-| `RSI_PERIOD` | RSI calculation period | `14` |
-| `MACD_FAST` / `MACD_SLOW` / `MACD_SIGNAL` | MACD parameters | `12` / `26` / `9` |
-| `BB_PERIOD` / `BB_STD` | Bollinger Bands parameters | `20` / `2` |
-| `MACRO_AGENT_ENABLED` | Enable/disable macroeconomic agent | `true` |
-| `OPTIONS_AGENT_ENABLED` | Enable/disable options flow agent | `true` |
-| `SCHEDULER_ENABLED` | Enable/disable background scheduler | `true` |
-| `SCHEDULER_MIN_INTERVAL` | Minimum schedule interval (minutes) | `30` |
-| `ALERTS_ENABLED` | Enable/disable alert evaluation | `true` |
-
-See `.env.example` for all available options.
-
-## Testing
-
-### Run Test Suite
-
-```bash
-source venv/bin/activate
-
-# Run all 157 tests
-python -m pytest tests/ -v
-
-# Run with coverage
-python -m pytest tests/ --cov=src --cov-report=term-missing
-
-# Run specific test file
-python -m pytest tests/test_database.py -v
-
-# Run only fast tests (skip slow/integration)
-python -m pytest tests/ -v -m "not slow"
-```
-
-Test suite covers:
-- **AV Cache** (14 tests) — TTL expiry, in-flight coalescing, key generation, stats
-- **AV Rate Limiter** (7 tests) — daily limits, concurrent serialization, exhaustion
-- **Database** (25 tests) — all CRUD operations, cross-ticker isolation, indexing, schedules, alerts
-- **Base Agent** (18 tests) — ticker validation, execute flow, AV requests, retry logic
-- **Options Agent** (18 tests) — analysis, fetching, helpers, fallback paths
-- **Orchestrator** (12 tests) — agent resolution, dependencies, parallel execution, progress callbacks
-- **API** (22 tests) — all endpoints, error handling, SSE streaming, schedules, alerts
-- **PDF Report** (10 tests) — PDF generation, all recommendation types, edge cases
-- **Scheduler** (7 tests) — start/stop, job management, execution
-- **Alert Engine** (12 tests) — all rule types, evaluation logic, DB persistence
-
-### Manual Testing
-
-```bash
-# Test via API
-curl -X POST http://localhost:8000/api/analyze/AAPL
-
-# Test individual agent
-python -c "
-from src.agents.market_agent import MarketAgent
-import asyncio
-async def test():
-    agent = MarketAgent()
-    result = await agent.execute('NVDA')
-    print(result)
-asyncio.run(test())
-"
-
-# Health check
-curl http://localhost:8000/health
-```
+Default for all above is `false` (safe rollout posture).
 
 ## Database
+SQLite database file: `market_research.db`
 
-The application uses SQLite by default. Database file: `market_research.db`
+### Core tables
+- `analyses`
+- `agent_results`
+- `sentiment_scores`
+- `watchlists`, `watchlist_tickers`
+- `schedules`, `schedule_runs`
+- `portfolio_profile`, `portfolio_holdings`
+- `alert_rules`, `alert_notifications`
+- `analysis_outcomes`
+- `calibration_snapshots`
+- `confidence_reliability_bins`
 
-### Tables
-- `analyses` - Main analysis records
-- `agent_results` - Individual agent outputs (includes `data_source` in JSON)
-- `price_history` - Cached price data
-- `news_cache` - Cached news articles
-- `sentiment_scores` - Sentiment factor breakdown
-- `watchlists` - User-created watchlists
-- `watchlist_tickers` - Many-to-many ticker associations for watchlists
-- `schedules` - Recurring analysis configuration (ticker, interval, agents, enabled)
-- `schedule_runs` - Schedule execution audit log
-- `alert_rules` - User-defined alert conditions (ticker, rule_type, threshold)
-- `alert_notifications` - Triggered alert history with acknowledgment tracking
-
-### Query Examples
-
-```bash
-sqlite3 market_research.db
-
-# Get latest analysis
-SELECT * FROM analyses WHERE ticker='NVDA' ORDER BY timestamp DESC LIMIT 1;
-
-# Get all agent results for an analysis
-SELECT * FROM agent_results WHERE analysis_id = 1;
-
-# Get sentiment breakdown
-SELECT * FROM sentiment_scores WHERE analysis_id = 1;
-```
+### Quant PM schema highlights
+- `analyses`: `analysis_schema_version`, `signal_contract_v2`, `ev_score_7d`, `confidence_calibrated`, `data_quality_score`, `regime_label`, `rationale_summary`
+- `analysis_outcomes`: transaction costs/slippage + net return + drawdown + utility
+- `calibration_snapshots`: net return/drawdown/utility summary fields
+- `alert_rules`: expanded rule taxonomy for v2 alerts
 
 ## Project Structure
 
 ```
 multi-agent-market-research/
 ├── src/
-│   ├── __init__.py
-│   ├── api.py                 # FastAPI application (REST + SSE endpoints)
-│   ├── config.py              # Configuration management
-│   ├── database.py            # Database operations (SQLite)
-│   ├── models.py              # Pydantic models
-│   ├── orchestrator.py        # Agent coordination with configurable pipeline
-│   ├── av_cache.py            # AV response cache (in-memory TTL)
-│   ├── av_rate_limiter.py     # AV API rate limiter (sliding window)
-│   ├── pdf_report.py         # PDF report generation (ReportLab)
-│   ├── scheduler.py          # Background analysis scheduler (APScheduler)
-│   ├── alert_engine.py       # Alert rule evaluation engine
+│   ├── api.py
+│   ├── orchestrator.py
+│   ├── signal_contract.py
+│   ├── rollout_metrics.py
+│   ├── rollout_canary.py
+│   ├── portfolio_engine.py
+│   ├── backfill_signal_contract.py
+│   ├── scheduler.py
+│   ├── alert_engine.py
+│   ├── database.py
+│   ├── models.py
+│   ├── config.py
 │   └── agents/
-│       ├── __init__.py
-│       ├── base_agent.py          # Base agent class (ABC) with shared AV infrastructure
-│       ├── news_agent.py          # News gathering (AV NEWS_SENTIMENT → NewsAPI + Twitter/X)
-│       ├── sentiment_agent.py     # Sentiment analysis (LLM + AV per-article scores)
-│       ├── fundamentals_agent.py  # Company fundamentals (AV 5-endpoint → yfinance + SEC EDGAR)
-│       ├── market_agent.py        # Market data (AV GLOBAL_QUOTE + DAILY → yfinance)
-│       ├── technical_agent.py     # Technical indicators (AV RSI/MACD/BBANDS/SMA → yfinance + local)
-│       ├── macro_agent.py         # US macroeconomic indicators (AV 7-endpoint, no fallback)
-│       ├── options_agent.py       # Options flow & unusual activity (AV → yfinance)
-│       └── solution_agent.py      # Final synthesis (LLM chain-of-thought)
-├── frontend/
-│   ├── src/
-│   │   ├── components/
-│   │   │   ├── Dashboard.jsx         # Main layout (Analysis/History/Watchlist/Schedules/Alerts + bell)
-│   │   │   ├── Recommendation.jsx    # SVG gauge with agent consensus strip
-│   │   │   ├── AgentStatus.jsx       # Real-time agent progress pipeline
-│   │   │   ├── PriceChart.jsx        # Price history, indicators, data source badges
-│   │   │   ├── SentimentReport.jsx   # Sentiment breakdown with factor bars
-│   │   │   ├── Summary.jsx           # Verdict banner, sectioned analysis, price targets
-│   │   │   ├── MacroSnapshot.jsx     # Macro indicators sidebar widget
-│   │   │   ├── NewsFeed.jsx          # News article list
-│   │   │   ├── HistoryDashboard.jsx  # Analysis history browser with trend charts
-│   │   │   ├── WatchlistPanel.jsx    # Watchlist management + comparison table
-│   │   │   ├── OptionsFlow.jsx        # Options flow display
-│   │   │   ├── SocialBuzz.jsx         # Twitter/X social buzz panel
-│   │   │   ├── SchedulePanel.jsx      # Schedule management
-│   │   │   ├── AlertPanel.jsx         # Alert rules + notifications
-│   │   │   └── Icons.jsx             # SVG icon components (30+ icons)
-│   │   ├── context/
-│   │   │   └── AnalysisContext.jsx    # React context for analysis state
-│   │   ├── hooks/
-│   │   │   ├── useAnalysis.js        # Analysis data fetching hook
-│   │   │   ├── useHistory.js         # History state management hook
-│   │   │   └── useSSE.js             # SSE streaming hook
-│   │   ├── utils/
-│   │   │   └── api.js                # API client (analysis + watchlist + schedule + alert endpoints)
-│   │   ├── assets/
-│   │   │   └── react.svg
-│   │   ├── App.jsx
-│   │   ├── main.jsx
-│   │   └── index.css                 # Hero UI dark theme (Tailwind v4)
-│   ├── Dockerfile                    # Production frontend (nginx)
-│   ├── Dockerfile.dev                # Development frontend (Vite hot-reload)
-│   ├── nginx.conf                    # Nginx reverse proxy config
-│   ├── index.html
-│   ├── vite.config.js
-│   ├── tailwind.config.js
-│   ├── postcss.config.js
-│   ├── eslint.config.js
-│   └── package.json
+│       ├── news_agent.py
+│       ├── sentiment_agent.py
+│       ├── fundamentals_agent.py
+│       ├── market_agent.py
+│       ├── technical_agent.py
+│       ├── macro_agent.py
+│       ├── options_agent.py
+│       └── solution_agent.py
+├── frontend/src/
+│   ├── components/
+│   │   ├── Dashboard.jsx
+│   │   ├── AnalysisTabs.jsx
+│   │   ├── Summary.jsx
+│   │   ├── Recommendation.jsx
+│   │   ├── WatchlistPanel.jsx
+│   │   ├── HistoryDashboard.jsx
+│   │   ├── AlertPanel.jsx
+│   │   └── PortfolioPanel.jsx
+│   ├── hooks/
+│   ├── context/
+│   └── utils/api.js
 ├── tests/
-│   ├── conftest.py                   # Shared fixtures (DB, cache, rate limiter, mock data)
-│   ├── test_av_cache.py              # AV cache tests (14 tests)
-│   ├── test_av_rate_limiter.py       # AV rate limiter tests (7 tests)
-│   ├── test_database.py              # Database CRUD tests (25 tests)
-│   ├── test_orchestrator.py          # Orchestrator tests (12 tests)
-│   ├── test_api.py                   # API endpoint tests (22 tests)
-│   ├── test_pdf_report.py           # PDF report tests (10 tests)
-│   ├── test_scheduler.py            # Scheduler tests (7 tests)
-│   ├── test_alert_engine.py         # Alert engine tests (12 tests)
+│   ├── test_api.py
+│   ├── test_orchestrator.py
+│   ├── test_database.py
+│   ├── test_calibration.py
+│   ├── test_signal_contract.py
+│   ├── test_portfolio_engine.py
+│   ├── test_backfill_signal_contract.py
+│   ├── test_rollout_metrics.py
+│   ├── test_rollout_canary.py
 │   └── test_agents/
-│       ├── test_base_agent.py        # Base agent tests (18 tests)
-│       └── test_options_agent.py    # Options agent tests (18 tests)
-├── Dockerfile                        # Backend Docker image
-├── docker-compose.yml                # Production compose
-├── docker-compose.dev.yml            # Development compose (hot-reload)
-├── .dockerignore
-├── pyproject.toml                    # pytest configuration
-├── requirements.txt                  # Python dependencies
-├── .env.example                      # Environment template
-├── run.py                            # Startup script
-├── CLAUDE.md                         # AI assistant guide
-└── README.md                         # This file
+├── docs/plans/
+│   ├── 2026-02-15-actionable-insights-roadmap.md
+│   └── 2026-02-16-quant-pm-upgrade-implementation-plan.md
+├── docs/reports/
+│   └── signal-contract-backfill-report.md
+├── AGENTS.md
+└── README.md
 ```
 
-## Frontend
-
-The frontend is a React application with a Hero UI-inspired dark theme built on Tailwind CSS v4.
-
-### Layout
-- **2-7-3 grid** layout: narrow agent pipeline (left), wide content area (center), recommendation + macro sidebar (right)
-- **No tabs** — all analysis sections (Summary, Sentiment, News) render vertically for full scannability
-- Glass card effects with hover state transitions and subtle backdrop blur
-
-### Theme
-- **Dark-only** design with zinc-based color palette
-- Glassmorphic card effects with subtle backdrop blur
-- Semantic color tokens: `primary` (blue), `success` (green), `danger` (pink-red), `warning` (amber)
-- Three-layer color system: Tailwind config, `@theme` CSS tokens, and `:root` CSS custom properties
-
-### Components
-- **Dashboard** — Main layout with view mode toggle (Analysis / History / Watchlist / Schedules / Alerts), 2-7-3 grid, search, agent orchestration, and SSE streaming
-- **HistoryDashboard** — Analysis history browser with ticker selector, SVG score trend chart, recommendation filter, paginated table, delete actions
-- **WatchlistPanel** — Watchlist CRUD, add/remove tickers, per-ticker analysis, batch "Analyze All" via SSE, comparison table sorted by confidence
-- **SchedulePanel** — Create, edit, delete recurring analysis schedules; enable/disable toggle; expandable run history per schedule
-- **AlertPanel** — Create alert rules (5 types: recommendation_change, score_above/below, confidence_above/below); notifications feed with acknowledge buttons; unread filter toggle
-- **OptionsFlow** — Options chain analysis display with put/call ratio, unusual activity table, max pain indicator, implied volatility highlights
-- **Summary** — Structured executive overview with:
-  - Verdict banner (colored BUY/HOLD/SELL with score and summary)
-  - At-a-glance metric pills (score, confidence, position, horizon)
-  - 11 expandable chain-of-thought sections with domain icons and one-line insights
-  - Price targets range bar visualization + 3-column grid
-  - Risks and opportunities with numbered lists
-- **Recommendation** — SVG gauge showing BUY/HOLD/SELL with score, confidence bar, position/horizon, and agent consensus strip (per-agent signal dots)
-- **MacroSnapshot** — Compact sidebar widget showing fed funds rate, treasury yields, yield curve status, inflation, unemployment, GDP, economic cycle, and risk environment
-- **PriceChart** — TradingView chart with metric cards, technical indicators (RSI, MACD, signal strength), and data source provenance badges
-- **SentimentReport** — Sentiment meter, factor breakdown with centered bars, and key themes
-- **AgentStatus** — Real-time progress pipeline for 7 agents with status indicators and duration tracking
-- **SocialBuzz** — Twitter/X social buzz panel with tweet volume, engagement metrics, buzz level indicator, and collapsible top tweets with per-tweet engagement stats
-- **NewsFeed** — Relevance-scored news article list with source attribution
-
-## Docker
-
-### Production
+## Testing
 
 ```bash
-# Build and run
-docker compose up --build
-
-# Backend: http://localhost:8000
-# Frontend: http://localhost:3000 (nginx proxies /api/* to backend)
-```
-
-### Development (with hot-reload)
-
-```bash
-docker compose -f docker-compose.dev.yml up --build
-
-# Backend: http://localhost:8000 (auto-reload on file changes)
-# Frontend: http://localhost:5173 (Vite HMR)
-```
-
-Environment variables are read from `.env` by docker-compose. The SQLite database is persisted in a Docker volume.
-
-## Troubleshooting
-
-### Common Issues
-
-**Import errors**
-```bash
-# Make sure you're in the project root and virtual environment is activated
 source venv/bin/activate
-export PYTHONPATH=$PYTHONPATH:$(pwd)
+pytest
 ```
 
-**API key errors**
+Current backend suite status in this branch: `214 passed`.
+
+Frontend quality checks:
 ```bash
-# Check your .env file has valid API keys
-cat .env | grep API_KEY
+cd frontend
+npm run lint
+npm run build
 ```
 
-**Database errors**
-```bash
-# Delete and recreate database
-rm market_research.db
-python run.py  # Will create fresh database
-```
-
-**Alpha Vantage rate limiting**
-- Built-in rate limiter enforces per-minute and per-day limits (configurable via `AV_RATE_LIMIT_PER_MINUTE` / `AV_RATE_LIMIT_PER_DAY`)
-- Free tier allows 25 requests/day, 5 requests/minute — the rate limiter queues excess requests automatically
-- Each full analysis uses ~22 AV requests (across all agents concurrently; macro data cached for 1 day)
-- Agents automatically fall back to yfinance/NewsAPI when daily limit is exhausted
-- Check logs for `"Rate limiter: waiting"` or `"AV daily limit reached"` messages
-- Consider upgrading to AV premium for production use and adjusting rate limit config accordingly
-
-**Alpha Vantage returns empty data**
-- Verify ticker is valid on AV (some international tickers differ)
-- Agents gracefully fall back to alternative sources
-- Check `data_source` field in agent results to confirm which source was used
-
-## Roadmap
-
-### Tier 3 — Polish & Production Readiness
-
-- **TypeScript migration for frontend**: Convert React components to TypeScript for type safety across complex agent result structures.
-- **Light/dark theme toggle**: Add a light theme variant with a toggle in the header.
-- **Authentication & multi-user support**: User accounts, API key management, and per-user watchlists.
-- **Database optimization**: Additional indices on `agent_results.agent_type` and composite indices for cross-ticker queries.
-
-### Tier 4 — Ambitious / Differentiating
-
-- **Agent performance scoring**: Track prediction accuracy over time by comparing recommendations to actual price movements.
-- **Custom agent builder**: User-configurable agents with selectable data sources, LLM prompts, and weighting.
-- **Sector / industry heatmap**: Aggregate analysis results across tickers to visualize sector-level sentiment and momentum.
-- **Real-time market data streaming**: Continuous intraday data feeds replacing periodic snapshots.
-
-### Completed
-
-- ~~**Test suite (pytest)**: 157 unit and integration tests covering agents, orchestrator, API endpoints, AV cache, and rate limiter with full mocking infrastructure.~~ *(Done — `tests/` directory with conftest fixtures, 157 passing tests, pytest-asyncio + aioresponses)*
-- ~~**Multi-ticker watchlist & comparison**: Batch analysis across multiple tickers with watchlist persistence, SSE batch streaming, and side-by-side comparison UI.~~ *(Done — `watchlists` + `watchlist_tickers` tables, 8 CRUD endpoints, WatchlistPanel component with batch analyze + comparison)*
-- ~~**Analysis history dashboard**: Browse past analyses per ticker, visualize score trends over time, filter/paginate results, and delete records.~~ *(Done — HistoryDashboard with SVG trend chart, recommendation filter, paginated table, 3 new API endpoints)*
-- ~~**Docker containerization**: Dockerfile + docker-compose for one-command deployment of backend and frontend with persistent SQLite volume.~~ *(Done — multi-stage Dockerfiles, production + dev compose, nginx reverse proxy with SSE support)*
-- ~~**Real-time streaming via SSE**: Replace WebSocket polling pattern with Server-Sent Events for simpler one-way streaming of agent progress updates.~~ *(Done — `GET /api/analyze/{ticker}/stream` delivers progress + final result via SSE)*
-- ~~**Macroeconomic agent**: Add an agent for broader market context using AV endpoints like `FEDERAL_FUNDS_RATE`, `CPI`, `REAL_GDP`, and treasury yield data.~~ *(Done — `MacroAgent` fetches 7 AV macro endpoints with yield curve, economic cycle, and risk environment analysis)*
-- ~~**News sentiment aggregation into sentiment agent**: The AV NEWS_SENTIMENT endpoint provides per-article sentiment scores. These could be forwarded to the sentiment agent to supplement its LLM-based analysis.~~ *(Done — AV per-article sentiment scores are now included in the LLM prompt and blended into the keyword fallback)*
-- ~~**Export analysis as CSV**: Add endpoints to export analysis results in downloadable formats for reporting.~~ *(Done — CSV export available at `GET /api/analysis/{ticker}/export/csv`)*
-- ~~**In-flight request coalescing**: Deduplicate concurrent identical AV requests (e.g., market and technical agents both requesting TIME_SERIES_DAILY simultaneously).~~ *(Done — `AVCache` tracks in-flight requests via `asyncio.Future`; concurrent identical requests coalesce into a single HTTP call)*
-- ~~**Options flow / unusual activity agent**: New agent monitoring options market data for unusual volume, put/call ratios, and large block trades.~~ *(Done — `OptionsAgent` with AV REALTIME_OPTIONS + HISTORICAL_OPTIONS primary, yfinance fallback; put/call ratio, max pain, unusual activity detection; integrated into solution agent chain-of-thought)*
-- ~~**PDF export with branded report**: Generate downloadable PDF reports with charts, agent summaries, and recommendation branding.~~ *(Done — ReportLab-based multi-page PDF; executive summary, price targets, per-agent sections, full reasoning; `GET /api/analysis/{ticker}/export/pdf`)*
-- ~~**Scheduled / recurring analysis**: Cron-style or interval-based automatic re-analysis of watched tickers.~~ *(Done — APScheduler-based background scheduler; CRUD API for schedules; configurable intervals 30min-1week; run history audit log; SchedulePanel UI)*
-- ~~**Alert system**: Notify users when a ticker's recommendation changes or crosses a score threshold.~~ *(Done — AlertEngine evaluates rules post-analysis; 5 rule types; notification persistence with acknowledgment; AlertPanel UI with bell badge)*
-- ~~**Twitter/X social sentiment**: Integrate Twitter/X API v2 for social buzz analysis alongside news sentiment.~~ *(Done — News agent fetches cashtag tweets concurrently via `asyncio.create_task`; sentiment agent includes social_sentiment as 5th analysis factor; SocialBuzz frontend component with engagement metrics and top tweets)*
+## Documentation
+- Quant PM implementation details: `docs/plans/2026-02-16-quant-pm-upgrade-implementation-plan.md`
+- Prior roadmap context: `docs/plans/2026-02-15-actionable-insights-roadmap.md`
+- Latest backfill audit report: `docs/reports/signal-contract-backfill-report.md`
 
 ## License
-
 MIT
-
-## Contributing
-
-Contributions welcome! Please open an issue or PR.

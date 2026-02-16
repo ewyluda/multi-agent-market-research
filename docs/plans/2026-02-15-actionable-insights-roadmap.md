@@ -1,7 +1,16 @@
 # Actionable Insights Roadmap
 
 **Date**: 2026-02-15  
-**Status**: Proposed
+**Status**: Implemented in codebase (operational rollout hardening in progress)
+
+## Current Completion Status
+
+- Phases 1-3 feature scope has been implemented in the application and documented in
+  `docs/plans/2026-02-16-quant-pm-upgrade-implementation-plan.md`.
+- Remaining work is operational:
+  - staged production rollout gate execution and monitoring,
+  - production-scale Stage C benchmark validation,
+  - deprecation-window completion across releases N+1 and N+2.
 
 ## Goal
 

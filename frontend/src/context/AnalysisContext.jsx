@@ -2,6 +2,7 @@
  * Analysis Context - Global state for current analysis
  */
 
+/* eslint-disable react-refresh/only-export-components */
 import React, { createContext, useContext, useState } from 'react';
 
 const AnalysisContext = createContext();

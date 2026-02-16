@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion as Motion, AnimatePresence } from 'framer-motion';
 import { exportAnalysisPDF } from '../utils/api';
 import {
   DocumentIcon,
@@ -63,47 +63,6 @@ const getRecommendationColor = (recommendation) => {
   return { text: 'text-warning-400', bg: 'bg-warning', bgLight: 'bg-warning/15', border: 'border-warning/30', glow: '0 0 20px rgba(245, 165, 36, 0.12)' };
 };
 
-/**
- * Parse LLM chain-of-thought reasoning into sections.
- * Expects numbered format: "1. Text 2. Text ..." following the 10-step template.
- */
-const parseReasoning = (text) => {
-  if (!text) return [];
-
-  const sections = text.split(/(?=\d+\.\s)/).filter(s => s.trim());
-  return sections.map((section) => {
-    const match = section.match(/^(\d+)\.\s*(.*)/s);
-    if (!match) return null;
-
-    const num = parseInt(match[1], 10);
-    const content = match[2].trim();
-
-    // Extract first sentence as headline
-    const colonIdx = content.indexOf(':');
-    let headline, detail;
-
-    if (colonIdx > 0 && colonIdx < 80) {
-      headline = content.substring(0, colonIdx).trim();
-      detail = content.substring(colonIdx + 1).trim();
-    } else {
-      const periodIdx = content.indexOf('. ');
-      if (periodIdx > 0 && periodIdx < 150) {
-        headline = content.substring(0, periodIdx + 1).trim();
-        detail = content.substring(periodIdx + 2).trim();
-      } else {
-        headline = content.substring(0, 120);
-        detail = content.length > 120 ? content.substring(120).trim() : '';
-      }
-    }
-
-    const meta = SECTION_META.find(m => m.id === num) || {
-      id: num, label: `Step ${num}`, icon: DocumentIcon, color: 'accent-blue'
-    };
-
-    return { num, headline, detail, meta };
-  }).filter(Boolean);
-};
-
 /* ─── Sub-components ────────────────────────────────────────────── */
 
 /**
@@ -138,7 +97,7 @@ const AnalysisSection = ({ section, defaultExpanded = false }) => {
       </div>
       <AnimatePresence>
         {expanded && detail && (
-          <motion.div
+          <Motion.div
             key="detail"
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}
@@ -149,7 +108,7 @@ const AnalysisSection = ({ section, defaultExpanded = false }) => {
             <div className="mt-2.5 ml-10 text-sm text-gray-300 leading-relaxed pb-1">
               {detail}
             </div>
-          </motion.div>
+          </Motion.div>
         )}
       </AnimatePresence>
     </div>
@@ -498,8 +457,25 @@ export const ResearchContent = ({ analysis }) => {
   if (!analysis) return null;
 
   const payload = getAnalysisPayload(analysis);
-  const { reasoning, risks, opportunities, price_targets } = payload;
-  const sections = parseReasoning(reasoning);
+  const { risks, opportunities, price_targets } = payload;
+  const signal = payload.signal_contract_v2 || {};
+  const rationaleSummary =
+    signal.rationale_summary
+    || payload.rationale_summary
+    || payload.summary
+    || payload.reasoning
+    || 'No concise rationale was provided for this run.';
+  const evidence = Array.isArray(signal.evidence) ? signal.evidence : [];
+  const qualityScore = signal?.risk?.data_quality_score ?? payload.data_quality_score;
+  const conflictScore = signal?.risk?.conflict_score;
+  const regimeLabel = signal?.risk?.regime_label ?? payload.regime_label;
+  const executionPlan = signal.execution_plan || {};
+  const executionEntry = executionPlan.entry_zone || {};
+  const executionTargets = Array.isArray(executionPlan.targets) ? executionPlan.targets : [];
+  const executionInvalidation = Array.isArray(executionPlan.invalidation_conditions)
+    ? executionPlan.invalidation_conditions
+    : [];
+  const maxHoldingDays = executionPlan.max_holding_days;
 
   // Calculate upside/downside from entry
   const getPercent = (target, entry) => {
@@ -530,35 +506,89 @@ export const ResearchContent = ({ analysis }) => {
         </button>
       </div>
 
-      {/* Analysis Sections */}
-      {sections.length > 0 && (
-        <div className="glass-card-elevated rounded-xl p-5 animate-fade-in" style={{ animationDelay: '0.1s' }}>
-          <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider mb-3 flex items-center space-x-2">
-            <DocumentIcon className="w-4 h-4 text-accent-blue" />
-            <span>Chain-of-Thought Analysis</span>
-          </h3>
-          <div className="space-y-3">
-            {sections.map((section) => (
-              <AnalysisSection
-                key={section.num}
-                section={section}
-                defaultExpanded={section.num === 1 || section.num === 11}
-              />
+      {/* Rationale Summary */}
+      <div className="glass-card-elevated rounded-xl p-5 animate-fade-in" style={{ animationDelay: '0.1s' }}>
+        <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider mb-3 flex items-center space-x-2">
+          <DocumentIcon className="w-4 h-4 text-accent-blue" />
+          <span>Rationale Summary</span>
+        </h3>
+        <p className="text-sm leading-relaxed text-gray-300">{rationaleSummary}</p>
+      </div>
+
+      {/* Signal Quality */}
+      <div className="glass-card-elevated rounded-xl p-5 animate-fade-in" style={{ animationDelay: '0.12s' }}>
+        <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider mb-3">Signal Quality</h3>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div className="p-3 bg-dark-inset rounded-lg">
+            <div className="text-[11px] text-gray-500 uppercase tracking-wider mb-1">Data Quality</div>
+            <div className="text-lg font-mono text-gray-200">{qualityScore != null ? Number(qualityScore).toFixed(1) : 'N/A'}</div>
+          </div>
+          <div className="p-3 bg-dark-inset rounded-lg">
+            <div className="text-[11px] text-gray-500 uppercase tracking-wider mb-1">Conflict Score</div>
+            <div className="text-lg font-mono text-gray-200">{conflictScore != null ? Number(conflictScore).toFixed(1) : 'N/A'}</div>
+          </div>
+          <div className="p-3 bg-dark-inset rounded-lg">
+            <div className="text-[11px] text-gray-500 uppercase tracking-wider mb-1">Regime</div>
+            <div className="text-sm font-semibold text-accent-purple uppercase">{regimeLabel || 'transition'}</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Evidence Table */}
+      {evidence.length > 0 && (
+        <div className="glass-card-elevated rounded-xl p-5 animate-fade-in" style={{ animationDelay: '0.14s' }}>
+          <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider mb-3">Evidence</h3>
+          <div className="space-y-2">
+            {evidence.map((row, idx) => (
+              <div key={`${row.factor}-${idx}`} className="p-2.5 bg-dark-inset rounded-lg border border-white/5 flex items-center justify-between">
+                <div className="text-xs uppercase text-gray-300 font-mono">{row.factor}</div>
+                <div className="text-xs text-gray-400">{row.direction}</div>
+                <div className="text-xs font-mono text-gray-300">{Math.round((Number(row.strength) || 0) * 100)}%</div>
+                <div className="text-[11px] text-gray-500">{row.source || 'unknown'}</div>
+              </div>
             ))}
           </div>
         </div>
       )}
 
-      {/* Fallback: if reasoning doesn't parse into sections, show as formatted text */}
-      {sections.length === 0 && reasoning && (
-        <div className="glass-card-elevated rounded-xl p-5 animate-fade-in" style={{ animationDelay: '0.1s' }}>
-          <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider mb-3 flex items-center space-x-2">
-            <DocumentIcon className="w-4 h-4 text-accent-blue" />
-            <span>Executive Summary</span>
-          </h3>
-          <p className="text-sm leading-relaxed text-gray-300">{reasoning}</p>
+      {/* Execution Plan */}
+      <div className="glass-card-elevated rounded-xl p-5 animate-fade-in" style={{ animationDelay: '0.16s' }}>
+        <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider mb-3 flex items-center space-x-2">
+          <TargetIcon className="w-4 h-4 text-accent-green" />
+          <span>Execution Plan</span>
+        </h3>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+          <div className="p-3 bg-dark-inset rounded-lg">
+            <div className="text-[11px] text-gray-500 uppercase tracking-wider mb-1">Entry Zone</div>
+            <div className="text-sm font-mono text-gray-200">
+              {executionEntry.low != null && executionEntry.high != null
+                ? `$${Number(executionEntry.low).toFixed(2)} - $${Number(executionEntry.high).toFixed(2)}`
+                : 'N/A'}
+            </div>
+          </div>
+          <div className="p-3 bg-dark-inset rounded-lg">
+            <div className="text-[11px] text-gray-500 uppercase tracking-wider mb-1">Stop Loss</div>
+            <div className="text-sm font-mono text-danger-400">{executionPlan.stop_loss != null ? `$${Number(executionPlan.stop_loss).toFixed(2)}` : 'N/A'}</div>
+          </div>
+          <div className="p-3 bg-dark-inset rounded-lg">
+            <div className="text-[11px] text-gray-500 uppercase tracking-wider mb-1">Targets</div>
+            <div className="text-sm font-mono text-success-400">
+              {executionTargets.length > 0 ? executionTargets.map((v) => `$${Number(v).toFixed(2)}`).join(', ') : 'N/A'}
+            </div>
+          </div>
+          <div className="p-3 bg-dark-inset rounded-lg">
+            <div className="text-[11px] text-gray-500 uppercase tracking-wider mb-1">Max Holding Days</div>
+            <div className="text-sm font-mono text-gray-200">{maxHoldingDays ?? 'N/A'}</div>
+          </div>
         </div>
-      )}
+        {executionInvalidation.length > 0 && (
+          <ul className="mt-3 space-y-1.5">
+            {executionInvalidation.map((row, idx) => (
+              <li key={idx} className="text-xs text-gray-400">- {row}</li>
+            ))}
+          </ul>
+        )}
+      </div>
 
       {/* Price Targets */}
       {price_targets && (
@@ -671,14 +701,14 @@ const Summary = ({ analysis }) => {
   }
 
   return (
-    <motion.div
+    <Motion.div
       className="space-y-4"
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
     >
       <OverviewMetrics analysis={analysis} />
       <ResearchContent analysis={analysis} />
-    </motion.div>
+    </Motion.div>
   );
 };
 

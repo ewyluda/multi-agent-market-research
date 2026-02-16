@@ -53,8 +53,16 @@ class FinalAnalysis(BaseModel):
     diagnostics: Optional[Dict[str, Any]] = None
     diagnostics_summary: Optional[str] = None
     portfolio_action: Optional[Dict[str, Any]] = None
+    portfolio_action_v2: Optional[Dict[str, Any]] = None
     portfolio_summary: Optional[str] = None
     signal_snapshot: Optional[Dict[str, Any]] = None
+    signal_contract_v2: Optional[Dict[str, Any]] = None
+    ev_score_7d: Optional[float] = None
+    confidence_calibrated: Optional[float] = None
+    data_quality_score: Optional[float] = None
+    regime_label: Optional[str] = None
+    rationale_summary: Optional[str] = None
+    analysis_schema_version: Optional[str] = None
     summary: str
 
 
@@ -63,6 +71,7 @@ class AnalysisResponse(BaseModel):
     success: bool
     ticker: str
     analysis_id: Optional[int] = None
+    analysis_schema_version: Optional[str] = None
     analysis: Optional[FinalAnalysis] = None
     agent_results: Optional[Dict[str, AgentResult]] = None
     duration_seconds: float
@@ -75,7 +84,12 @@ class AnalysisHistoryItem(BaseModel):
     ticker: str
     timestamp: str
     recommendation: str
+    analysis_schema_version: Optional[str] = None
     score: Optional[float] = None
+    ev_score_7d: Optional[float] = None
+    confidence_calibrated: Optional[float] = None
+    data_quality_score: Optional[float] = None
+    regime_label: Optional[str] = None
     confidence_score: float
     overall_sentiment_score: float
     decision_card: Optional[Dict[str, Any]] = None
@@ -135,6 +149,9 @@ class PortfolioProfileUpdate(BaseModel):
     max_position_pct: Optional[float] = Field(default=None, ge=0.0, le=1.0)
     max_sector_pct: Optional[float] = Field(default=None, ge=0.0, le=1.0)
     risk_budget_pct: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    target_portfolio_beta: Optional[float] = Field(default=None, ge=0.0, le=5.0)
+    max_turnover_pct: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    default_transaction_cost_bps: Optional[float] = Field(default=None, ge=0.0, le=500.0)
 
 
 class PortfolioHoldingCreate(BaseModel):
@@ -142,7 +159,7 @@ class PortfolioHoldingCreate(BaseModel):
     ticker: str = Field(..., min_length=1, max_length=5, description="Stock ticker symbol")
     shares: float = Field(..., ge=0.0)
     avg_cost: Optional[float] = Field(default=None, ge=0.0)
-    market_value: float = Field(..., ge=0.0)
+    market_value: Optional[float] = Field(default=None, ge=0.0)
     sector: Optional[str] = Field(default=None, max_length=100)
     beta: Optional[float] = None
 
@@ -160,7 +177,13 @@ class PortfolioHoldingUpdate(BaseModel):
 class AlertRuleCreate(BaseModel):
     """Request model for creating an alert rule."""
     ticker: str = Field(..., min_length=1, max_length=5, description="Stock ticker symbol")
-    rule_type: str = Field(..., description="Alert type: recommendation_change, score_above, score_below, confidence_above, confidence_below")
+    rule_type: str = Field(
+        ...,
+        description=(
+            "Alert type: recommendation_change, score_above, score_below, confidence_above, "
+            "confidence_below, ev_above, ev_below, regime_change, data_quality_below, calibration_drop"
+        ),
+    )
     threshold: Optional[float] = Field(default=None, description="Threshold value (required for score/confidence rules)")
 
 

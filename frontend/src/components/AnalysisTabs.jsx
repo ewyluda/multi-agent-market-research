@@ -1,44 +1,21 @@
 /**
  * AnalysisTabs - Horizontal tab bar for the analysis content area
- * Tabs: Overview, Changes, Scenarios, Diagnostics, Research, Sentiment, News, Options
+ * Tabs: Overview, Risk, Opportunities, Diagnostics
  * Uses framer-motion layoutId for smooth underline transitions
  */
 
 import React from 'react';
-import { motion } from 'framer-motion';
+import { motion as Motion } from 'framer-motion';
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
-  { id: 'changes', label: 'Changes' },
-  { id: 'scenarios', label: 'Scenarios' },
+  { id: 'risk', label: 'Risk' },
+  { id: 'opportunities', label: 'Opportunities' },
   { id: 'diagnostics', label: 'Diagnostics' },
-  { id: 'research', label: 'Research' },
-  { id: 'sentiment', label: 'Sentiment' },
-  { id: 'news', label: 'News' },
-  { id: 'options', label: 'Options' },
 ];
 
-/**
- * Determine whether the Options tab should be visible.
- * Hidden when there is no options data or total_contracts is 0.
- */
-const hasOptionsData = (analysis) => {
-  try {
-    const optionsData = analysis?.agent_results?.options?.data;
-    if (!optionsData) return false;
-    if (optionsData.total_contracts === 0) return false;
-    return true;
-  } catch {
-    return false;
-  }
-};
-
-const AnalysisTabs = ({ activeTab, onTabChange, analysis }) => {
-  const showOptions = hasOptionsData(analysis);
-
-  const visibleTabs = showOptions
-    ? TABS
-    : TABS.filter((tab) => tab.id !== 'options');
+const AnalysisTabs = ({ activeTab, onTabChange }) => {
+  const visibleTabs = TABS;
 
   return (
     <div className="border-b border-white/5">
@@ -61,7 +38,7 @@ const AnalysisTabs = ({ activeTab, onTabChange, analysis }) => {
               {tab.label}
 
               {isActive && (
-                <motion.div
+                <Motion.div
                   layoutId="tab-underline"
                   className="absolute bottom-0 left-0 right-0 h-[2px] bg-accent-blue"
                   transition={{

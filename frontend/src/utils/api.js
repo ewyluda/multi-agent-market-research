@@ -42,11 +42,32 @@ export const getAnalysisHistory = async (ticker, limit = 10) => {
 /**
  * Get detailed/paginated analysis history for a ticker
  */
-export const getDetailedHistory = async (ticker, { limit = 20, offset = 0, start_date, end_date, recommendation } = {}) => {
+export const getDetailedHistory = async (
+  ticker,
+  {
+    limit = 20,
+    offset = 0,
+    start_date,
+    end_date,
+    recommendation,
+    min_ev_score,
+    max_ev_score,
+    min_confidence_calibrated,
+    max_confidence_calibrated,
+    min_data_quality_score,
+    regime_label,
+  } = {},
+) => {
   const params = { limit, offset };
   if (start_date) params.start_date = start_date;
   if (end_date) params.end_date = end_date;
   if (recommendation) params.recommendation = recommendation;
+  if (min_ev_score != null) params.min_ev_score = min_ev_score;
+  if (max_ev_score != null) params.max_ev_score = max_ev_score;
+  if (min_confidence_calibrated != null) params.min_confidence_calibrated = min_confidence_calibrated;
+  if (max_confidence_calibrated != null) params.max_confidence_calibrated = max_confidence_calibrated;
+  if (min_data_quality_score != null) params.min_data_quality_score = min_data_quality_score;
+  if (regime_label) params.regime_label = regime_label;
   const response = await api.get(`/api/analysis/${ticker}/history/detailed`, { params });
   return response.data;
 };
@@ -70,7 +91,7 @@ export const deleteAnalysis = async (analysisId) => {
 /**
  * Get full analysis with agent results
  */
-export const getFullAnalysis = async (ticker, analysisId) => {
+export const getFullAnalysis = async (ticker) => {
   const response = await api.get(`/api/analysis/${ticker}/latest`);
   return response.data;
 };
@@ -192,6 +213,13 @@ export const getCalibrationSummary = async (windowDays = 180) => {
   return response.data;
 };
 
+export const getCalibrationReliability = async (horizonDays = 7) => {
+  const response = await api.get('/api/calibration/reliability', {
+    params: { horizon_days: horizonDays },
+  });
+  return response.data;
+};
+
 export const getTickerCalibration = async (ticker, limit = 100) => {
   const response = await api.get(`/api/calibration/ticker/${ticker}`, {
     params: { limit },
@@ -254,6 +282,17 @@ export const addTickerToWatchlist = async (watchlistId, ticker) => {
  */
 export const removeTickerFromWatchlist = async (watchlistId, ticker) => {
   const response = await api.delete(`/api/watchlists/${watchlistId}/tickers/${ticker}`);
+  return response.data;
+};
+
+export const getWatchlistOpportunities = async (
+  watchlistId,
+  { limit = 20, min_quality = null, min_ev = null } = {},
+) => {
+  const params = { limit };
+  if (min_quality != null) params.min_quality = min_quality;
+  if (min_ev != null) params.min_ev = min_ev;
+  const response = await api.get(`/api/watchlists/${watchlistId}/opportunities`, { params });
   return response.data;
 };
 

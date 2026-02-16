@@ -3,7 +3,7 @@
  */
 
 import React from 'react';
-import { motion } from 'framer-motion';
+import { motion as Motion } from 'framer-motion';
 import { TargetIcon } from './Icons';
 
 const ORDERED_SCENARIOS = [
@@ -46,7 +46,7 @@ const ScenarioPanel = ({ analysis }) => {
   }
 
   return (
-    <motion.div
+    <Motion.div
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.25 }}
@@ -98,7 +98,7 @@ const ScenarioPanel = ({ analysis }) => {
           );
         })}
       </div>
-    </motion.div>
+    </Motion.div>
   );
 };
 

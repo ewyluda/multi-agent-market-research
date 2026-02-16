@@ -3,7 +3,7 @@
  */
 
 import React from 'react';
-import { motion } from 'framer-motion';
+import { motion as Motion } from 'framer-motion';
 import { ShieldExclamationIcon, CheckCircleIcon, XCircleIcon } from './Icons';
 
 const getAnalysisPayload = (analysis) => analysis?.analysis || analysis?.analysis_payload || analysis || {};
@@ -47,7 +47,7 @@ const DiagnosticsPanel = ({ analysis }) => {
     : [];
 
   return (
-    <motion.div
+    <Motion.div
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.25 }}
@@ -176,7 +176,7 @@ const DiagnosticsPanel = ({ analysis }) => {
           )}
         </div>
       </div>
-    </motion.div>
+    </Motion.div>
   );
 };
 

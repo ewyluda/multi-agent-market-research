@@ -4,7 +4,7 @@
  */
 
 import React from 'react';
-import { motion } from 'framer-motion';
+import { motion as Motion } from 'framer-motion';
 import { GlobeIcon } from './Icons';
 
 const TrendBadge = ({ trend }) => {
@@ -88,7 +88,7 @@ const MacroSnapshot = ({ analysis }) => {
   }
 
   return (
-    <motion.div
+    <Motion.div
       initial={{ opacity: 0, x: 12 }}
       animate={{ opacity: 1, x: 0 }}
       transition={{ duration: 0.4, delay: 0.2 }}
@@ -216,7 +216,7 @@ const MacroSnapshot = ({ analysis }) => {
           )}
         </div>
       </div>
-    </motion.div>
+    </Motion.div>
   );
 };
 

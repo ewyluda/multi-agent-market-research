@@ -9,7 +9,7 @@ from .base_agent import BaseAgent
 
 
 class SolutionAgent(BaseAgent):
-    """Agent that synthesizes all agent outputs using chain-of-thought reasoning."""
+    """Agent that synthesizes all agent outputs into structured recommendations."""
 
     def __init__(self, ticker: str, config: Dict[str, Any], agent_results: Dict[str, Any]):
         """
@@ -51,7 +51,7 @@ class SolutionAgent(BaseAgent):
         macro_data = (raw_data.get("macro") or {}).get("data") or {}
         options_data = (raw_data.get("options") or {}).get("data") or {}
 
-        # Use LLM for chain-of-thought reasoning
+        # Use LLM for synthesis
         llm_config = self.config.get("llm_config", {})
         provider = llm_config.get("provider", "anthropic")
 
@@ -86,7 +86,7 @@ class SolutionAgent(BaseAgent):
         llm_config: Dict[str, Any]
     ) -> Dict[str, Any]:
         """
-        Use LLM for chain-of-thought reasoning and synthesis.
+        Use LLM for synthesis.
 
         Args:
             news_data: News agent output
@@ -194,7 +194,7 @@ class SolutionAgent(BaseAgent):
 - Recent (24h): {news_data.get('recent_count', 0)}
 - Key Headlines: {[h.get('title', '') for h in news_data.get('key_headlines', [])[:3]]}
 
-Using chain-of-thought reasoning and first principles:
+Using first-principles reasoning:
 
 1. Assess current company health (fundamentals + SEC earnings data)
 2. Consider the equity research report's bull/bear thesis, moat, and risk analysis
@@ -213,7 +213,8 @@ Respond in JSON format:
   "recommendation": "<BUY|HOLD|SELL>",
   "score": <integer from -100 (strong sell) to +100 (strong buy), with 0 being neutral>,
   "confidence": <float from 0.0 to 1.0>,
-  "reasoning": "<comprehensive explanation using chain-of-thought reasoning>",
+  "reasoning": "<concise rationale summary (max 3 sentences)>",
+  "rationale_summary": "<one concise paragraph no longer than 400 chars>",
   "risks": ["<risk1>", "<risk2>", "<risk3>"],
   "opportunities": ["<opportunity1>", "<opportunity2>", "<opportunity3>"],
   "price_targets": {{
@@ -395,7 +396,7 @@ Respond in JSON format:
 - Recent (24h): {news_data.get('recent_count', 0)}
 - Key Headlines: {[h.get('title', '') for h in news_data.get('key_headlines', [])[:3]]}
 
-Using chain-of-thought reasoning and first principles:
+Using first-principles reasoning:
 
 1. Assess current company health (fundamentals + SEC earnings data)
 2. Consider the equity research report's bull/bear thesis, moat, and risk analysis
@@ -414,7 +415,8 @@ Respond in JSON format:
   "recommendation": "<BUY|HOLD|SELL>",
   "score": <integer from -100 (strong sell) to +100 (strong buy), with 0 being neutral>,
   "confidence": <float from 0.0 to 1.0>,
-  "reasoning": "<comprehensive explanation using chain-of-thought reasoning>",
+  "reasoning": "<concise rationale summary (max 3 sentences)>",
+  "rationale_summary": "<one concise paragraph no longer than 400 chars>",
   "risks": ["<risk1>", "<risk2>", "<risk3>"],
   "opportunities": ["<opportunity1>", "<opportunity2>", "<opportunity3>"],
   "price_targets": {{
@@ -758,6 +760,24 @@ Respond in JSON format:
 
         normalized["decision_card"] = self._build_decision_card(normalized, market_data)
         normalized["summary"] = self._generate_summary(normalized)
+
+        rationale_summary = normalized.get("rationale_summary")
+        if not isinstance(rationale_summary, str) or not rationale_summary.strip():
+            rationale_summary = normalized.get("reasoning") or normalized.get("summary") or ""
+        rationale_summary = str(rationale_summary).strip().replace("\n", " ")
+        if len(rationale_summary) > 400:
+            rationale_summary = rationale_summary[:399].rstrip() + "…"
+        normalized["rationale_summary"] = rationale_summary
+
+        reasoning = normalized.get("reasoning")
+        if not isinstance(reasoning, str) or not reasoning.strip():
+            normalized["reasoning"] = rationale_summary
+        else:
+            concise_reasoning = reasoning.strip().replace("\n", " ")
+            if len(concise_reasoning) > 400:
+                concise_reasoning = concise_reasoning[:399].rstrip() + "…"
+            normalized["reasoning"] = concise_reasoning
+
         return normalized
 
     def _generate_summary(self, result: Dict[str, Any]) -> str:

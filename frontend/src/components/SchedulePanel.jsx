@@ -33,13 +33,6 @@ const INTERVAL_OPTIONS = [
 
 /* ──────── Helpers ──────── */
 
-const formatInterval = (minutes) => {
-  if (minutes < 60) return `${minutes}m`;
-  if (minutes < 1440) return `${minutes / 60}h`;
-  if (minutes < 10080) return `${minutes / 1440}d`;
-  return `${minutes / 10080}w`;
-};
-
 const formatIntervalLabel = (minutes) => {
   const opt = INTERVAL_OPTIONS.find((o) => o.value === minutes);
   if (opt) return opt.label;
@@ -394,7 +387,7 @@ const SchedulePanel = ({ onBack }) => {
     try {
       const data = await getScheduleWithRuns(scheduleId);
       setRuns(data.runs || data.recent_runs || []);
-    } catch (err) {
+    } catch {
       setRuns([]);
     } finally {
       setLoadingRuns(false);
