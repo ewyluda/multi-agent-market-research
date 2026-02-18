@@ -88,14 +88,6 @@ export const deleteAnalysis = async (analysisId) => {
   return response.data;
 };
 
-/**
- * Get full analysis with agent results
- */
-export const getFullAnalysis = async (ticker) => {
-  const response = await api.get(`/api/analysis/${ticker}/latest`);
-  return response.data;
-};
-
 // ─── Export API ──────────────────────────────────────────────────────
 
 /**
@@ -176,11 +168,6 @@ export const updatePortfolioProfile = async (updates) => {
   return response.data;
 };
 
-export const getPortfolioHoldings = async () => {
-  const response = await api.get('/api/portfolio/holdings');
-  return response.data;
-};
-
 export const createPortfolioHolding = async (holding) => {
   const response = await api.post('/api/portfolio/holdings', holding);
   return response.data;
@@ -193,6 +180,11 @@ export const updatePortfolioHolding = async (holdingId, updates) => {
 
 export const deletePortfolioHolding = async (holdingId) => {
   const response = await api.delete(`/api/portfolio/holdings/${holdingId}`);
+  return response.data;
+};
+
+export const getPortfolioRiskSummary = async () => {
+  const response = await api.get('/api/portfolio/risk-summary');
   return response.data;
 };
 
@@ -250,14 +242,6 @@ export const getWatchlist = async (watchlistId) => {
  */
 export const createWatchlist = async (name) => {
   const response = await api.post('/api/watchlists', { name });
-  return response.data;
-};
-
-/**
- * Rename a watchlist
- */
-export const renameWatchlist = async (watchlistId, name) => {
-  const response = await api.put(`/api/watchlists/${watchlistId}`, { name });
   return response.data;
 };
 
@@ -364,14 +348,6 @@ export const getUnacknowledgedCount = async () => {
  */
 export const acknowledgeAlert = async (notificationId) => {
   const response = await api.post(`/api/alerts/notifications/${notificationId}/acknowledge`);
-  return response.data;
-};
-
-/**
- * Health check
- */
-export const healthCheck = async () => {
-  const response = await api.get('/health');
   return response.data;
 };
 

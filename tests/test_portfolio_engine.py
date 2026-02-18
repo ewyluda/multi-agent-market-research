@@ -92,3 +92,48 @@ def test_sell_without_position_becomes_hold():
         diagnostics=_diagnostics(),
     )
     assert result["portfolio_action"]["action"] == "hold"
+
+
+def test_portfolio_risk_summary_basic():
+    """portfolio_risk_summary computes weighted beta and sector concentration."""
+    holdings = [
+        {"ticker": "AAPL", "shares": 100, "market_value": 18000, "sector": "Technology", "beta": 1.2},
+        {"ticker": "JPM", "shares": 50, "market_value": 10000, "sector": "Financials", "beta": 1.1},
+        {"ticker": "MSFT", "shares": 30, "market_value": 12000, "sector": "Technology", "beta": 1.0},
+    ]
+    profile = {"max_position_pct": 0.10, "max_sector_pct": 0.30}
+
+    result = PortfolioEngine.portfolio_risk_summary(holdings, profile)
+
+    assert "portfolio_beta" in result
+    assert "total_market_value" in result
+    assert result["total_market_value"] == 40000
+    assert "sector_concentration" in result
+    assert "Technology" in result["sector_concentration"]
+    tech_pct = result["sector_concentration"]["Technology"]
+    assert abs(tech_pct - 0.75) < 0.01  # (18000+12000)/40000
+    assert len(result["sector_breaches"]) > 0  # Technology > 30%
+
+
+def test_portfolio_risk_summary_empty_holdings():
+    """portfolio_risk_summary returns sensible defaults for empty portfolio."""
+    result = PortfolioEngine.portfolio_risk_summary([], {})
+
+    assert result["portfolio_beta"] == 0.0
+    assert result["total_market_value"] == 0.0
+    assert result["sector_concentration"] == {}
+    assert result["position_breaches"] == []
+    assert result["sector_breaches"] == []
+
+
+def test_portfolio_risk_summary_position_breach():
+    """Holdings exceeding max_position_pct are flagged."""
+    holdings = [
+        {"ticker": "AAPL", "shares": 100, "market_value": 18000, "sector": "Tech", "beta": 1.2},
+        {"ticker": "JPM", "shares": 50, "market_value": 2000, "sector": "Fin", "beta": 1.1},
+    ]
+    profile = {"max_position_pct": 0.50}
+
+    result = PortfolioEngine.portfolio_risk_summary(holdings, profile)
+
+    assert any(b["ticker"] == "AAPL" for b in result["position_breaches"])

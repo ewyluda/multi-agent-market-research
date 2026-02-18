@@ -24,6 +24,88 @@ class PortfolioContext:
 class PortfolioEngine:
     """Deterministic advisory overlay on top of BUY/HOLD/SELL."""
 
+    @staticmethod
+    def portfolio_risk_summary(
+        holdings: List[Dict[str, Any]],
+        profile: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """
+        Compute portfolio-level risk metrics across all holdings.
+
+        Args:
+            holdings: List of holding dicts (ticker, shares, market_value, sector, beta)
+            profile: Portfolio profile dict (max_position_pct, max_sector_pct)
+
+        Returns:
+            Dict with portfolio_beta, total_market_value, sector_concentration,
+            position_breaches, sector_breaches, diversity_score
+        """
+        if not holdings:
+            return {
+                "portfolio_beta": 0.0,
+                "total_market_value": 0.0,
+                "sector_concentration": {},
+                "position_breaches": [],
+                "sector_breaches": [],
+                "diversity_score": 0,
+            }
+
+        total_value = sum(float(h.get("market_value") or 0) for h in holdings)
+        if total_value <= 0:
+            total_value = 1.0  # Prevent division by zero
+
+        max_position_pct = float(profile.get("max_position_pct") or 0.10)
+        max_sector_pct = float(profile.get("max_sector_pct") or 0.30)
+
+        # Weighted-average beta
+        weighted_beta = 0.0
+        for h in holdings:
+            mv = float(h.get("market_value") or 0)
+            beta = float(h.get("beta") or 1.0)
+            weighted_beta += (mv / total_value) * beta
+
+        # Sector concentration
+        sector_values: Dict[str, float] = {}
+        for h in holdings:
+            sector = str(h.get("sector") or "Unknown")
+            mv = float(h.get("market_value") or 0)
+            sector_values[sector] = sector_values.get(sector, 0.0) + mv
+        sector_concentration = {s: v / total_value for s, v in sector_values.items()}
+
+        # Position breaches
+        position_breaches = []
+        for h in holdings:
+            mv = float(h.get("market_value") or 0)
+            pct = mv / total_value
+            if pct > max_position_pct:
+                position_breaches.append({
+                    "ticker": h.get("ticker"),
+                    "position_pct": round(pct, 4),
+                    "limit_pct": max_position_pct,
+                })
+
+        # Sector breaches
+        sector_breaches = []
+        for sector, pct in sector_concentration.items():
+            if pct > max_sector_pct:
+                sector_breaches.append({
+                    "sector": sector,
+                    "concentration_pct": round(pct, 4),
+                    "limit_pct": max_sector_pct,
+                })
+
+        # Simple diversity score: number of distinct sectors (0-100 scale)
+        diversity_score = min(100, len(sector_values) * 15)
+
+        return {
+            "portfolio_beta": round(weighted_beta, 4),
+            "total_market_value": round(total_value, 2),
+            "sector_concentration": {s: round(v, 4) for s, v in sector_concentration.items()},
+            "position_breaches": position_breaches,
+            "sector_breaches": sector_breaches,
+            "diversity_score": diversity_score,
+        }
+
     def __init__(self, portfolio_snapshot: Dict[str, Any]):
         self.portfolio_snapshot = portfolio_snapshot or {}
 

@@ -9,7 +9,8 @@ import json
 import logging
 import io
 import csv
-from datetime import datetime
+import re
+from datetime import datetime, timezone
 import asyncio
 
 from .models import (
@@ -34,6 +35,7 @@ from .database import DatabaseManager
 from .av_rate_limiter import AVRateLimiter
 from .av_cache import AVCache
 from .rollout_metrics import compute_phase7_rollout_status
+from .portfolio_engine import PortfolioEngine
 
 # Configure logging
 logging.basicConfig(
@@ -137,7 +139,7 @@ async def health_check():
 
     return HealthCheckResponse(
         status="healthy" if (config_valid and db_connected) else "degraded",
-        timestamp=datetime.utcnow().isoformat(),
+        timestamp=datetime.now(timezone.utc).isoformat(),
         database_connected=db_connected,
         config_valid=config_valid
     )
@@ -164,7 +166,7 @@ async def analyze_ticker(
     ticker = ticker.upper()
 
     # Validate ticker format
-    import re
+
     if not re.match(r'^[A-Z]{1,5}$', ticker):
         raise HTTPException(status_code=400, detail="Invalid ticker symbol format")
 
@@ -597,7 +599,7 @@ async def delete_watchlist(watchlist_id: int):
 @app.post("/api/watchlists/{watchlist_id}/tickers")
 async def add_ticker_to_watchlist(watchlist_id: int, body: WatchlistTickerAdd):
     """Add a ticker to a watchlist."""
-    import re
+
     ticker = body.ticker.upper()
     if not re.match(r'^[A-Z]{1,5}$', ticker):
         raise HTTPException(status_code=400, detail="Invalid ticker symbol format")
@@ -757,7 +759,7 @@ async def get_watchlist_opportunities(
 @app.post("/api/schedules")
 async def create_schedule(body: ScheduleCreate):
     """Create a new schedule for recurring analysis."""
-    import re
+
     ticker = body.ticker.upper()
     if not re.match(r'^[A-Z]{1,5}$', ticker):
         raise HTTPException(status_code=400, detail="Invalid ticker symbol format")
@@ -903,10 +905,23 @@ async def get_portfolio_holdings():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/portfolio/risk-summary")
+async def get_portfolio_risk_summary():
+    """Compute portfolio-level risk metrics across all holdings."""
+    try:
+        holdings = db_manager.list_portfolio_holdings()
+        profile = db_manager.get_portfolio_profile()
+        summary = PortfolioEngine.portfolio_risk_summary(holdings, profile)
+        return summary
+    except Exception as e:
+        logger.error(f"Failed to compute portfolio risk summary: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/api/portfolio/holdings")
 async def create_portfolio_holding(body: PortfolioHoldingCreate):
     """Create a portfolio holding."""
-    import re
+
     import yfinance as yf
 
     ticker = body.ticker.upper()
@@ -958,7 +973,7 @@ async def update_portfolio_holding(holding_id: int, body: PortfolioHoldingUpdate
         raise HTTPException(status_code=400, detail="No fields to update")
 
     if "ticker" in updates:
-        import re
+    
 
         ticker = str(updates["ticker"]).upper()
         if not re.match(r"^[A-Z]{1,5}$", ticker):
@@ -1124,9 +1139,12 @@ async def create_alert_rule(body: AlertRuleCreate):
 @app.get("/api/alerts")
 async def get_alert_rules(ticker: Optional[str] = Query(default=None)):
     """Get all alert rules, optionally filtered by ticker."""
-    ticker = ticker.upper() if ticker else None
-    rules = db_manager.get_alert_rules(ticker=ticker)
-    return {"rules": rules, "total_count": len(rules)}
+    try:
+        ticker = ticker.upper() if ticker else None
+        rules = db_manager.get_alert_rules(ticker=ticker)
+        return {"rules": rules, "total_count": len(rules)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/alerts/notifications")
@@ -1135,77 +1153,103 @@ async def get_alert_notifications(
     limit: int = Query(default=50, ge=1, le=200),
 ):
     """Get alert notifications."""
-    notifications = db_manager.get_alert_notifications(unacknowledged_only=unacknowledged, limit=limit)
-    return {"notifications": notifications, "total_count": len(notifications)}
+    try:
+        notifications = db_manager.get_alert_notifications(unacknowledged_only=unacknowledged, limit=limit)
+        return {"notifications": notifications, "total_count": len(notifications)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/alerts/notifications/count")
 async def get_unacknowledged_count():
     """Get count of unacknowledged notifications (for badge)."""
-    count = db_manager.get_unacknowledged_count()
-    return {"count": count}
+    try:
+        count = db_manager.get_unacknowledged_count()
+        return {"count": count}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/api/alerts/notifications/{notification_id}/acknowledge")
 async def acknowledge_notification(notification_id: int):
     """Acknowledge a notification."""
-    success = db_manager.acknowledge_alert(notification_id)
-    if not success:
-        raise HTTPException(status_code=404, detail=f"Notification {notification_id} not found")
-    return {"success": True}
+    try:
+        success = db_manager.acknowledge_alert(notification_id)
+        if not success:
+            raise HTTPException(status_code=404, detail=f"Notification {notification_id} not found")
+        return {"success": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/alerts/{rule_id}")
 async def get_alert_rule(rule_id: int):
     """Get a specific alert rule."""
-    rule = db_manager.get_alert_rule(rule_id)
-    if not rule:
-        raise HTTPException(status_code=404, detail=f"Alert rule {rule_id} not found")
-    return rule
+    try:
+        rule = db_manager.get_alert_rule(rule_id)
+        if not rule:
+            raise HTTPException(status_code=404, detail=f"Alert rule {rule_id} not found")
+        return rule
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.put("/api/alerts/{rule_id}")
 async def update_alert_rule(rule_id: int, body: AlertRuleUpdate):
     """Update an alert rule."""
-    updates = {k: v for k, v in body.model_dump().items() if v is not None}
-    if not updates:
-        raise HTTPException(status_code=400, detail="No fields to update")
-    if "rule_type" in updates:
-        base_types = {
-            "recommendation_change",
-            "score_above",
-            "score_below",
-            "confidence_above",
-            "confidence_below",
-        }
-        v2_types = {
-            "ev_above",
-            "ev_below",
-            "regime_change",
-            "data_quality_below",
-            "calibration_drop",
-        }
-        valid_types = set(base_types)
-        if Config.ALERTS_V2_ENABLED:
-            valid_types.update(v2_types)
-        if updates["rule_type"] not in valid_types:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid rule_type. Valid: {', '.join(sorted(valid_types))}",
-            )
-    success = db_manager.update_alert_rule(rule_id, **updates)
-    if not success:
-        raise HTTPException(status_code=404, detail=f"Alert rule {rule_id} not found")
-    return db_manager.get_alert_rule(rule_id)
+    try:
+        updates = {k: v for k, v in body.model_dump().items() if v is not None}
+        if not updates:
+            raise HTTPException(status_code=400, detail="No fields to update")
+        if "rule_type" in updates:
+            base_types = {
+                "recommendation_change",
+                "score_above",
+                "score_below",
+                "confidence_above",
+                "confidence_below",
+            }
+            v2_types = {
+                "ev_above",
+                "ev_below",
+                "regime_change",
+                "data_quality_below",
+                "calibration_drop",
+            }
+            valid_types = set(base_types)
+            if Config.ALERTS_V2_ENABLED:
+                valid_types.update(v2_types)
+            if updates["rule_type"] not in valid_types:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid rule_type. Valid: {', '.join(sorted(valid_types))}",
+                )
+        success = db_manager.update_alert_rule(rule_id, **updates)
+        if not success:
+            raise HTTPException(status_code=404, detail=f"Alert rule {rule_id} not found")
+        return db_manager.get_alert_rule(rule_id)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.delete("/api/alerts/{rule_id}")
 async def delete_alert_rule(rule_id: int):
     """Delete an alert rule."""
-    success = db_manager.delete_alert_rule(rule_id)
-    if not success:
-        raise HTTPException(status_code=404, detail=f"Alert rule {rule_id} not found")
-    return {"success": True, "deleted_id": rule_id}
+    try:
+        success = db_manager.delete_alert_rule(rule_id)
+        if not success:
+            raise HTTPException(status_code=404, detail=f"Alert rule {rule_id} not found")
+        return {"success": True, "deleted_id": rule_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/analyze/{ticker}/stream")
@@ -1230,7 +1274,7 @@ async def analyze_ticker_stream(
     """
     ticker = ticker.upper()
 
-    import re
+
     if not re.match(r'^[A-Z]{1,5}$', ticker):
         raise HTTPException(status_code=400, detail="Invalid ticker symbol format")
 

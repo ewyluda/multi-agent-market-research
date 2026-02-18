@@ -480,6 +480,18 @@ class TestRolloutStatusAPI:
         assert "SCHEDULED_SIGNAL_CONTRACT_V2_ENABLED" in payload["feature_flags"]
 
 
+class TestPortfolioRiskSummary:
+    """Tests for GET /api/portfolio/risk-summary."""
+
+    def test_risk_summary_empty_portfolio(self, client):
+        """Returns sensible defaults for empty portfolio."""
+        response = client.get("/api/portfolio/risk-summary")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["portfolio_beta"] == 0.0
+        assert data["total_market_value"] == 0.0
+
+
 class TestAlertAPI:
     """Tests for alert CRUD and notification endpoints."""
 
