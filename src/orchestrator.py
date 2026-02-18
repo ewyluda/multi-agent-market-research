@@ -22,7 +22,7 @@ from .database import DatabaseManager
 from .av_rate_limiter import AVRateLimiter
 from .av_cache import AVCache
 from .portfolio_engine import PortfolioEngine
-from .signal_contract import build_signal_contract_v2, validate_signal_contract_v2
+from .signal_contract import build_signal_contract_v2, validate_signal_contract_v2, _safe_float as safe_float
 
 
 class Orchestrator:
@@ -216,9 +216,15 @@ class Orchestrator:
             # Phase 3: Save to database
             await self._notify_progress("saving", ticker, 95)
 
-            analysis_id = self._save_to_database(ticker, agent_results, final_analysis, time.time() - start_time)
+            analysis_id = None
+            db_write_warning = None
+            try:
+                analysis_id = self._save_to_database(ticker, agent_results, final_analysis, time.time() - start_time)
+            except Exception as db_exc:
+                self.logger.error(f"Database write failed for {ticker}: {db_exc}", exc_info=True)
+                db_write_warning = f"Analysis completed but database save failed: {db_exc}"
 
-            if self.config.get("CALIBRATION_ENABLED", True):
+            if analysis_id and self.config.get("CALIBRATION_ENABLED", True):
                 try:
                     baseline_price = self._extract_baseline_price(agent_results, final_analysis)
                     predicted_up_probability = self._derive_predicted_up_probability(final_analysis)
@@ -238,7 +244,7 @@ class Orchestrator:
 
             # Evaluate alert rules
             alerts_triggered = []
-            if self.config.get("ALERTS_ENABLED", True):
+            if analysis_id and self.config.get("ALERTS_ENABLED", True):
                 try:
                     from .alert_engine import AlertEngine
                     alert_engine = AlertEngine(self.db_manager)
@@ -249,15 +255,18 @@ class Orchestrator:
             # Complete
             await self._notify_progress("complete", ticker, 100)
 
-            return {
+            result = {
                 "success": True,
                 "ticker": ticker,
                 "analysis_id": analysis_id,
                 "analysis": final_analysis,
                 "agent_results": agent_results,
                 "alerts_triggered": alerts_triggered,
-                "duration_seconds": time.time() - start_time
+                "duration_seconds": time.time() - start_time,
             }
+            if db_write_warning:
+                result["db_write_warning"] = db_write_warning
+            return result
 
         except Exception as e:
             self.logger.error(f"Analysis failed for {ticker}: {e}", exc_info=True)
@@ -584,12 +593,7 @@ class Orchestrator:
 
     def _safe_float(self, value: Any) -> Optional[float]:
         """Convert value to float when possible."""
-        if value is None:
-            return None
-        try:
-            return float(value)
-        except (TypeError, ValueError):
-            return None
+        return safe_float(value)
 
     def _derive_predicted_up_probability(self, final_analysis: Dict[str, Any]) -> float:
         """Map analysis output into P(up) for calibration tracking."""
@@ -1123,7 +1127,7 @@ class Orchestrator:
                     "ticker": ticker,
                     "progress": progress,
                     "message": message,
-                    "timestamp": datetime.utcnow().isoformat()
+                    "timestamp": datetime.now(timezone.utc).isoformat()
                 }
                 if inspect.iscoroutinefunction(self.progress_callback):
                     await self.progress_callback(update)
@@ -1132,27 +1136,3 @@ class Orchestrator:
             except Exception as e:
                 self.logger.warning(f"Progress callback failed: {e}")
 
-    def get_latest_analysis(self, ticker: str) -> Optional[Dict[str, Any]]:
-        """
-        Get latest analysis for ticker from database.
-
-        Args:
-            ticker: Stock ticker
-
-        Returns:
-            Latest analysis or None
-        """
-        return self.db_manager.get_latest_analysis(ticker)
-
-    def get_analysis_history(self, ticker: str, limit: int = 10) -> list:
-        """
-        Get analysis history for ticker.
-
-        Args:
-            ticker: Stock ticker
-            limit: Number of records
-
-        Returns:
-            List of analyses
-        """
-        return self.db_manager.get_analysis_history(ticker, limit)

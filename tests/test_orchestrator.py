@@ -572,3 +572,33 @@ class TestPortfolioAndCalibrationIntegration:
         due = db_manager.list_due_outcomes("2100-01-01")
         rows_for_analysis = [row for row in due if row["analysis_id"] == result["analysis_id"]]
         assert len(rows_for_analysis) == 3
+
+
+@pytest.mark.asyncio
+async def test_db_write_failure_still_returns_analysis(test_config, tmp_db_path):
+    """If _save_to_database fails, analyze_ticker still returns the analysis result."""
+    db = DatabaseManager(tmp_db_path)
+    orch = Orchestrator(config=test_config, db_manager=db)
+
+    mock_results = {
+        "news": _make_agent_result("news"),
+        "market": _make_agent_result("market", data={"current_price": 150.0, "trend": "uptrend"}),
+        "fundamentals": _make_agent_result("fundamentals"),
+        "technical": _make_agent_result("technical"),
+        "macro": _make_agent_result("macro"),
+        "options": _make_agent_result("options"),
+        "sentiment": _make_agent_result("sentiment"),
+    }
+
+    with patch.object(orch, "_run_agents", new_callable=AsyncMock, return_value=mock_results), \
+         patch.object(orch, "_run_solution_agent", new_callable=AsyncMock, return_value=_make_solution_result()["data"]), \
+         patch.object(orch, "_save_to_database", side_effect=Exception("DB locked")), \
+         patch.object(orch, "_create_shared_session", new_callable=AsyncMock), \
+         patch.object(orch, "_close_shared_session", new_callable=AsyncMock), \
+         patch.object(orch, "_notify_progress", new_callable=AsyncMock):
+        result = await orch.analyze_ticker("AAPL")
+
+    assert result["success"] is True
+    assert result["analysis_id"] is None
+    assert result["analysis"]["recommendation"] == "BUY"
+    assert result.get("db_write_warning") is not None
