@@ -1,4 +1,4 @@
-"""Tests for SolutionAgent scenario normalization behavior."""
+"""Tests for SolutionAgent scenario normalization and prompt building behavior."""
 
 from src.agents.solution_agent import SolutionAgent
 
@@ -9,6 +9,62 @@ def _make_agent():
         config={"llm_config": {"provider": "none"}},
         agent_results={},
     )
+
+
+class TestBuildPrompt:
+    """Tests for _build_prompt and calibration context injection."""
+
+    def test_build_prompt_includes_calibration_context(self):
+        """When calibration_context is provided, prompt includes HISTORICAL ACCURACY section."""
+        agent = SolutionAgent("AAPL", {"llm_config": {}}, {})
+        agent.calibration_context = {
+            "7d": {"hit_rate": 0.72, "sample_size": 50},
+            "30d": {"hit_rate": 0.65, "sample_size": 30},
+        }
+        prompt = agent._build_prompt(
+            news_data={}, sentiment_data={}, fundamentals_data={},
+            market_data={}, technical_data={}, macro_data={}, options_data={},
+        )
+        assert "HISTORICAL ACCURACY" in prompt
+        assert "72" in prompt  # hit rate displayed
+        assert "50" in prompt  # sample size displayed
+
+    def test_build_prompt_without_calibration_omits_section(self):
+        """When calibration_context is None/empty, prompt has no HISTORICAL ACCURACY section."""
+        agent = SolutionAgent("AAPL", {"llm_config": {}}, {})
+        agent.calibration_context = None
+        prompt = agent._build_prompt(
+            news_data={}, sentiment_data={}, fundamentals_data={},
+            market_data={}, technical_data={}, macro_data={}, options_data={},
+        )
+        assert "HISTORICAL ACCURACY" not in prompt
+
+    def test_build_prompt_contains_core_sections(self):
+        """The prompt includes the major data sections regardless of calibration."""
+        agent = SolutionAgent("AAPL", {"llm_config": {}}, {})
+        agent.calibration_context = None
+        prompt = agent._build_prompt(
+            news_data={}, sentiment_data={}, fundamentals_data={},
+            market_data={}, technical_data={}, macro_data={}, options_data={},
+        )
+        assert "FUNDAMENTALS" in prompt
+        assert "MARKET DATA" in prompt
+        assert "TECHNICAL ANALYSIS" in prompt
+        assert "SENTIMENT ANALYSIS" in prompt
+        assert "MACROECONOMIC ENVIRONMENT" in prompt
+        assert "OPTIONS FLOW" in prompt
+        assert "NEWS SUMMARY" in prompt
+        assert "JSON format" in prompt
+
+    def test_build_prompt_empty_calibration_dict_omits_section(self):
+        """An empty calibration_context dict should not add the section."""
+        agent = SolutionAgent("AAPL", {"llm_config": {}}, {})
+        agent.calibration_context = {}
+        prompt = agent._build_prompt(
+            news_data={}, sentiment_data={}, fundamentals_data={},
+            market_data={}, technical_data={}, macro_data={}, options_data={},
+        )
+        assert "HISTORICAL ACCURACY" not in prompt
 
 
 class TestSolutionAgentScenarios:

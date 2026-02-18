@@ -465,6 +465,18 @@ class Orchestrator:
         """
         solution_agent = SolutionAgent(ticker, self.config, agent_results)
 
+        # Inject calibration context if available
+        try:
+            hit_rate_by_horizon = {}
+            for horizon in (1, 7, 30):
+                row = self.db_manager.get_reliability_hit_rate(horizon_days=horizon, confidence_raw=0.5)
+                if row:
+                    hit_rate_by_horizon[f"{horizon}d"] = row
+            if hit_rate_by_horizon:
+                solution_agent.calibration_context = hit_rate_by_horizon
+        except Exception as e:
+            self.logger.debug(f"Could not load calibration context: {e}")
+
         timeout = self.config.get("AGENT_TIMEOUT", 30)
 
         try:

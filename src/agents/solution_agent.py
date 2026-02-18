@@ -22,6 +22,7 @@ class SolutionAgent(BaseAgent):
         """
         super().__init__(ticker, config)
         self.agent_results = agent_results
+        self.calibration_context: Optional[Dict[str, Any]] = None
 
     async def fetch_data(self) -> Dict[str, Any]:
         """
@@ -74,7 +75,7 @@ class SolutionAgent(BaseAgent):
 
         return analysis
 
-    async def _synthesize_with_llm(
+    def _build_prompt(
         self,
         news_data: Dict[str, Any],
         sentiment_data: Dict[str, Any],
@@ -83,25 +84,18 @@ class SolutionAgent(BaseAgent):
         technical_data: Dict[str, Any],
         macro_data: Dict[str, Any],
         options_data: Dict[str, Any],
-        llm_config: Dict[str, Any]
-    ) -> Dict[str, Any]:
+    ) -> str:
         """
-        Use LLM for synthesis.
+        Build the synthesis prompt from agent data.
 
-        Args:
-            news_data: News agent output
-            sentiment_data: Sentiment agent output
-            fundamentals_data: Fundamentals agent output
-            market_data: Market agent output
-            technical_data: Technical agent output
-            macro_data: Macroeconomic agent output
-            options_data: Options flow agent output
-            llm_config: LLM configuration
+        Centralizes prompt construction so both Anthropic and OpenAI paths
+        use the same text.  When ``calibration_context`` is set, a
+        HISTORICAL ACCURACY section is appended to ground confidence in the
+        model's track record.
 
         Returns:
-            Synthesized analysis with recommendation
+            The full prompt string.
         """
-        # Construct comprehensive prompt
         prompt = f"""You are an expert financial analyst. Analyze {self.ticker} using the following data from specialized agents:
 
 ## FUNDAMENTALS
@@ -231,6 +225,54 @@ Respond in JSON format:
   }},
   "scenario_summary": "<one sentence summary of scenario mix>"
 }}"""
+
+        # Append calibration context if available
+        if self.calibration_context:
+            prompt += "\n## HISTORICAL ACCURACY (Your Track Record)\n"
+            for horizon, data in sorted(self.calibration_context.items()):
+                if isinstance(data, dict):
+                    hit_rate = data.get("hit_rate")
+                    sample_size = data.get("sample_size", 0)
+                    if hit_rate is not None:
+                        prompt += f"- {horizon} horizon: {hit_rate:.0%} accuracy ({sample_size} samples)\n"
+            prompt += (
+                "\nAdjust your confidence level to reflect this track record. "
+                "If historical accuracy at this confidence band is low, lower your confidence accordingly.\n"
+            )
+
+        return prompt
+
+    async def _synthesize_with_llm(
+        self,
+        news_data: Dict[str, Any],
+        sentiment_data: Dict[str, Any],
+        fundamentals_data: Dict[str, Any],
+        market_data: Dict[str, Any],
+        technical_data: Dict[str, Any],
+        macro_data: Dict[str, Any],
+        options_data: Dict[str, Any],
+        llm_config: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Use LLM for synthesis.
+
+        Args:
+            news_data: News agent output
+            sentiment_data: Sentiment agent output
+            fundamentals_data: Fundamentals agent output
+            market_data: Market agent output
+            technical_data: Technical agent output
+            macro_data: Macroeconomic agent output
+            options_data: Options flow agent output
+            llm_config: LLM configuration
+
+        Returns:
+            Synthesized analysis with recommendation
+        """
+        prompt = self._build_prompt(
+            news_data, sentiment_data, fundamentals_data,
+            market_data, technical_data, macro_data, options_data,
+        )
 
         try:
             client = anthropic.Anthropic(api_key=llm_config.get("api_key"))
@@ -303,136 +345,10 @@ Respond in JSON format:
         Returns:
             Synthesized analysis with recommendation
         """
-        # Construct comprehensive prompt (same as Anthropic version)
-        prompt = f"""You are an expert financial analyst. Analyze {self.ticker} using the following data from specialized agents:
-
-## FUNDAMENTALS
-- Company: {fundamentals_data.get('company_name', 'N/A')}
-- Sector: {fundamentals_data.get('sector', 'N/A')}
-- P/E Ratio: {fundamentals_data.get('pe_ratio', 'N/A')}
-- Profit Margins: {fundamentals_data.get('profit_margins', 'N/A')}
-- ROE: {fundamentals_data.get('return_on_equity', 'N/A')}
-- Dividend Yield: {fundamentals_data.get('dividend_yield', 'N/A')}
-- Health Score: {fundamentals_data.get('health_score', 'N/A')}/100
-- Earnings Beat Rate: {fundamentals_data.get('recent_earnings', {}).get('beat_rate', 'N/A')}% ({fundamentals_data.get('recent_earnings', {}).get('beats', 0)}/{fundamentals_data.get('recent_earnings', {}).get('total', 0)})
-- Earnings Trend: {fundamentals_data.get('recent_earnings', {}).get('trend', 'N/A')}
-- Summary: {fundamentals_data.get('summary', '')}
-
-## SEC EDGAR FINANCIAL DATA
-- EPS Trend: {fundamentals_data.get('eps_trend', {}).get('trend', 'N/A')}
-- Latest EPS: {fundamentals_data.get('eps_trend', {}).get('latest_eps', 'N/A')}
-- EPS QoQ Change: {fundamentals_data.get('eps_trend', {}).get('qoq_pct', 'N/A')}%
-- EPS YoY Change: {fundamentals_data.get('eps_trend', {}).get('yoy_pct', 'N/A')}%
-- Revenue Trend: {fundamentals_data.get('revenue_trend', {}).get('trend', 'N/A')}
-- Latest Revenue: {fundamentals_data.get('revenue_trend', {}).get('latest_revenue', 'N/A')}
-- Revenue QoQ Change: {fundamentals_data.get('revenue_trend', {}).get('qoq_pct', 'N/A')}%
-- Revenue YoY Change: {fundamentals_data.get('revenue_trend', {}).get('yoy_pct', 'N/A')}%
-
-## EQUITY RESEARCH REPORT (AI-Generated Deep Analysis)
-- Executive Summary: {fundamentals_data.get('equity_research_report', {}).get('executive_summary', 'N/A') if fundamentals_data.get('equity_research_report') else 'Not available'}
-- Bull Case Catalysts: {[c.get('catalyst', '') for c in (fundamentals_data.get('equity_research_report') or {}).get('bull_case', {}).get('catalysts', [])] if fundamentals_data.get('equity_research_report') else 'N/A'}
-- Competitive Moat: {(fundamentals_data.get('equity_research_report') or {}).get('bull_case', {}).get('moat', 'N/A')}
-- Existential Risk: {(fundamentals_data.get('equity_research_report') or {}).get('bear_case', {}).get('existential_risk', 'N/A')}
-- Concerning Metrics: {[(c.get('metric', '') + ': ' + c.get('concern', '')) for c in (fundamentals_data.get('equity_research_report') or {}).get('bear_case', {}).get('concerning_metrics', [])] if fundamentals_data.get('equity_research_report') else 'N/A'}
-- FCF Analysis: {(fundamentals_data.get('equity_research_report') or {}).get('financial_health_check', {}).get('fcf_analysis', 'N/A')}
-- Valuation Analysis: {(fundamentals_data.get('equity_research_report') or {}).get('financial_health_check', {}).get('valuation_analysis', 'N/A')}
-- Uncomfortable Questions: {(fundamentals_data.get('equity_research_report') or {}).get('uncomfortable_questions', [])}
-- Overall Assessment: {(fundamentals_data.get('equity_research_report') or {}).get('overall_assessment', 'N/A')}
-
-## MARKET DATA
-- Current Price: ${market_data.get('current_price', 'N/A')}
-- Trend: {market_data.get('trend', 'N/A')}
-- 1-Month Change: {market_data.get('price_change_1m', {}).get('change_pct', 'N/A')}%
-- 3-Month Change: {market_data.get('price_change_3m', {}).get('change_pct', 'N/A')}%
-- Volatility: {market_data.get('volatility_3m', 'N/A')}%
-- Volume Trend: {market_data.get('volume_trend_1m', 'N/A')}
-- Support: ${market_data.get('support_level', 'N/A')}
-- Resistance: ${market_data.get('resistance_level', 'N/A')}
-- Summary: {market_data.get('summary', '')}
-
-## TECHNICAL ANALYSIS
-- RSI: {technical_data.get('indicators', {}).get('rsi', {}).get('value', 'N/A')} ({technical_data.get('indicators', {}).get('rsi', {}).get('interpretation', 'N/A')})
-- MACD: {technical_data.get('indicators', {}).get('macd', {}).get('interpretation', 'N/A')}
-- Bollinger Bands: {technical_data.get('indicators', {}).get('bollinger_bands', {}).get('interpretation', 'N/A')}
-- Overall Signal: {technical_data.get('signals', {}).get('overall', 'N/A')}
-- Signal Strength: {technical_data.get('signals', {}).get('strength', 'N/A')}
-- Summary: {technical_data.get('summary', '')}
-
-## OPTIONS FLOW & UNUSUAL ACTIVITY
-- Put/Call Volume Ratio: {options_data.get('put_call_ratio', 'N/A')}
-- Put/Call OI Ratio: {options_data.get('put_call_oi_ratio', 'N/A')}
-- Max Pain Strike: ${options_data.get('max_pain', 'N/A')}
-- Unusual Activity: {[f"{u.get('type', '')} ${u.get('strike', '')} exp {u.get('expiration', '')} (vol/OI: {u.get('vol_oi_ratio', '')}x)" for u in (options_data.get('unusual_activity', []))[:3]] or 'None detected'}
-- Highest IV Contracts: {[f"{c.get('type', '')} ${c.get('strike', '')} IV={c.get('implied_volatility', '')}" for c in (options_data.get('highest_iv_contracts', []))[:3]] or 'N/A'}
-- Overall Options Signal: {options_data.get('overall_signal', 'N/A')}
-- Summary: {options_data.get('summary', 'No options data available')}
-
-## MACROECONOMIC ENVIRONMENT
-- Federal Funds Rate: {macro_data.get('indicators', {}).get('federal_funds_rate', {}).get('current', 'N/A')} (Trend: {macro_data.get('indicators', {}).get('federal_funds_rate', {}).get('trend', 'N/A')})
-- CPI: {macro_data.get('indicators', {}).get('cpi', {}).get('current', 'N/A')} (Trend: {macro_data.get('indicators', {}).get('cpi', {}).get('trend', 'N/A')})
-- Real GDP: {macro_data.get('indicators', {}).get('real_gdp', {}).get('current', 'N/A')} (Trend: {macro_data.get('indicators', {}).get('real_gdp', {}).get('trend', 'N/A')})
-- Unemployment: {macro_data.get('indicators', {}).get('unemployment', {}).get('current', 'N/A')}% (Trend: {macro_data.get('indicators', {}).get('unemployment', {}).get('trend', 'N/A')})
-- Inflation: {macro_data.get('indicators', {}).get('inflation', {}).get('current', 'N/A')}% (Trend: {macro_data.get('indicators', {}).get('inflation', {}).get('trend', 'N/A')})
-- 10Y Treasury Yield: {macro_data.get('indicators', {}).get('treasury_yield_10y', {}).get('current', 'N/A')}%
-- 2Y Treasury Yield: {macro_data.get('indicators', {}).get('treasury_yield_2y', {}).get('current', 'N/A')}%
-- Yield Curve: {macro_data.get('yield_curve', {}).get('status', 'N/A')} (Spread: {macro_data.get('yield_curve', {}).get('spread', 'N/A')}%)
-- Economic Cycle: {macro_data.get('economic_cycle', 'N/A')}
-- Risk Environment: {macro_data.get('risk_environment', 'N/A')}
-- Summary: {macro_data.get('summary', 'No macro data available')}
-
-## SENTIMENT ANALYSIS
-- Overall Sentiment: {sentiment_data.get('overall_sentiment', 'N/A')}
-- Confidence: {sentiment_data.get('confidence', 'N/A')}
-- Factors:
-  - Earnings: {sentiment_data.get('factors', {}).get('earnings', {})}
-  - Guidance: {sentiment_data.get('factors', {}).get('guidance', {})}
-  - Stock Reactions: {sentiment_data.get('factors', {}).get('stock_reactions', {})}
-  - Strategic News: {sentiment_data.get('factors', {}).get('strategic_news', {})}
-- Key Themes: {sentiment_data.get('key_themes', [])}
-- Reasoning: {sentiment_data.get('reasoning', '')}
-
-## NEWS SUMMARY
-- Total Articles: {news_data.get('total_count', 0)}
-- Recent (24h): {news_data.get('recent_count', 0)}
-- Key Headlines: {[h.get('title', '') for h in news_data.get('key_headlines', [])[:3]]}
-
-Using first-principles reasoning:
-
-1. Assess current company health (fundamentals + SEC earnings data)
-2. Consider the equity research report's bull/bear thesis, moat, and risk analysis
-3. Evaluate market conditions and price action
-4. Consider sentiment and news impact
-5. Synthesize technical signals
-6. Evaluate options flow signals (put/call ratios, unusual activity, max pain vs current price)
-7. Factor in macroeconomic environment (interest rates, yield curve, economic cycle)
-8. Analyze earnings trends (beat rate, EPS/revenue trajectory from SEC filings)
-9. Weigh concerning metrics and existential risks identified
-10. Determine risk/reward ratio
-11. Provide final recommendation
-
-Respond in JSON format:
-{{
-  "recommendation": "<BUY|HOLD|SELL>",
-  "score": <integer from -100 (strong sell) to +100 (strong buy), with 0 being neutral>,
-  "confidence": <float from 0.0 to 1.0>,
-  "reasoning": "<concise rationale summary (max 3 sentences)>",
-  "rationale_summary": "<one concise paragraph no longer than 400 chars>",
-  "risks": ["<risk1>", "<risk2>", "<risk3>"],
-  "opportunities": ["<opportunity1>", "<opportunity2>", "<opportunity3>"],
-  "price_targets": {{
-    "entry": <suggested entry price>,
-    "target": <price target>,
-    "stop_loss": <stop loss price>
-  }},
-  "position_size": "<SMALL|MEDIUM|LARGE>",
-  "time_horizon": "<SHORT_TERM|MEDIUM_TERM|LONG_TERM>",
-  "scenarios": {{
-    "bull": {{"probability": <0..1>, "expected_return_pct": <number|null>, "thesis": "<short thesis>"}},
-    "base": {{"probability": <0..1>, "expected_return_pct": <number|null>, "thesis": "<short thesis>"}},
-    "bear": {{"probability": <0..1>, "expected_return_pct": <number|null>, "thesis": "<short thesis>"}}
-  }},
-  "scenario_summary": "<one sentence summary of scenario mix>"
-}}"""
+        prompt = self._build_prompt(
+            news_data, sentiment_data, fundamentals_data,
+            market_data, technical_data, macro_data, options_data,
+        )
 
         try:
             client = OpenAI(
