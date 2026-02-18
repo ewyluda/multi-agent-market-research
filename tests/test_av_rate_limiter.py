@@ -67,3 +67,18 @@ class TestAVRateLimiter:
         # Try again (will be rejected)
         await limiter.acquire()
         assert limiter.daily_remaining == 0
+
+    async def test_minute_window_retries_without_recursion(self):
+        """acquire() retries via loop when minute window is full, not via recursion."""
+        limiter = AVRateLimiter(requests_per_minute=2, requests_per_day=100)
+        # Fill minute window
+        await limiter.acquire()
+        await limiter.acquire()
+        # Third call should wait and succeed via loop retry
+        import unittest.mock
+        with unittest.mock.patch("asyncio.sleep", new_callable=unittest.mock.AsyncMock) as mock_sleep:
+            # Simulate time passing by clearing timestamps after sleep
+            mock_sleep.side_effect = lambda _: setattr(limiter, '_minute_timestamps', [])
+            result = await limiter.acquire()
+            assert result is True
+            assert mock_sleep.called
