@@ -602,3 +602,47 @@ async def test_db_write_failure_still_returns_analysis(test_config, tmp_db_path)
     assert result["analysis_id"] is None
     assert result["analysis"]["recommendation"] == "BUY"
     assert result.get("db_write_warning") is not None
+
+
+@pytest.mark.asyncio
+async def test_invalid_ticker_returns_error_without_running_agents(test_config, tmp_db_path):
+    """Invalid ticker is caught before agents run, saving AV budget."""
+    db = DatabaseManager(tmp_db_path)
+    orch = Orchestrator(config=test_config, db_manager=db)
+
+    with patch("yfinance.Ticker") as mock_yf:
+        mock_yf.return_value.info = {"shortName": None}
+        with patch.object(orch, "_run_agents", new_callable=AsyncMock) as mock_run:
+            result = await orch.analyze_ticker("NVIDX")
+            mock_run.assert_not_called()
+
+    assert result["success"] is False
+    assert "Unknown ticker" in result["error"]
+
+
+@pytest.mark.asyncio
+async def test_valid_ticker_caches_validation(test_config, tmp_db_path):
+    """Second analysis of same ticker skips yfinance validation."""
+    db = DatabaseManager(tmp_db_path)
+    orch = Orchestrator(config=test_config, db_manager=db)
+
+    with patch("yfinance.Ticker") as mock_yf:
+        mock_yf.return_value.info = {"shortName": "NVIDIA Corp"}
+        # First call validates
+        await orch._validate_ticker("NVDA")
+        # Second call should not hit yfinance
+        mock_yf.reset_mock()
+        await orch._validate_ticker("NVDA")
+        mock_yf.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_yfinance_failure_allows_ticker_through(test_config, tmp_db_path):
+    """If yfinance is down, validation is skipped (fail-open)."""
+    db = DatabaseManager(tmp_db_path)
+    orch = Orchestrator(config=test_config, db_manager=db)
+
+    with patch("yfinance.Ticker", side_effect=Exception("yfinance down")):
+        # Should not raise — fail-open
+        result = await orch._validate_ticker("AAPL")
+        assert result is True

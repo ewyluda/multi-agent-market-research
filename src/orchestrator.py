@@ -73,6 +73,7 @@ class Orchestrator:
         )
         self._av_cache = av_cache or AVCache()
         self._shared_session: Optional[aiohttp.ClientSession] = None
+        self._validated_tickers: set = set()
 
     def _get_config_dict(self) -> Dict[str, Any]:
         """Convert Config class to dictionary."""
@@ -106,6 +107,32 @@ class Orchestrator:
         if self._shared_session and not self._shared_session.closed:
             await self._shared_session.close()
             self._shared_session = None
+
+    async def _validate_ticker(self, ticker: str) -> bool:
+        """
+        Validate that a ticker symbol corresponds to a real tradeable security.
+
+        Uses yfinance for a lightweight check. Caches validated tickers in-memory.
+        Fails open (returns True) if yfinance is unavailable.
+        """
+        if ticker in self._validated_tickers:
+            return True
+
+        try:
+            import yfinance as yf
+
+            info = await asyncio.get_event_loop().run_in_executor(
+                None, lambda: yf.Ticker(ticker).info
+            )
+            short_name = (info or {}).get("shortName")
+            if not short_name:
+                return False
+
+            self._validated_tickers.add(ticker)
+            return True
+        except Exception as e:
+            self.logger.warning(f"Ticker validation skipped for {ticker} (yfinance error: {e})")
+            return True  # Fail-open
 
     def _inject_shared_resources(self, agent):
         """Inject shared AV resources into an agent instance."""
@@ -160,6 +187,15 @@ class Orchestrator:
         """
         start_time = time.time()
         ticker = ticker.upper()
+
+        # Validate ticker is a real symbol before burning API budget
+        if not await self._validate_ticker(ticker):
+            return {
+                "success": False,
+                "ticker": ticker,
+                "error": f"Unknown ticker symbol: {ticker}",
+                "duration_seconds": time.time() - start_time,
+            }
 
         # Resolve which agents to run
         agents_to_run = self._resolve_agents(requested_agents)
