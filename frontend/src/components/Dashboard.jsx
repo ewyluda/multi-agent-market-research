@@ -19,6 +19,7 @@ import DiagnosticsPanel from './DiagnosticsPanel';
 import NewsFeed from './NewsFeed';
 import OptionsFlow from './OptionsFlow';
 import MacroSnapshot from './MacroSnapshot';
+import CalibrationCard from './CalibrationCard';
 import HistoryDashboard from './HistoryDashboard';
 import WatchlistPanel from './WatchlistPanel';
 import SchedulePanel from './SchedulePanel';
@@ -261,7 +262,6 @@ const Dashboard = () => {
                               className="space-y-6"
                             >
                               <DiagnosticsPanel analysis={analysis} />
-                              <AgentPipelineBar />
                             </Motion.div>
                           )}
 
@@ -292,6 +292,7 @@ const Dashboard = () => {
                       className="hidden lg:block w-[340px] shrink-0 border-l border-white/5 p-5 space-y-5 overflow-y-auto"
                     >
                       <Recommendation analysis={analysis} />
+                      <CalibrationCard />
                       <MacroSnapshot analysis={analysis} />
                     </Motion.div>
                   </Motion.div>
