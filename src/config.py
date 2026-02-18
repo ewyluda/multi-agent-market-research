@@ -54,20 +54,20 @@ class Config:
     CALIBRATION_CRON_HOUR = int(os.getenv("CALIBRATION_CRON_HOUR", "17"))
     CALIBRATION_CRON_MINUTE = int(os.getenv("CALIBRATION_CRON_MINUTE", "30"))
     ALERTS_ENABLED = os.getenv("ALERTS_ENABLED", "true").lower() == "true"
-    SIGNAL_CONTRACT_V2_ENABLED = os.getenv("SIGNAL_CONTRACT_V2_ENABLED", "false").lower() == "true"
-    COT_PERSISTENCE_ENABLED = os.getenv("COT_PERSISTENCE_ENABLED", "false").lower() == "true"
-    PORTFOLIO_OPTIMIZER_V2_ENABLED = os.getenv("PORTFOLIO_OPTIMIZER_V2_ENABLED", "false").lower() == "true"
-    CALIBRATION_ECONOMICS_ENABLED = os.getenv("CALIBRATION_ECONOMICS_ENABLED", "false").lower() == "true"
-    ALERTS_V2_ENABLED = os.getenv("ALERTS_V2_ENABLED", "false").lower() == "true"
-    WATCHLIST_RANKING_ENABLED = os.getenv("WATCHLIST_RANKING_ENABLED", "false").lower() == "true"
-    UI_PM_DASHBOARD_ENABLED = os.getenv("UI_PM_DASHBOARD_ENABLED", "false").lower() == "true"
+    SIGNAL_CONTRACT_V2_ENABLED = os.getenv("SIGNAL_CONTRACT_V2_ENABLED", "true").lower() == "true"
+    COT_PERSISTENCE_ENABLED = os.getenv("COT_PERSISTENCE_ENABLED", "true").lower() == "true"
+    PORTFOLIO_OPTIMIZER_V2_ENABLED = os.getenv("PORTFOLIO_OPTIMIZER_V2_ENABLED", "true").lower() == "true"
+    CALIBRATION_ECONOMICS_ENABLED = os.getenv("CALIBRATION_ECONOMICS_ENABLED", "true").lower() == "true"
+    ALERTS_V2_ENABLED = os.getenv("ALERTS_V2_ENABLED", "true").lower() == "true"
+    WATCHLIST_RANKING_ENABLED = os.getenv("WATCHLIST_RANKING_ENABLED", "true").lower() == "true"
+    UI_PM_DASHBOARD_ENABLED = os.getenv("UI_PM_DASHBOARD_ENABLED", "true").lower() == "true"
     # Rollout overrides for scheduled runs only (Phase 7 staged enablement).
-    SCHEDULED_SIGNAL_CONTRACT_V2_ENABLED = os.getenv("SCHEDULED_SIGNAL_CONTRACT_V2_ENABLED", "false").lower() == "true"
-    SCHEDULED_CALIBRATION_ECONOMICS_ENABLED = os.getenv("SCHEDULED_CALIBRATION_ECONOMICS_ENABLED", "false").lower() == "true"
+    SCHEDULED_SIGNAL_CONTRACT_V2_ENABLED = os.getenv("SCHEDULED_SIGNAL_CONTRACT_V2_ENABLED", "true").lower() == "true"
+    SCHEDULED_CALIBRATION_ECONOMICS_ENABLED = os.getenv("SCHEDULED_CALIBRATION_ECONOMICS_ENABLED", "true").lower() == "true"
     SCHEDULED_PORTFOLIO_OPTIMIZER_V2_ENABLED = (
-        os.getenv("SCHEDULED_PORTFOLIO_OPTIMIZER_V2_ENABLED", "false").lower() == "true"
+        os.getenv("SCHEDULED_PORTFOLIO_OPTIMIZER_V2_ENABLED", "true").lower() == "true"
     )
-    SCHEDULED_ALERTS_V2_ENABLED = os.getenv("SCHEDULED_ALERTS_V2_ENABLED", "false").lower() == "true"
+    SCHEDULED_ALERTS_V2_ENABLED = os.getenv("SCHEDULED_ALERTS_V2_ENABLED", "true").lower() == "true"
     PARALLEL_AGENTS = os.getenv("PARALLEL_AGENTS", "true").lower() == "true"
 
     # Database Configuration
@@ -100,11 +100,11 @@ class Config:
     # Sentiment Analysis Configuration
     SENTIMENT_FACTORS = {
         "earnings": {
-            "weight": 0.30,
+            "weight": 0.25,
             "description": "Earnings beats or misses"
         },
         "guidance": {
-            "weight": 0.40,
+            "weight": 0.30,
             "description": "Forward guidance changes"
         },
         "stock_reactions": {
@@ -114,6 +114,10 @@ class Config:
         "strategic_news": {
             "weight": 0.10,
             "description": "Strategic announcements and initiatives"
+        },
+        "social_sentiment": {
+            "weight": 0.15,
+            "description": "Social media sentiment from Twitter/X"
         }
     }
 
@@ -121,10 +125,6 @@ class Config:
     CACHE_TTL_PRICE = int(os.getenv("CACHE_TTL_PRICE", "300"))  # 5 minutes
     CACHE_TTL_NEWS = int(os.getenv("CACHE_TTL_NEWS", "3600"))  # 1 hour
     CACHE_TTL_FUNDAMENTALS = int(os.getenv("CACHE_TTL_FUNDAMENTALS", "86400"))  # 1 day
-
-    # API Rate Limiting (general)
-    RATE_LIMIT_REQUESTS = int(os.getenv("RATE_LIMIT_REQUESTS", "100"))
-    RATE_LIMIT_WINDOW = int(os.getenv("RATE_LIMIT_WINDOW", "3600"))  # 1 hour
 
     # Alpha Vantage Rate Limiting
     AV_RATE_LIMIT_PER_MINUTE = int(os.getenv("AV_RATE_LIMIT_PER_MINUTE", "5"))
