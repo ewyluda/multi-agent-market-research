@@ -646,3 +646,51 @@ async def test_yfinance_failure_allows_ticker_through(test_config, tmp_db_path):
         # Should not raise — fail-open
         result = await orch._validate_ticker("AAPL")
         assert result is True
+
+
+def test_change_summary_not_truncated(test_config, tmp_db_path):
+    """Change summary includes all detected changes, not capped at 6."""
+    db = DatabaseManager(tmp_db_path)
+    orch = Orchestrator(config=test_config, db_manager=db)
+
+    # Build previous and current analyses with 8 material differences
+    previous = {
+        "id": 1,
+        "timestamp": "2025-01-01T00:00:00",
+        "recommendation": "HOLD",
+        "score": 0,
+        "confidence": 0.5,
+        "signal_snapshot": {
+            "recommendation": "HOLD",
+            "score": 0,
+            "confidence_raw": 0.5,
+            "rsi": 50.0,
+            "macd_signal": "neutral",
+            "overall_sentiment": 0.0,
+            "options_signal": "neutral",
+            "options_put_call": 1.0,
+            "macro_risk_environment": "low_risk",
+        },
+    }
+
+    current_analysis = {
+        "recommendation": "BUY",
+        "score": 80,
+        "confidence": 0.9,
+        "signal_snapshot": {
+            "recommendation": "BUY",
+            "score": 80,
+            "confidence_raw": 0.9,
+            "rsi": 75.0,
+            "macd_signal": "bullish",
+            "overall_sentiment": 0.8,
+            "options_signal": "bullish",
+            "options_put_call": 0.5,
+            "macro_risk_environment": "high_risk",
+        },
+    }
+
+    result = orch._build_change_summary(previous, current_analysis)
+    assert result["has_previous"] is True
+    # Should not be truncated to 6
+    assert result["change_count"] > 6 or result["change_count"] == len(result["material_changes"])

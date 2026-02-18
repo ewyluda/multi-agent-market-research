@@ -1134,12 +1134,8 @@ class Orchestrator:
                 impact="high",
             )
 
-        # Keep output concise by default.
-        changes = changes[:6]
         if changes:
-            summary = "; ".join(change["label"] for change in changes[:3])
-            if len(changes) > 3:
-                summary += f"; and {len(changes) - 3} more change(s)"
+            summary = "; ".join(change["label"] for change in changes)
         else:
             summary = "No material signal changes versus the previous run."
 
