@@ -6,7 +6,7 @@ import time
 import logging
 import asyncio
 import random
-from datetime import datetime
+from datetime import datetime, timezone
 
 import aiohttp
 
@@ -202,7 +202,7 @@ class BaseAgent(ABC):
                 - timestamp: ISO format timestamp
         """
         self.start_time = time.time()
-        timestamp = datetime.utcnow().isoformat()
+        timestamp = datetime.now(timezone.utc).isoformat()
 
         try:
             self.logger.info(f"Starting {self.__class__.__name__} for {self.ticker}")
@@ -290,25 +290,3 @@ class BaseAgent(ABC):
 
         return name
 
-    def validate_ticker(self) -> bool:
-        """
-        Validate ticker symbol format.
-
-        Returns:
-            True if ticker is valid format
-        """
-        if not self.ticker:
-            return False
-
-        # Basic validation: 1-5 uppercase letters
-        import re
-        return bool(re.match(r'^[A-Z]{1,5}$', self.ticker))
-
-    def log_metrics(self, metrics: Dict[str, Any]):
-        """
-        Log agent-specific metrics.
-
-        Args:
-            metrics: Dictionary of metrics to log
-        """
-        self.logger.info(f"Metrics for {self.ticker}: {metrics}")

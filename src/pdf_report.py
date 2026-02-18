@@ -3,7 +3,7 @@
 import io
 import re
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Any, Optional, List, Tuple
 
 from reportlab.lib.pagesizes import letter
@@ -1023,7 +1023,7 @@ class PDFReportGenerator:
     def _parse_timestamp(self, timestamp: Any) -> str:
         """Parse a timestamp into a human-readable format."""
         if not timestamp:
-            return datetime.utcnow().strftime("%B %d, %Y at %H:%M UTC")
+            return datetime.now(timezone.utc).strftime("%B %d, %Y at %H:%M UTC")
 
         if isinstance(timestamp, datetime):
             return timestamp.strftime("%B %d, %Y at %H:%M UTC")

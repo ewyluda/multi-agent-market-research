@@ -63,35 +63,6 @@ class TestBaseAgentGetAgentType:
         assert agent.get_agent_type() == "my_custom"
 
 
-class TestBaseAgentValidateTicker:
-    """Tests for validate_ticker()."""
-
-    def test_valid_single_char(self, test_config):
-        assert ConcreteAgent("A", test_config).validate_ticker() is True
-
-    def test_valid_four_char(self, test_config):
-        assert ConcreteAgent("AAPL", test_config).validate_ticker() is True
-
-    def test_valid_five_char(self, test_config):
-        assert ConcreteAgent("NVDAA", test_config).validate_ticker() is True
-
-    def test_empty_ticker_invalid(self, test_config):
-        agent = ConcreteAgent("A", test_config)
-        agent.ticker = ""
-        assert agent.validate_ticker() is False
-
-    def test_lowercase_ticker_converted(self, test_config):
-        """BaseAgent __init__ uppercases the ticker."""
-        agent = ConcreteAgent("aapl", test_config)
-        assert agent.ticker == "AAPL"
-        assert agent.validate_ticker() is True
-
-    def test_numeric_ticker_invalid(self, test_config):
-        agent = ConcreteAgent("A", test_config)
-        agent.ticker = "123"
-        assert agent.validate_ticker() is False
-
-
 class TestBaseAgentExecute:
     """Tests for execute() workflow."""
 

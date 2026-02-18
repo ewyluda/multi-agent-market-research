@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Set
 
 from .database import DatabaseManager
@@ -344,7 +344,7 @@ def compute_phase7_rollout_status(
 ) -> Dict[str, Any]:
     """Compute Phase 7 rollout metrics and stage gate status."""
     bounded_hours = max(1, int(window_hours))
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     since_timestamp = (now - timedelta(hours=bounded_hours)).isoformat()
 
     scheduled_run_metrics = _load_schedule_run_metrics(db_manager, since_timestamp=since_timestamp)

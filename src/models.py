@@ -10,6 +10,12 @@ class AnalysisRequest(BaseModel):
     ticker: str = Field(..., min_length=1, max_length=5, description="Stock ticker symbol")
 
 
+class BatchAnalysisRequest(BaseModel):
+    """Request body for bulk analysis."""
+    tickers: List[str]
+    agents: Optional[str] = None
+
+
 class AgentResult(BaseModel):
     """Model for individual agent result."""
     success: bool
@@ -90,11 +96,11 @@ class AnalysisHistoryItem(BaseModel):
     confidence_calibrated: Optional[float] = None
     data_quality_score: Optional[float] = None
     regime_label: Optional[str] = None
-    confidence_score: float
-    overall_sentiment_score: float
+    confidence_score: Optional[float] = None
+    overall_sentiment_score: Optional[float] = None
     decision_card: Optional[Dict[str, Any]] = None
     change_summary: Optional[Dict[str, Any]] = None
-    duration_seconds: float
+    duration_seconds: Optional[float] = None
 
 
 class AnalysisHistoryResponse(BaseModel):

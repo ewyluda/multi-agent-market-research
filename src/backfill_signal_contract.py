@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional
 
 from .database import DatabaseManager
 from .orchestrator import Orchestrator
-from .signal_contract import build_signal_contract_v2, validate_signal_contract_v2
+from .signal_contract import build_signal_contract_v2, validate_signal_contract_v2, _safe_float
 
 
 logger = logging.getLogger(__name__)
@@ -67,16 +67,6 @@ class BackfillStats:
             "hard_failures": self.hard_failures,
             "failures": self.failures,
         }
-
-
-def _safe_float(value: Any) -> Optional[float]:
-    """Best-effort float conversion."""
-    if value is None:
-        return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
 
 
 def _load_checkpoint(path: Optional[str]) -> int:

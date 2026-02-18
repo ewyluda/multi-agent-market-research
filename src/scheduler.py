@@ -87,7 +87,7 @@ class AnalysisScheduler:
             id=job_id,
             args=[schedule["id"]],
             replace_existing=True,
-            next_run_time=datetime.utcnow() + timedelta(minutes=interval),
+            next_run_time=datetime.now(timezone.utc) + timedelta(minutes=interval),
         )
         logger.info(f"Added job {job_id} for {schedule['ticker']} every {interval}m")
 
@@ -177,7 +177,7 @@ class AnalysisScheduler:
             minutes=scan_interval,
             id=job_id,
             replace_existing=True,
-            next_run_time=datetime.utcnow() + timedelta(minutes=1),
+            next_run_time=datetime.now(timezone.utc) + timedelta(minutes=1),
         )
         logger.info(
             "Added catalyst scan job every %sm (earnings=%s, macro=%s)",
@@ -261,7 +261,7 @@ class AnalysisScheduler:
         else:
             candidates = [earnings_dates]
 
-        today = datetime.utcnow().date()
+        today = datetime.now(timezone.utc).date()
         lookback = max(0, int(lookback_days))
         window_start = today - timedelta(days=lookback)
         normalized: List[date] = []
@@ -290,7 +290,7 @@ class AnalysisScheduler:
         if not schedules:
             return
 
-        today = datetime.utcnow().date()
+        today = datetime.now(timezone.utc).date()
         if self._is_earnings_catalyst_enabled():
             await self._scan_earnings_catalysts(schedules, today)
         if self._is_macro_catalyst_enabled():
@@ -438,7 +438,7 @@ class AnalysisScheduler:
         agents_str = schedule.get("agents")
         requested_agents = [a.strip() for a in agents_str.split(",")] if agents_str else None
 
-        started_at = datetime.utcnow().isoformat()
+        started_at = datetime.now(timezone.utc).isoformat()
         logger.info(f"Running {run_reason} analysis for {ticker} (schedule {schedule_id})")
 
         try:
@@ -451,7 +451,7 @@ class AnalysisScheduler:
             )
             result = await orch.analyze_ticker(ticker, requested_agents)
 
-            completed_at = datetime.utcnow().isoformat()
+            completed_at = datetime.now(timezone.utc).isoformat()
             analysis_id = result.get("analysis_id") if result.get("success") else None
 
             self.db_manager.insert_schedule_run(
@@ -469,14 +469,14 @@ class AnalysisScheduler:
             # Update schedule timestamps
             update_fields = {"last_run_at": completed_at}
             if update_next_run:
-                next_run = datetime.utcnow() + timedelta(minutes=schedule["interval_minutes"])
+                next_run = datetime.now(timezone.utc) + timedelta(minutes=schedule["interval_minutes"])
                 update_fields["next_run_at"] = next_run.isoformat()
             self.db_manager.update_schedule(schedule_id, **update_fields)
 
             logger.info(f"{run_reason} analysis for {ticker} completed (success={result.get('success')})")
 
         except Exception as e:
-            completed_at = datetime.utcnow().isoformat()
+            completed_at = datetime.now(timezone.utc).isoformat()
             self.db_manager.insert_schedule_run(
                 schedule_id=schedule_id,
                 analysis_id=None,
@@ -711,7 +711,7 @@ class AnalysisScheduler:
                 max_drawdown_pct=max_drawdown_pct,
                 utility_score=utility_score,
                 status="complete",
-                evaluated_at=datetime.utcnow().isoformat(),
+                evaluated_at=datetime.now(timezone.utc).isoformat(),
             )
 
         window_start = (datetime.now(timezone.utc).date() - timedelta(days=180)).isoformat()

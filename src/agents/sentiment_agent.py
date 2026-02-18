@@ -510,10 +510,10 @@ Respond in JSON format:
     async def _execute_with_data(self, raw_data: Dict[str, Any]) -> Dict[str, Any]:
         """Execute with provided data."""
         import time
-        from datetime import datetime
+        from datetime import datetime, timezone
 
         self.start_time = time.time()
-        timestamp = datetime.utcnow().isoformat()
+        timestamp = datetime.now(timezone.utc).isoformat()
 
         try:
             self.logger.info(f"Starting {self.__class__.__name__} for {self.ticker}")
