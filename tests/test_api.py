@@ -549,3 +549,25 @@ class TestAlertAPI:
         data = response.json()
         assert "count" in data
         assert data["count"] >= 0
+
+
+class TestBatchAnalysis:
+    """Tests for POST /api/analyze/batch."""
+
+    def test_empty_tickers_returns_400(self, client):
+        """Empty ticker list returns 400."""
+        response = client.post("/api/analyze/batch", json={"tickers": []})
+        assert response.status_code == 400
+
+    def test_invalid_ticker_format_returns_400(self, client):
+        """Invalid ticker format in list returns 400."""
+        response = client.post("/api/analyze/batch", json={"tickers": ["123"]})
+        assert response.status_code == 400
+
+    def test_too_many_tickers_returns_400(self, client):
+        """More than 20 tickers returns 400."""
+        response = client.post(
+            "/api/analyze/batch",
+            json={"tickers": [f"T{i}" for i in range(21)]},
+        )
+        assert response.status_code == 400

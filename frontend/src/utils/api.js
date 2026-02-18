@@ -22,6 +22,11 @@ export const analyzeTickerAPI = async (ticker) => {
 };
 
 /**
+ * Get SSE URL for batch analysis of arbitrary tickers
+ */
+export const getBatchAnalyzeURL = () => `${API_BASE_URL}/api/analyze/batch`;
+
+/**
  * Get latest analysis for a ticker
  */
 export const getLatestAnalysis = async (ticker) => {

@@ -17,6 +17,7 @@ from .models import (
     AnalysisRequest,
     AnalysisResponse,
     AnalysisHistoryResponse,
+    BatchAnalysisRequest,
     HealthCheckResponse,
     WatchlistCreate,
     WatchlistTickerAdd,
@@ -142,6 +143,84 @@ async def health_check():
         timestamp=datetime.now(timezone.utc).isoformat(),
         database_connected=db_connected,
         config_valid=config_valid
+    )
+
+
+@app.post("/api/analyze/batch")
+async def batch_analyze_tickers(body: BatchAnalysisRequest):
+    """
+    Batch-analyze a list of tickers via SSE stream.
+
+    Accepts a JSON body with tickers list and optional agents string.
+    Returns SSE events: 'result' per ticker, 'error' on failure, 'done' at end.
+    """
+    tickers = [t.upper() for t in body.tickers]
+
+    if not tickers:
+        raise HTTPException(status_code=400, detail="No tickers provided")
+    if len(tickers) > 20:
+        raise HTTPException(status_code=400, detail="Maximum 20 tickers per batch")
+
+    # Validate ticker formats
+    for t in tickers:
+        if not re.match(r"^[A-Z]{1,5}$", t):
+            raise HTTPException(status_code=400, detail=f"Invalid ticker format: {t}")
+
+    # Parse agents
+    requested_agents = None
+    if body.agents:
+        valid_agents = {"news", "sentiment", "fundamentals", "market", "technical", "macro", "options"}
+        requested_agents = [a.strip().lower() for a in body.agents.split(",") if a.strip()]
+        invalid = set(requested_agents) - valid_agents
+        if invalid:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid agent names: {', '.join(sorted(invalid))}",
+            )
+
+    async def batch_generator():
+        concurrency = 4
+        semaphore = asyncio.Semaphore(concurrency)
+
+        async def _analyze_one(ticker: str) -> Dict[str, Any]:
+            async with semaphore:
+                orchestrator = Orchestrator(
+                    db_manager=db_manager,
+                    rate_limiter=av_rate_limiter,
+                    av_cache=av_cache,
+                )
+                result = await orchestrator.analyze_ticker(ticker, requested_agents=requested_agents)
+                return {
+                    "ticker": ticker,
+                    "success": result.get("success", False),
+                    "analysis_id": result.get("analysis_id"),
+                    "recommendation": (result.get("analysis") or {}).get("recommendation"),
+                    "score": (result.get("analysis") or {}).get("score"),
+                    "confidence": (result.get("analysis") or {}).get("confidence"),
+                    "ev_score_7d": (result.get("analysis") or {}).get("ev_score_7d"),
+                    "duration_seconds": result.get("duration_seconds", 0),
+                    "error": result.get("error"),
+                }
+
+        tasks = [asyncio.create_task(_analyze_one(t)) for t in tickers]
+        completed = 0
+        for task in asyncio.as_completed(tasks):
+            completed += 1
+            try:
+                payload = await task
+            except Exception as e:
+                logger.error("Batch analysis task failed: %s", e)
+                payload = {"success": False, "error": str(e), "ticker": "UNKNOWN"}
+
+            event_type = "result" if payload.get("success") else "error"
+            yield f"event: {event_type}\ndata: {json.dumps(payload, default=str)}\n\n"
+
+        yield f"event: done\ndata: {json.dumps({'message': 'Batch complete', 'ticker_count': len(tickers), 'completed': completed}, default=str)}\n\n"
+
+    return StreamingResponse(
+        batch_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
     )
 
 
