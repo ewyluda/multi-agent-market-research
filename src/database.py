@@ -3,7 +3,7 @@
 import sqlite3
 import json
 from contextlib import contextmanager
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 from typing import Dict, List, Optional, Any
 import os
 
@@ -26,6 +26,8 @@ class DatabaseManager:
         """Context manager for database connections."""
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         try:
             yield conn
             conn.commit()
@@ -511,7 +513,7 @@ class DatabaseManager:
         if cursor.fetchone():
             return
 
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         cursor.execute(
             """
             INSERT INTO portfolio_profile (
@@ -544,7 +546,7 @@ class DatabaseManager:
         else:
             events = []
 
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         for event in events:
             if not isinstance(event, dict):
                 continue
@@ -727,7 +729,7 @@ class DatabaseManager:
         """
         with self.get_connection() as conn:
             cursor = conn.cursor()
-            timestamp = datetime.utcnow().isoformat()
+            timestamp = datetime.now(timezone.utc).isoformat()
             decision_card_json = json.dumps(decision_card) if decision_card is not None else None
             change_summary_json = json.dumps(change_summary) if change_summary is not None else None
             analysis_payload_json = json.dumps(analysis_payload) if analysis_payload is not None else None
@@ -1312,7 +1314,7 @@ class DatabaseManager:
 
     def create_watchlist(self, name: str) -> Dict[str, Any]:
         """Create a new watchlist."""
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
@@ -1355,7 +1357,7 @@ class DatabaseManager:
 
     def rename_watchlist(self, watchlist_id: int, new_name: str) -> bool:
         """Rename a watchlist."""
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT id FROM watchlists WHERE id = ?", (watchlist_id,))
@@ -1380,7 +1382,7 @@ class DatabaseManager:
 
     def add_ticker_to_watchlist(self, watchlist_id: int, ticker: str) -> bool:
         """Add a ticker to a watchlist. Returns False if watchlist doesn't exist."""
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT id FROM watchlists WHERE id = ?", (watchlist_id,))
@@ -1401,7 +1403,7 @@ class DatabaseManager:
 
     def remove_ticker_from_watchlist(self, watchlist_id: int, ticker: str) -> bool:
         """Remove a ticker from a watchlist."""
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
@@ -1537,7 +1539,7 @@ class DatabaseManager:
             self._ensure_portfolio_profile_row(cursor)
             cursor.execute("SELECT * FROM portfolio_profile WHERE id = 1")
             current = dict(cursor.fetchone())
-            now = datetime.utcnow().isoformat()
+            now = datetime.now(timezone.utc).isoformat()
 
             values = {
                 "name": name if name is not None else current.get("name"),
@@ -1600,7 +1602,7 @@ class DatabaseManager:
         beta: Optional[float] = None,
     ) -> Dict[str, Any]:
         """Create a portfolio holding and return persisted row."""
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
@@ -1648,7 +1650,7 @@ class DatabaseManager:
                 else:
                     normalized[key] = value
 
-            normalized["updated_at"] = datetime.utcnow().isoformat()
+            normalized["updated_at"] = datetime.now(timezone.utc).isoformat()
             set_clause = ", ".join(f"{k} = ?" for k in normalized)
             params = list(normalized.values()) + [holding_id]
             cursor.execute(f"UPDATE portfolio_holdings SET {set_clause} WHERE id = ?", params)
@@ -1754,7 +1756,7 @@ class DatabaseManager:
             return 0
 
         processed = 0
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         with self.get_connection() as conn:
             cursor = conn.cursor()
             for event in events:
@@ -1840,7 +1842,7 @@ class DatabaseManager:
             except (TypeError, ValueError):
                 conf_val = None
 
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT timestamp FROM analyses WHERE id = ?", (analysis_id,))
@@ -1851,7 +1853,7 @@ class DatabaseManager:
             try:
                 base_dt = datetime.fromisoformat(str(row["timestamp"]).replace("Z", "+00:00"))
             except ValueError:
-                base_dt = datetime.utcnow()
+                base_dt = datetime.now(timezone.utc)
             base_date = base_dt.date()
 
             inserted = 0
@@ -1931,7 +1933,7 @@ class DatabaseManager:
             "max_drawdown_pct": max_drawdown_pct,
             "utility_score": utility_score,
             "status": status,
-            "evaluated_at": evaluated_at or datetime.utcnow().isoformat(),
+            "evaluated_at": evaluated_at or datetime.now(timezone.utc).isoformat(),
         }
         set_clause = ", ".join(f"{col} = ?" for col in updates)
         values = list(updates.values()) + [outcome_id]
@@ -1956,7 +1958,7 @@ class DatabaseManager:
         utility_mean: Optional[float] = None,
     ) -> Dict[str, Any]:
         """Insert/update a calibration snapshot."""
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
@@ -2042,7 +2044,7 @@ class DatabaseManager:
         bins: List[Dict[str, Any]],
     ) -> int:
         """Replace reliability bins for a date/horizon."""
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
@@ -2268,7 +2270,7 @@ class DatabaseManager:
 
     def create_schedule(self, ticker: str, interval_minutes: int, agents: Optional[str] = None) -> Dict[str, Any]:
         """Create a new schedule. Returns the created schedule dict."""
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
@@ -2316,7 +2318,7 @@ class DatabaseManager:
             if not updates:
                 return True
 
-            updates["updated_at"] = datetime.utcnow().isoformat()
+            updates["updated_at"] = datetime.now(timezone.utc).isoformat()
             set_clause = ", ".join(f"{k} = ?" for k in updates)
             values = list(updates.values()) + [schedule_id]
             cursor.execute(f"UPDATE schedules SET {set_clause} WHERE id = ?", values)
@@ -2433,7 +2435,7 @@ class DatabaseManager:
 
     def create_alert_rule(self, ticker: str, rule_type: str, threshold: Optional[float] = None) -> Dict[str, Any]:
         """Create a new alert rule."""
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
@@ -2485,7 +2487,7 @@ class DatabaseManager:
             if not updates:
                 return True
 
-            updates["updated_at"] = datetime.utcnow().isoformat()
+            updates["updated_at"] = datetime.now(timezone.utc).isoformat()
             set_clause = ", ".join(f"{k} = ?" for k in updates)
             values = list(updates.values()) + [rule_id]
             cursor.execute(f"UPDATE alert_rules SET {set_clause} WHERE id = ?", values)
@@ -2515,7 +2517,7 @@ class DatabaseManager:
         suggested_action: Optional[str] = None,
     ) -> int:
         """Insert an alert notification. Returns notification ID."""
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         trigger_context_json = json.dumps(trigger_context) if trigger_context is not None else None
         change_summary_json = json.dumps(change_summary) if change_summary is not None else None
         with self.get_connection() as conn:

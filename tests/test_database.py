@@ -761,3 +761,10 @@ class TestAlertDatabase:
 
         assert "alert_rules" in tables
         assert "alert_notifications" in tables
+
+
+def test_wal_mode_enabled(db_manager):
+    """Database uses WAL journal mode for concurrent access."""
+    with db_manager.get_connection() as conn:
+        result = conn.execute("PRAGMA journal_mode").fetchone()
+        assert result[0] == "wal"
