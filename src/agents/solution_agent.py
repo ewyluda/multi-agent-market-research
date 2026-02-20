@@ -6,6 +6,7 @@ from openai import OpenAI
 import json
 from typing import Dict, Any, Optional
 from .base_agent import BaseAgent
+from ..tavily_client import get_tavily_client
 
 
 class SolutionAgent(BaseAgent):
@@ -23,6 +24,47 @@ class SolutionAgent(BaseAgent):
         super().__init__(ticker, config)
         self.agent_results = agent_results
         self.calibration_context: Optional[Dict[str, Any]] = None
+        self.tavily_narrative: Optional[Dict[str, Any]] = None
+
+    async def _fetch_tavily_narrative(self) -> Optional[Dict[str, Any]]:
+        """
+        Fetch market narrative from Tavily for additional context (Phase 3).
+        
+        Returns:
+            Dict with market narrative or None
+        """
+        if not self.config.get("TAVILY_ENABLED", True):
+            return None
+        
+        if not self.config.get("TAVILY_CONTEXT_ENABLED", True):
+            return None
+        
+        # Get company name from fundamentals
+        fundamentals_data = (self.agent_results.get("fundamentals") or {}).get("data") or {}
+        company_name = fundamentals_data.get("company_name", "")
+        
+        tavily = get_tavily_client(self.config)
+        if not tavily.is_available:
+            return None
+        
+        try:
+            self.logger.info(f"Fetching Tavily market narrative for {self.ticker}")
+            
+            narrative = await tavily.get_market_narrative(
+                ticker=self.ticker,
+                company_name=company_name
+            )
+            
+            if narrative.get("success"):
+                self.logger.info(f"Tavily narrative retrieved for {self.ticker}")
+                return narrative
+            else:
+                self.logger.warning(f"Tavily narrative failed: {narrative.get('error')}")
+                return None
+                
+        except Exception as e:
+            self.logger.warning(f"Tavily narrative fetch failed: {e}")
+            return None
 
     async def fetch_data(self) -> Dict[str, Any]:
         """
@@ -36,6 +78,8 @@ class SolutionAgent(BaseAgent):
     async def analyze(self, raw_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Synthesize all agent outputs into final recommendation.
+        
+        Fetches Tavily market narrative for additional context (Phase 3).
 
         Args:
             raw_data: Results from all agents
@@ -51,6 +95,9 @@ class SolutionAgent(BaseAgent):
         technical_data = (raw_data.get("technical") or {}).get("data") or {}
         macro_data = (raw_data.get("macro") or {}).get("data") or {}
         options_data = (raw_data.get("options") or {}).get("data") or {}
+
+        # Fetch Tavily market narrative for additional context
+        self.tavily_narrative = await self._fetch_tavily_narrative()
 
         # Use LLM for synthesis
         llm_config = self.config.get("llm_config", {})
@@ -72,6 +119,10 @@ class SolutionAgent(BaseAgent):
                 news_data, sentiment_data, fundamentals_data,
                 market_data, technical_data, macro_data, options_data
             )
+
+        # Attach Tavily narrative to analysis for downstream use
+        if self.tavily_narrative:
+            analysis["tavily_market_narrative"] = self.tavily_narrative.get("narrative", "")
 
         return analysis
 
@@ -187,6 +238,16 @@ class SolutionAgent(BaseAgent):
 - Total Articles: {news_data.get('total_count', 0)}
 - Recent (24h): {news_data.get('recent_count', 0)}
 - Key Headlines: {[h.get('title', '') for h in news_data.get('key_headlines', [])[:3]]}
+- Tavily AI Summary: {news_data.get('tavily_summary', 'Not available')}
+
+## RECENT COMPANY CONTEXT (Tavily Research)
+- Earnings Highlights: {[e.get('title', '') for e in (fundamentals_data.get('tavily_context') or {}).get('earnings_highlights', [])[:2]]}
+- Product News: {[p.get('title', '') for p in (fundamentals_data.get('tavily_context') or {}).get('product_news', [])[:2]]}
+- Leadership Changes: {[l.get('title', '') for l in (fundamentals_data.get('tavily_context') or {}).get('leadership_changes', [])[:2]]}
+- Risk Factors: {[r.get('title', '') for r in (fundamentals_data.get('tavily_context') or {}).get('risk_factors', [])[:2]]}
+
+## MARKET NARRATIVE (Tavily External Research)
+{self.tavily_narrative.get('narrative', 'No external market narrative available.') if self.tavily_narrative else 'No external market narrative available.'}
 
 Using first-principles reasoning:
 

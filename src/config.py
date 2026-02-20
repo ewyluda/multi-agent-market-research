@@ -19,6 +19,7 @@ class Config:
     ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
     GROK_API_KEY = os.getenv("GROK_API_KEY", "")
+    TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "")
 
     # LLM Configuration
     # Strip inline comments that Docker env_file doesn't handle
@@ -61,6 +62,14 @@ class Config:
     ALERTS_V2_ENABLED = os.getenv("ALERTS_V2_ENABLED", "true").lower() == "true"
     WATCHLIST_RANKING_ENABLED = os.getenv("WATCHLIST_RANKING_ENABLED", "true").lower() == "true"
     UI_PM_DASHBOARD_ENABLED = os.getenv("UI_PM_DASHBOARD_ENABLED", "true").lower() == "true"
+    
+    # Tavily Configuration
+    TAVILY_ENABLED = os.getenv("TAVILY_ENABLED", "true").lower() == "true"
+    TAVILY_NEWS_ENABLED = os.getenv("TAVILY_NEWS_ENABLED", "true").lower() == "true"
+    TAVILY_CONTEXT_ENABLED = os.getenv("TAVILY_CONTEXT_ENABLED", "true").lower() == "true"
+    TAVILY_MAX_RESULTS = int(os.getenv("TAVILY_MAX_RESULTS", "20"))
+    TAVILY_NEWS_DAYS = int(os.getenv("TAVILY_NEWS_DAYS", "7"))
+    TAVILY_SEARCH_DEPTH = os.getenv("TAVILY_SEARCH_DEPTH", "advanced").split("#")[0].strip()
     # Rollout overrides for scheduled runs only (Phase 7 staged enablement).
     SCHEDULED_SIGNAL_CONTRACT_V2_ENABLED = os.getenv("SCHEDULED_SIGNAL_CONTRACT_V2_ENABLED", "true").lower() == "true"
     SCHEDULED_CALIBRATION_ECONOMICS_ENABLED = os.getenv("SCHEDULED_CALIBRATION_ECONOMICS_ENABLED", "true").lower() == "true"
@@ -173,6 +182,8 @@ class Config:
             optional_keys.append("ALPHA_VANTAGE_API_KEY")
         if not cls.NEWS_API_KEY:
             optional_keys.append("NEWS_API_KEY")
+        if not cls.TAVILY_API_KEY:
+            optional_keys.append("TAVILY_API_KEY")
 
         if required_keys:
             print(f"ERROR: Missing required configuration: {', '.join(required_keys)}")

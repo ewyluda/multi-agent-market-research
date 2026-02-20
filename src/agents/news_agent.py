@@ -6,14 +6,16 @@ import yfinance as yf
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
 from .base_agent import BaseAgent
+from ..tavily_client import get_tavily_client
 
 
 class NewsAgent(BaseAgent):
     """Agent for fetching financial news from various sources with relevance filtering.
 
     Data source priority:
-        1. Alpha Vantage NEWS_SENTIMENT (includes built-in sentiment scores)
-        2. NewsAPI (fallback)
+        1. Tavily AI Search (primary - best relevance, full content, AI summary)
+        2. Alpha Vantage NEWS_SENTIMENT (includes built-in sentiment scores)
+        3. NewsAPI (fallback)
 
     Supplementary sources (always fetched when configured):
         - Twitter/X API v2 (search/recent with cashtag filtering)
@@ -119,6 +121,91 @@ class NewsAgent(BaseAgent):
         try:
             return float(val)
         except (ValueError, TypeError):
+            return None
+
+    # ──────────────────────────────────────────────
+    # Tavily AI Search (Primary Source)
+    # ──────────────────────────────────────────────
+
+    async def _fetch_tavily_news(self) -> Optional[Dict[str, Any]]:
+        """
+        Fetch news from Tavily AI Search (primary source).
+        
+        Tavily provides:
+        - Superior relevance scoring
+        - Full article content extraction
+        - AI-generated summaries
+        - No rate limiting issues
+        
+        Returns:
+            Dict with articles and AI summary, or None if disabled/failed
+        """
+        if not self.config.get("TAVILY_ENABLED", True):
+            return None
+        
+        if not self.config.get("TAVILY_NEWS_ENABLED", True):
+            return None
+        
+        tavily = get_tavily_client(self.config)
+        if not tavily.is_available:
+            self.logger.info(f"Tavily not available for {self.ticker}")
+            return None
+        
+        # Get company info for better query
+        company_info = await self._get_company_info()
+        self._company_info = company_info
+        
+        # Build query with company name and ticker
+        company_name = company_info.get("long_name") or company_info.get("short_name", "")
+        query_parts = [f"${self.ticker}"]
+        if company_name:
+            query_parts.insert(0, company_name)
+        query = f"{' '.join(query_parts)} stock news"
+        
+        max_results = self.config.get("TAVILY_MAX_RESULTS", 20)
+        days = self.config.get("TAVILY_NEWS_DAYS", 7)
+        search_depth = self.config.get("TAVILY_SEARCH_DEPTH", "advanced")
+        
+        self.logger.info(f"Fetching {self.ticker} news from Tavily (primary)")
+        
+        try:
+            result = await tavily.search_news(
+                query=query,
+                max_results=max_results,
+                days=days,
+                include_answer=True,
+                include_raw_content=True,
+                search_depth=search_depth
+            )
+            
+            if not result.get("success"):
+                self.logger.warning(f"Tavily search failed: {result.get('error')}")
+                return None
+            
+            articles = result.get("articles", [])
+            if not articles:
+                self.logger.info(f"Tavily returned no articles for {self.ticker}")
+                return None
+            
+            # Mark source and add AI summary
+            for article in articles:
+                article["source"] = "tavily"
+                # Tavily articles already have relevance_score
+            
+            self.logger.info(
+                f"Tavily returned {len(articles)} articles for {self.ticker} "
+                f"(AI summary: {'yes' if result.get('ai_summary') else 'no'})"
+            )
+            
+            return {
+                "articles": articles,
+                "ai_summary": result.get("ai_summary"),
+                "total_count": len(articles),
+                "source": "tavily"
+            }
+            
+        except Exception as e:
+            self.logger.warning(f"Tavily news fetch failed for {self.ticker}: {e}")
             return None
 
     # ──────────────────────────────────────────────
@@ -523,7 +610,7 @@ class NewsAgent(BaseAgent):
         """
         Fetch news articles and supplementary Twitter/X posts.
 
-        News: Tries Alpha Vantage NEWS_SENTIMENT first, falls back to NewsAPI.
+        News: Tries Tavily first, then Alpha Vantage NEWS_SENTIMENT, then NewsAPI.
         Twitter: Always fetched concurrently when TWITTER_BEARER_TOKEN is set.
 
         Returns:
@@ -532,14 +619,41 @@ class NewsAgent(BaseAgent):
         articles = []
         twitter_posts = []
         source = "unknown"
+        tavily_summary = None
 
         # ── Launch Twitter fetch concurrently (supplementary, never blocks) ──
         twitter_task = asyncio.create_task(self._fetch_twitter_posts())
 
-        # ── Try Alpha Vantage NEWS_SENTIMENT first ──
+        # ── Try Tavily AI Search first (Phase 1) ──
+        try:
+            tavily_result = await self._fetch_tavily_news()
+            if tavily_result and tavily_result.get("articles"):
+                articles.extend(tavily_result["articles"])
+                source = "tavily"
+                tavily_summary = tavily_result.get("ai_summary")
+                self.logger.info(f"Tavily returned {len(articles)} articles for {self.ticker}")
+
+                # Await Twitter results
+                twitter_posts = await twitter_task
+
+                return {
+                    "articles": articles,
+                    "ticker": self.ticker,
+                    "total_count": len(articles),
+                    "company_info": getattr(self, "_company_info", {}),
+                    "source": source,
+                    "twitter_posts": twitter_posts,
+                    "tavily_summary": tavily_summary,
+                }
+            else:
+                self.logger.info(f"Tavily returned no news for {self.ticker}, falling back to Alpha Vantage")
+        except Exception as e:
+            self.logger.warning(f"Tavily search failed: {e}, falling back to Alpha Vantage")
+
+        # ── Try Alpha Vantage NEWS_SENTIMENT second ──
         av_api_key = self.config.get("ALPHA_VANTAGE_API_KEY", "")
         if av_api_key:
-            self.logger.info(f"Fetching {self.ticker} news from Alpha Vantage NEWS_SENTIMENT (primary)")
+            self.logger.info(f"Fetching {self.ticker} news from Alpha Vantage NEWS_SENTIMENT")
             try:
                 av_articles = await self._fetch_av_news()
                 if av_articles and len(av_articles) > 0:
@@ -561,6 +675,7 @@ class NewsAgent(BaseAgent):
                         "company_info": company_info,
                         "source": source,
                         "twitter_posts": twitter_posts,
+                        "tavily_summary": tavily_summary,
                     }
                 else:
                     self.logger.info(f"Alpha Vantage returned no news for {self.ticker}, falling back to NewsAPI")
@@ -599,6 +714,7 @@ class NewsAgent(BaseAgent):
             "company_info": company_info,
             "source": source,
             "twitter_posts": twitter_posts,
+            "tavily_summary": tavily_summary,
         }
 
     async def _fetch_from_newsapi(
@@ -743,6 +859,9 @@ class NewsAgent(BaseAgent):
         twitter_posts = raw_data.get("twitter_posts", [])
         twitter_buzz = self._build_twitter_buzz(twitter_posts)
 
+        # Include Tavily AI summary if available
+        tavily_summary = raw_data.get("tavily_summary")
+
         analysis = {
             "articles": filtered_articles,
             "total_count": len(filtered_articles),
@@ -752,7 +871,8 @@ class NewsAgent(BaseAgent):
             "key_headlines": key_headlines,
             "twitter_posts": twitter_posts,
             "twitter_buzz": twitter_buzz,
-            "summary": self._generate_summary(filtered_articles, recent_count, removed_count, twitter_buzz)
+            "tavily_summary": tavily_summary,
+            "summary": self._generate_summary(filtered_articles, recent_count, removed_count, twitter_buzz, tavily_summary)
         }
 
         return analysis
@@ -889,8 +1009,9 @@ class NewsAgent(BaseAgent):
         recent_count: int,
         filtered_count: int = 0,
         twitter_buzz: Optional[Dict[str, Any]] = None,
+        tavily_summary: Optional[str] = None,
     ) -> str:
-        """Generate news summary including filter stats and social buzz."""
+        """Generate news summary including filter stats, social buzz, and Tavily insights."""
         total = len(articles)
 
         if total == 0:
@@ -913,6 +1034,13 @@ class NewsAgent(BaseAgent):
         if twitter_buzz and twitter_buzz.get("total_tweets", 0) > 0:
             tweet_count = twitter_buzz["total_tweets"]
             avg_eng = twitter_buzz["avg_engagement"]
-            summary += f"Social buzz: {tweet_count} tweets (avg engagement: {avg_eng:.0f})."
+            summary += f"Social buzz: {tweet_count} tweets (avg engagement: {avg_eng:.0f}). "
+
+        # Add Tavily AI summary if available
+        if tavily_summary:
+            # Truncate if too long
+            max_summary_len = 200
+            truncated = tavily_summary[:max_summary_len] + "..." if len(tavily_summary) > max_summary_len else tavily_summary
+            summary += f"AI Summary: {truncated}"
 
         return summary

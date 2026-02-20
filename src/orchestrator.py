@@ -884,6 +884,7 @@ class Orchestrator:
         success_rate = success_count / total_agents
 
         fallback_source_agents = []
+        tavily_enabled_agents = []
         for agent_name, result in agent_results.items():
             if not (result or {}).get("success"):
                 continue
@@ -891,6 +892,8 @@ class Orchestrator:
             source = str(data.get("data_source") or data.get("source") or "").lower()
             if source in {"yfinance", "none"}:
                 fallback_source_agents.append({"agent": agent_name, "source": source})
+            if source == "tavily" or data.get("tavily_summary") or data.get("tavily_context"):
+                tavily_enabled_agents.append(agent_name)
 
         news_freshness_hours = None
         news_data = ((agent_results.get("news") or {}).get("data") or {})
@@ -938,6 +941,14 @@ class Orchestrator:
         elif news_data and news_freshness_hours is None:
             warnings.append("News freshness is unavailable due to missing publish timestamps.")
 
+        # Track Tavily usage
+        tavily_status = {
+            "enabled": self.config.get("TAVILY_ENABLED", False),
+            "news_enabled": self.config.get("TAVILY_NEWS_ENABLED", False),
+            "context_enabled": self.config.get("TAVILY_CONTEXT_ENABLED", False),
+            "agents_using": tavily_enabled_agents,
+        }
+
         return {
             "agent_success_rate": round(success_rate, 4),
             "failed_agents": sorted(failed_agents),
@@ -945,6 +956,7 @@ class Orchestrator:
             "news_freshness_hours": news_freshness_hours,
             "quality_level": quality_level,
             "warnings": warnings,
+            "tavily": tavily_status,
         }
 
     def _build_diagnostics(self, agent_results: Dict[str, Any]) -> Dict[str, Any]:

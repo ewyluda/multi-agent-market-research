@@ -9,6 +9,7 @@ from openai import OpenAI
 import yfinance as yf
 from typing import Dict, Any, Optional, List
 from .base_agent import BaseAgent
+from ..tavily_client import get_tavily_client
 
 
 class FundamentalsAgent(BaseAgent):
@@ -323,12 +324,63 @@ class FundamentalsAgent(BaseAgent):
 
         return parsed if parsed else None
 
+    # ──────────────────────────────────────────────
+    # Tavily Context Integration (Phase 2)
+    # ──────────────────────────────────────────────
+
+    async def _fetch_tavily_context(self, company_name: str) -> Optional[Dict[str, Any]]:
+        """
+        Fetch recent company developments via Tavily AI Search.
+        
+        Provides context between earnings reports including:
+        - Product launches and announcements
+        - Management changes
+        - Regulatory developments
+        - Competitive positioning
+        
+        Args:
+            company_name: Full company name
+            
+        Returns:
+            Dict with categorized context data
+        """
+        if not self.config.get("TAVILY_ENABLED", True):
+            return None
+        
+        if not self.config.get("TAVILY_CONTEXT_ENABLED", True):
+            return None
+        
+        tavily = get_tavily_client(self.config)
+        if not tavily.is_available:
+            return None
+        
+        try:
+            self.logger.info(f"Fetching Tavily context for {self.ticker}")
+            
+            context = await tavily.search_company_context(
+                company_name=company_name,
+                ticker=self.ticker,
+                context_types=["earnings", "products", "leadership", "risks", "guidance"]
+            )
+            
+            if context.get("success"):
+                self.logger.info(f"Tavily context retrieved for {self.ticker}")
+                return context.get("context_data", {})
+            else:
+                self.logger.warning(f"Tavily context failed: {context.get('error')}")
+                return None
+                
+        except Exception as e:
+            self.logger.warning(f"Tavily context fetch failed for {self.ticker}: {e}")
+            return None
+
     async def fetch_data(self) -> Dict[str, Any]:
         """
         Fetch fundamental data. Tries Alpha Vantage first, falls back to yfinance + SEC EDGAR.
+        Also fetches Tavily context for recent developments (Phase 2).
 
         Returns:
-            Dictionary with company info, financials, earnings data, and SEC filings
+            Dictionary with company info, financials, earnings data, SEC filings, and Tavily context
         """
         result = {"ticker": self.ticker, "source": "unknown"}
 
@@ -411,6 +463,13 @@ class FundamentalsAgent(BaseAgent):
                 # Skip SEC EDGAR when AV provides data
                 result["sec_data"] = None
 
+                # Fetch Tavily context asynchronously (don't block)
+                company_name = info.get("longName", "")
+                tavily_task = asyncio.create_task(self._fetch_tavily_context(company_name))
+                tavily_context = await tavily_task
+                if tavily_context:
+                    result["tavily_context"] = tavily_context
+
                 return result
             else:
                 self.logger.info(f"Alpha Vantage overview incomplete for {self.ticker}, falling back to yfinance + SEC EDGAR")
@@ -452,6 +511,13 @@ class FundamentalsAgent(BaseAgent):
         except Exception as e:
             self.logger.warning(f"SEC EDGAR fetch failed for {self.ticker}: {e}")
             result["sec_data"] = None
+
+        # Fetch Tavily context
+        company_name = (info or {}).get("longName", "")
+        if company_name:
+            tavily_context = await self._fetch_tavily_context(company_name)
+            if tavily_context:
+                result["tavily_context"] = tavily_context
 
         # Only raise if we got absolutely nothing useful
         if (not result["info"]
@@ -561,6 +627,11 @@ class FundamentalsAgent(BaseAgent):
                     })
             if len(revenue_history) >= 2:
                 analysis["revenue_trend"] = self._analyze_revenue_trend(revenue_history)
+
+        # Add Tavily context (recent developments between earnings)
+        tavily_context = raw_data.get("tavily_context")
+        if tavily_context:
+            analysis["tavily_context"] = self._parse_tavily_context(tavily_context)
 
         # Track data source
         analysis["data_source"] = raw_data.get("source", "unknown")
@@ -937,6 +1008,81 @@ class FundamentalsAgent(BaseAgent):
             "latest_date": revenue_history[0].get("end"),
             "data_points": len(revenue_history),
         }
+
+    def _parse_tavily_context(self, tavily_context: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Parse Tavily context into structured format for analysis.
+        
+        Args:
+            tavily_context: Raw context data from Tavily
+            
+        Returns:
+            Structured context with highlights
+        """
+        parsed = {
+            "has_context": False,
+            "earnings_highlights": [],
+            "product_news": [],
+            "leadership_changes": [],
+            "risk_factors": [],
+            "guidance_updates": [],
+            "ai_summaries": {}
+        }
+        
+        if not tavily_context:
+            return parsed
+        
+        parsed["has_context"] = True
+        
+        # Parse each context type
+        for ctx_type, data in tavily_context.items():
+            if not isinstance(data, dict) or not data.get("success"):
+                continue
+            
+            items = data.get("items", [])
+            ai_summary = data.get("ai_summary")
+            
+            if ctx_type == "earnings" and items:
+                parsed["earnings_highlights"] = [
+                    {"title": i.get("title"), "snippet": i.get("snippet"), "url": i.get("url")}
+                    for i in items[:3]
+                ]
+                if ai_summary:
+                    parsed["ai_summaries"]["earnings"] = ai_summary
+                    
+            elif ctx_type == "products" and items:
+                parsed["product_news"] = [
+                    {"title": i.get("title"), "snippet": i.get("snippet"), "url": i.get("url")}
+                    for i in items[:3]
+                ]
+                if ai_summary:
+                    parsed["ai_summaries"]["products"] = ai_summary
+                    
+            elif ctx_type == "leadership" and items:
+                parsed["leadership_changes"] = [
+                    {"title": i.get("title"), "snippet": i.get("snippet"), "url": i.get("url")}
+                    for i in items[:3]
+                ]
+                if ai_summary:
+                    parsed["ai_summaries"]["leadership"] = ai_summary
+                    
+            elif ctx_type == "risks" and items:
+                parsed["risk_factors"] = [
+                    {"title": i.get("title"), "snippet": i.get("snippet"), "url": i.get("url")}
+                    for i in items[:3]
+                ]
+                if ai_summary:
+                    parsed["ai_summaries"]["risks"] = ai_summary
+                    
+            elif ctx_type == "guidance" and items:
+                parsed["guidance_updates"] = [
+                    {"title": i.get("title"), "snippet": i.get("snippet"), "url": i.get("url")}
+                    for i in items[:3]
+                ]
+                if ai_summary:
+                    parsed["ai_summaries"]["guidance"] = ai_summary
+        
+        return parsed
 
     # ──────────────────────────────────────────────
     # Health Score & Summary
