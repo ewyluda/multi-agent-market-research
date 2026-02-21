@@ -17,6 +17,7 @@ from .agents.market_agent import MarketAgent
 from .agents.technical_agent import TechnicalAgent
 from .agents.macro_agent import MacroAgent
 from .agents.options_agent import OptionsAgent
+from .agents.leadership_agent import LeadershipAgent
 from .agents.solution_agent import SolutionAgent
 from .database import DatabaseManager
 from .av_rate_limiter import AVRateLimiter
@@ -36,10 +37,11 @@ class Orchestrator:
         "technical": {"class": TechnicalAgent, "requires": []},
         "macro": {"class": MacroAgent, "requires": []},
         "options": {"class": OptionsAgent, "requires": []},
+        "leadership": {"class": LeadershipAgent, "requires": []},
         "sentiment": {"class": SentimentAgent, "requires": ["news"]},
     }
 
-    DEFAULT_AGENTS = ["news", "market", "fundamentals", "technical", "macro", "options", "sentiment"]
+    DEFAULT_AGENTS = ["news", "market", "fundamentals", "technical", "macro", "options", "leadership", "sentiment"]
 
     def __init__(
         self,
@@ -334,7 +336,7 @@ class Orchestrator:
         run_sentiment = "sentiment" in agents_to_run
 
         # Create data agent instances
-        progress_map = {"news": 20, "fundamentals": 40, "market": 50, "macro": 55, "options": 57, "technical": 60}
+        progress_map = {"news": 20, "fundamentals": 40, "market": 50, "macro": 55, "options": 57, "leadership": 59, "technical": 60}
         agents = {}
         for name in data_agent_names:
             agent_info = self.AGENT_REGISTRY.get(name)

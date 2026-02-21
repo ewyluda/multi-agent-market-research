@@ -169,7 +169,7 @@ async def batch_analyze_tickers(body: BatchAnalysisRequest):
     # Parse agents
     requested_agents = None
     if body.agents:
-        valid_agents = {"news", "sentiment", "fundamentals", "market", "technical", "macro", "options"}
+        valid_agents = {"news", "sentiment", "fundamentals", "market", "technical", "macro", "options", "leadership"}
         requested_agents = [a.strip().lower() for a in body.agents.split(",") if a.strip()]
         invalid = set(requested_agents) - valid_agents
         if invalid:
@@ -252,7 +252,7 @@ async def analyze_ticker(
     # Parse and validate agent list
     requested_agents = None
     if agents:
-        valid_agents = {"news", "sentiment", "fundamentals", "market", "technical", "macro", "options"}
+        valid_agents = {"news", "sentiment", "fundamentals", "market", "technical", "macro", "options", "leadership"}
         requested_agents = [a.strip().lower() for a in agents.split(",")]
         invalid = set(requested_agents) - valid_agents
         if invalid:
@@ -736,7 +736,7 @@ async def analyze_watchlist(
 
     requested_agents = None
     if agents:
-        valid_agents = {"news", "sentiment", "fundamentals", "market", "technical", "macro", "options"}
+        valid_agents = {"news", "sentiment", "fundamentals", "market", "technical", "macro", "options", "leadership"}
         requested_agents = [a.strip().lower() for a in agents.split(",") if a.strip()]
         invalid = set(requested_agents) - valid_agents
         if invalid:
@@ -1359,7 +1359,7 @@ async def analyze_ticker_stream(
 
     requested_agents = None
     if agents:
-        valid_agents = {"news", "sentiment", "fundamentals", "market", "technical", "macro", "options"}
+        valid_agents = {"news", "sentiment", "fundamentals", "market", "technical", "macro", "options", "leadership"}
         requested_agents = [a.strip().lower() for a in agents.split(",")]
         invalid = set(requested_agents) - valid_agents
         if invalid:

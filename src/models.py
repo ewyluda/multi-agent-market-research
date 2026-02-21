@@ -40,6 +40,45 @@ class PriceTargets(BaseModel):
     stop_loss: Optional[float] = None
 
 
+class LeadershipCapitalScore(BaseModel):
+    """Score for one of the Four Capitals."""
+    score: float = Field(..., ge=0, le=100, description="Score from 0-100")
+    grade: str = Field(..., description="Letter grade A+ through F")
+    insights: List[str] = Field(default=[], description="Positive observations")
+    red_flags: List[str] = Field(default=[], description="Areas of concern")
+
+
+class LeadershipRedFlag(BaseModel):
+    """Detected leadership red flag."""
+    type: str = Field(..., description="Type: high_turnover, succession_risk, governance_issue, compensation_concern, ethical_concern")
+    severity: str = Field(..., description="Severity: low, medium, high, critical")
+    description: str = Field(..., description="Detailed description")
+    source: str = Field(..., description="Data source: news_search, tavily, llm_analysis")
+
+
+class LeadershipKeyMetrics(BaseModel):
+    """Quantitative leadership metrics."""
+    ceo_tenure_years: Optional[float] = Field(default=None, description="Years CEO has been in role")
+    c_suite_turnover_12m: Optional[int] = Field(default=None, description="C-suite departures in last 12 months")
+    c_suite_turnover_24m: Optional[int] = Field(default=None, description="C-suite departures in last 24 months")
+    board_independence_pct: Optional[float] = Field(default=None, ge=0, le=100, description="Percentage of independent board members")
+    avg_board_tenure_years: Optional[float] = Field(default=None, description="Average board member tenure")
+    institutional_ownership_pct: Optional[float] = Field(default=None, ge=0, le=100, description="Institutional ownership percentage")
+
+
+class LeadershipScorecard(BaseModel):
+    """Complete leadership evaluation scorecard."""
+    overall_score: float = Field(..., ge=0, le=100, description="Overall leadership score")
+    grade: str = Field(..., description="Overall letter grade")
+    assessment_date: str = Field(..., description="ISO date of assessment")
+    four_capitals: Dict[str, LeadershipCapitalScore] = Field(..., description="Four Capitals Framework scores")
+    key_metrics: LeadershipKeyMetrics = Field(..., description="Quantitative metrics")
+    red_flags: List[LeadershipRedFlag] = Field(default=[], description="Detected red flags")
+    executive_summary: str = Field(..., description="Narrative executive summary")
+    data_source: str = Field(..., description="Primary data source")
+    research_queries: List[str] = Field(default=[], description="Queries used for research")
+
+
 class FinalAnalysis(BaseModel):
     """Model for final analysis output."""
     recommendation: str  # BUY, HOLD, or SELL
@@ -69,6 +108,7 @@ class FinalAnalysis(BaseModel):
     regime_label: Optional[str] = None
     rationale_summary: Optional[str] = None
     analysis_schema_version: Optional[str] = None
+    leadership_scorecard: Optional[LeadershipScorecard] = None
     summary: str
 
 

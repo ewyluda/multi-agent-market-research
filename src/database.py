@@ -433,6 +433,35 @@ class DatabaseManager:
                 """
             )
 
+            # Leadership scores
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS leadership_scores (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    analysis_id INTEGER NOT NULL,
+                    ticker TEXT NOT NULL,
+                    overall_score REAL,
+                    grade TEXT,
+                    individual_capital_score REAL,
+                    relational_capital_score REAL,
+                    organizational_capital_score REAL,
+                    reputational_capital_score REAL,
+                    key_metrics_json TEXT,
+                    red_flags_json TEXT,
+                    executive_summary TEXT,
+                    data_source TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (analysis_id) REFERENCES analyses(id)
+                )
+            """)
+
+            # Leadership scores indexes
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_leadership_analysis_id ON leadership_scores(analysis_id)
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_leadership_ticker ON leadership_scores(ticker)
+            """)
+
             # Ensure singleton portfolio profile exists and seed macro events.
             self._ensure_alert_rule_schema(cursor)
             self._ensure_portfolio_profile_row(cursor)
@@ -931,12 +960,16 @@ class DatabaseManager:
                 SELECT * FROM agent_results WHERE analysis_id = ?
             """, (analysis_id,))
             agent_rows = cursor.fetchall()
-            result['agents'] = [dict(row) for row in agent_rows]
-
+            agents_list = [dict(row) for row in agent_rows]
+            
             # Parse JSON data
-            for agent in result['agents']:
+            for agent in agents_list:
                 if agent['data']:
                     agent['data'] = json.loads(agent['data'])
+            
+            # Store as both 'agents' and 'agent_results' for compatibility
+            result['agents'] = agents_list
+            result['agent_results'] = {agent['agent_type']: agent for agent in agents_list if agent.get('agent_type')}
 
             # Get sentiment scores
             cursor.execute("""
@@ -1283,6 +1316,7 @@ class DatabaseManager:
             cursor.execute("DELETE FROM agent_results WHERE analysis_id = ?", (analysis_id,))
             cursor.execute("DELETE FROM sentiment_scores WHERE analysis_id = ?", (analysis_id,))
             cursor.execute("DELETE FROM analysis_outcomes WHERE analysis_id = ?", (analysis_id,))
+            cursor.execute("DELETE FROM leadership_scores WHERE analysis_id = ?", (analysis_id,))
             cursor.execute("DELETE FROM analyses WHERE id = ?", (analysis_id,))
             return True
 
@@ -2620,3 +2654,126 @@ class DatabaseManager:
 
             rows = cursor.fetchall()
             return [dict(row) for row in rows]
+
+    # ─── Leadership Score Methods ──────────────────────────────────────
+
+    def insert_leadership_score(
+        self,
+        analysis_id: int,
+        ticker: str,
+        scorecard_data: Dict[str, Any]
+    ) -> int:
+        """Insert a leadership score record.
+
+        Args:
+            analysis_id: ID of the parent analysis
+            ticker: Stock ticker symbol
+            scorecard_data: Leadership scorecard dictionary
+
+        Returns:
+            ID of the inserted record
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+
+            # Extract scores and metrics from scorecard
+            overall_score = scorecard_data.get("overall_score")
+            grade = scorecard_data.get("grade")
+            individual_capital_score = scorecard_data.get("individual_capital_score")
+            relational_capital_score = scorecard_data.get("relational_capital_score")
+            organizational_capital_score = scorecard_data.get("organizational_capital_score")
+            reputational_capital_score = scorecard_data.get("reputational_capital_score")
+            key_metrics = scorecard_data.get("key_metrics", {})
+            red_flags = scorecard_data.get("red_flags", [])
+            executive_summary = scorecard_data.get("executive_summary")
+            data_source = scorecard_data.get("data_source", "leadership_agent")
+
+            key_metrics_json = json.dumps(key_metrics) if key_metrics else None
+            red_flags_json = json.dumps(red_flags) if red_flags else None
+
+            cursor.execute("""
+                INSERT INTO leadership_scores (
+                    analysis_id, ticker, overall_score, grade,
+                    individual_capital_score, relational_capital_score,
+                    organizational_capital_score, reputational_capital_score,
+                    key_metrics_json, red_flags_json, executive_summary, data_source
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                analysis_id,
+                ticker.upper(),
+                overall_score,
+                grade,
+                individual_capital_score,
+                relational_capital_score,
+                organizational_capital_score,
+                reputational_capital_score,
+                key_metrics_json,
+                red_flags_json,
+                executive_summary,
+                data_source,
+            ))
+
+            return cursor.lastrowid
+
+    def get_leadership_score(self, analysis_id: int) -> Optional[Dict[str, Any]]:
+        """Get leadership score for an analysis.
+
+        Args:
+            analysis_id: Analysis ID
+
+        Returns:
+            Leadership score dictionary or None
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT * FROM leadership_scores
+                WHERE analysis_id = ?
+                ORDER BY created_at DESC
+                LIMIT 1
+            """, (analysis_id,))
+
+            row = cursor.fetchone()
+            if not row:
+                return None
+
+            result = dict(row)
+            self._deserialize_json_fields(result, ["key_metrics_json", "red_flags_json"])
+            # Normalize field names for convenience
+            result["key_metrics"] = result.pop("key_metrics_json", None) or {}
+            result["red_flags"] = result.pop("red_flags_json", None) or []
+            return result
+
+    def get_leadership_history(
+        self,
+        ticker: str,
+        limit: int = 10
+    ) -> List[Dict[str, Any]]:
+        """Get leadership score history for a ticker.
+
+        Args:
+            ticker: Stock ticker symbol
+            limit: Maximum number of records
+
+        Returns:
+            List of leadership score records
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT * FROM leadership_scores
+                WHERE ticker = ?
+                ORDER BY created_at DESC
+                LIMIT ?
+            """, (ticker.upper(), limit))
+
+            rows = cursor.fetchall()
+            results = []
+            for row in rows:
+                record = dict(row)
+                self._deserialize_json_fields(record, ["key_metrics_json", "red_flags_json"])
+                # Normalize field names for convenience
+                record["key_metrics"] = record.pop("key_metrics_json", None) or {}
+                record["red_flags"] = record.pop("red_flags_json", None) or []
+                results.append(record)
+            return results

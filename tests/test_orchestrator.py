@@ -47,10 +47,10 @@ class TestResolveAgents:
     """Tests for _resolve_agents() dependency resolution."""
 
     def test_default_includes_all_agents(self, test_config):
-        """Default resolution includes all 7 agents."""
+        """Default resolution includes all 8 agents."""
         orch = Orchestrator(config=test_config)
         agents = orch._resolve_agents(None)
-        assert set(agents) == {"news", "market", "fundamentals", "technical", "macro", "options", "sentiment"}
+        assert set(agents) == {"news", "market", "fundamentals", "technical", "macro", "options", "leadership", "sentiment"}
 
     def test_sentiment_auto_adds_news(self, test_config):
         """Requesting sentiment auto-adds news dependency."""

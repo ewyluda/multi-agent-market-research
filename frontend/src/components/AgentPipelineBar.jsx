@@ -16,6 +16,7 @@ import {
   ChartLineIcon,
   OptionsIcon,
   GlobeIcon,
+  UserGroupIcon,
   BrainIcon,
   SparklesIcon,
   CheckCircleIcon,
@@ -30,6 +31,7 @@ const stageToAgent = {
   running_technical: 'technical',
   running_options: 'options',
   running_macro: 'macro',
+  running_leadership: 'leadership',
   analyzing_sentiment: 'sentiment',
   synthesizing: 'solution',
 };
@@ -41,6 +43,7 @@ const agentOrder = [
   'technical',
   'options',
   'macro',
+  'leadership',
   'sentiment',
   'solution',
 ];
@@ -52,6 +55,7 @@ const agents = [
   { id: 'technical', label: 'Tech', icon: ChartLineIcon },
   { id: 'options', label: 'Opts', icon: OptionsIcon },
   { id: 'macro', label: 'Mac', icon: GlobeIcon },
+  { id: 'leadership', label: 'Ldr', icon: UserGroupIcon },
   { id: 'sentiment', label: 'Sent', icon: BrainIcon },
   { id: 'solution', label: 'Syn', icon: SparklesIcon },
 ];

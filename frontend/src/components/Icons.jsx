@@ -70,6 +70,15 @@ export const GlobeIcon = (props) => (
   </svg>
 );
 
+export const UserGroupIcon = (props) => (
+  <svg {...iconProps} {...props}>
+    <circle cx="7" cy="7" r="2.5" />
+    <circle cx="13" cy="7" r="2.5" />
+    <path d="M3 16c0-2 2-3.5 4-3.5s4 1.5 4 3.5" />
+    <path d="M13 16c0-2 2-3.5 4-3.5s4 1.5 4 3.5" />
+  </svg>
+);
+
 export const DocumentIcon = (props) => (
   <svg {...iconProps} {...props}>
     <path d="M5 3h7l4 4v10a1 1 0 01-1 1H5a1 1 0 01-1-1V4a1 1 0 011-1z" />

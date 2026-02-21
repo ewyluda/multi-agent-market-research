@@ -11,6 +11,7 @@ const TABS = [
   { id: 'overview', label: 'Overview' },
   { id: 'risk', label: 'Risks' },
   { id: 'opportunities', label: 'Opportunities' },
+  { id: 'leadership', label: 'Leadership' },
   { id: 'diagnostics', label: 'Diagnostics' },
 ];
 

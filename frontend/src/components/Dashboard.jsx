@@ -16,6 +16,7 @@ import PriceChart from './PriceChart';
 import { OverviewMetrics, ResearchContent, ChangeSummaryPanel } from './Summary';
 import ScenarioPanel from './ScenarioPanel';
 import DiagnosticsPanel from './DiagnosticsPanel';
+import LeadershipPanel from './LeadershipPanel';
 import NewsFeed from './NewsFeed';
 import OptionsFlow from './OptionsFlow';
 import MacroSnapshot from './MacroSnapshot';
@@ -280,6 +281,20 @@ const Dashboard = () => {
                               <OptionsFlow analysis={analysis} />
                             </Motion.div>
                           )}
+
+                          {/* Leadership Tab */}
+                          {activeTab === 'leadership' && (
+                            <Motion.div
+                              key="tab-leadership"
+                              initial={{ opacity: 0, y: 8 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              exit={{ opacity: 0, y: -8 }}
+                              transition={{ duration: 0.2 }}
+                              className="space-y-6"
+                            >
+                              <LeadershipPanel analysis={analysis} />
+                            </Motion.div>
+                          )}
                         </AnimatePresence>
                       </div>
                     </div>
@@ -391,8 +406,8 @@ const Dashboard = () => {
                         <div className="w-9 h-9 rounded-lg bg-accent-blue/15 flex items-center justify-center mb-3">
                           <ChartBarIcon className="w-5 h-5 text-accent-blue" />
                         </div>
-                        <div className="font-semibold text-sm mb-1">7 Specialized Agents</div>
-                        <div className="text-xs text-gray-400 leading-relaxed">Market, Fundamentals, News, Technical, Macro, Options, Sentiment</div>
+                        <div className="font-semibold text-sm mb-1">8 Specialized Agents</div>
+                        <div className="text-xs text-gray-400 leading-relaxed">Market, Fundamentals, News, Technical, Macro, Options, Leadership, Sentiment</div>
                       </Motion.div>
 
                       <Motion.div

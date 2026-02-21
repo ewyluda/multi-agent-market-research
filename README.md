@@ -3,7 +3,7 @@
 Real-time AI-powered US equity analysis with a quant PM upgrade layer.
 
 ## Overview
-This platform runs specialized agents (news, sentiment, fundamentals, market, technical, macro, options) and synthesizes their outputs into a unified decision payload.
+This platform runs specialized agents (news, sentiment, fundamentals, market, technical, macro, options, leadership) and synthesizes their outputs into a unified decision payload.
 
 The latest architecture adds a quant/PM-oriented interface:
 - Deterministic `signal_contract_v2`
@@ -14,6 +14,52 @@ The latest architecture adds a quant/PM-oriented interface:
 - PM-focused dashboard tabs and cards
 
 By default, long-form chain-of-thought is not persisted or shown (`COT_PERSISTENCE_ENABLED=false`).
+
+## Leadership Evaluation Agent (New)
+The platform now includes a **Leadership Agent** that evaluates company leadership quality using the **Four Capitals Framework** (Athena Alliance / McKinsey):
+
+1. **Individual Capital** — Self-reflection, vision clarity, cognitive focus, diverse experiences
+2. **Relational Capital** — Deep 1:1 relationships, behavioral integration at the top team
+3. **Organizational Capital** — Management rituals, accountability structures, culture hardwiring
+4. **Reputational Capital** — Strategic storytelling, consistency between words and actions
+
+### Leadership Scorecard Output
+```json
+{
+  "overall_score": 78,
+  "grade": "B+",
+  "four_capitals": {
+    "individual": { "score": 82, "grade": "A-", "insights": [...], "red_flags": [] },
+    "relational": { "score": 75, "grade": "B", "insights": [...], "red_flags": [] },
+    "organizational": { "score": 71, "grade": "B-", "insights": [...], "red_flags": [...] },
+    "reputational": { "score": 84, "grade": "A-", "insights": [...], "red_flags": [] }
+  },
+  "key_metrics": {
+    "ceo_tenure_years": 5.2,
+    "c_suite_turnover_12m": 1,
+    "board_independence_pct": 85
+  },
+  "red_flags": [
+    { "type": "high_turnover", "severity": "medium", "description": "CFO departed within 18 months" }
+  ]
+}
+```
+
+### Red Flag Detection
+The agent automatically detects leadership risk indicators:
+- **High Turnover** — C-suite departures, key executive exits
+- **Succession Risk** — Aging CEO without named successor
+- **Governance Issues** — Board conflicts, SEC investigations, accounting irregularities
+- **Compensation Concerns** — Pay-for-performance misalignment
+- **Ethical Concerns** — Workplace issues, discrimination lawsuits, toxic culture
+
+### Frontend Leadership Tab
+A dedicated "Leadership" tab in the dashboard displays:
+- Overall leadership grade with color-coded badge
+- Four Capitals Framework scorecard grid
+- Red flags panel with severity indicators
+- Key metrics (CEO tenure, turnover rates, board composition)
+- Executive summary with qualitative assessment
 
 ## Quant PM Upgrade (Implemented)
 - `signal_contract_v2` generation and validation in `src/signal_contract.py`
@@ -250,6 +296,9 @@ All runtime configuration is in `.env` (`src/config.py`, `.env.example`).
 
 Default for all above is `false` (safe rollout posture).
 
+### Leadership Agent Configuration
+- `LEADERSHIP_AGENT_ENABLED` — Enable/disable the Leadership Agent (default: `true`)
+
 ## Database
 SQLite database file: `market_research.db`
 
@@ -257,6 +306,7 @@ SQLite database file: `market_research.db`
 - `analyses`
 - `agent_results`
 - `sentiment_scores`
+- `leadership_scores` — Leadership evaluation scorecards
 - `watchlists`, `watchlist_tickers`
 - `schedules`, `schedule_runs`
 - `portfolio_profile`, `portfolio_holdings`

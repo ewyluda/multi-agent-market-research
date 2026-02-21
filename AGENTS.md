@@ -1,564 +1,634 @@
-# AGENTS.md - Project Guide for Coding Agents
+# AGENTS.md - Project Guide for AI Coding Agents
 
 ## Project Overview
 
-This is a **Multi-Agent Market Research Platform** that provides AI-powered US equity analysis with a quant/PM (Portfolio Manager) workflow upgrade. The platform orchestrates multiple specialized agents to analyze stocks and synthesizes their outputs into actionable trading signals.
+This is a **Multi-Agent Market Research Platform** that performs AI-powered US equity analysis using specialized agents working in parallel, followed by a solution agent that synthesizes outputs into actionable recommendations.
 
 ### Key Capabilities
-- Real-time multi-agent analysis (news, sentiment, fundamentals, market, technical, macro, options)
-- Deterministic signal contracts (`signal_contract_v2`) with EV scores, calibrated confidence, and regime labels
-- Portfolio optimization with position sizing recommendations
-- Watchlist management with cross-sectional opportunity ranking
-- Scheduled analysis with calibration economics
-- Alert system with v2 rule taxonomy (EV, regime, data quality)
-- PDF/CSV export capabilities
+- **Real-time stock analysis** powered by 7 specialized data agents (news, sentiment, fundamentals, market, technical, macro, options)
+- **Quant/PM workflow support** with deterministic signal contracts, calibration economics, and portfolio optimization
+- **SSE streaming** for live progress updates during analysis
+- **Watchlist management** with batch analysis and opportunity ranking
+- **Scheduled analysis** with catalyst detection (earnings, macro events)
+- **Portfolio tracking** with risk metrics and position sizing
+- **Alert system** with v1 and v2 rule types
 
-### Design Philosophy
-- **Additive-first upgrades**: Legacy fields preserved for backward compatibility
-- **Feature-flagged rollout**: All v2 features behind config flags (safe defaults)
-- **No CoT by default**: Chain-of-thought not persisted/displayed unless explicitly enabled
-- **Fail-open**: External service failures don't block analysis flow
+### Architecture Overview
+
+```
+Client → FastAPI → Orchestrator → [Data Agents] → Solution Agent
+                                           ↓
+                                    signal_contract_v2
+                                    PortfolioEngine
+                                    SQLite
+                                    REST/SSE response
+```
+
+Scheduled flow:
+```
+APScheduler → Orchestrator → analysis_outcomes/calibration_snapshots/reliability_bins → AlertEngine
+```
 
 ---
 
 ## Technology Stack
 
 ### Backend
-| Component | Technology | Version |
-|-----------|------------|---------|
-| Runtime | Python | 3.10+ |
-| Web Framework | FastAPI | 0.109.0 |
-| Server | uvicorn | 0.27.0 |
-| Database | SQLite | (builtin) |
-| Scheduler | APScheduler | 3.10+ |
-| HTTP Client | aiohttp | 3.9.3 |
-| Data Processing | pandas | 2.2.0 |
-| Numerical | numpy | 1.26.3 |
-| Validation | pydantic | 2.6.0 |
-| LLM SDKs | anthropic, openai | latest |
-| PDF Generation | reportlab | 4.0+ |
+- **Python 3.11+** with async/await pattern
+- **FastAPI** - REST API and Server-Sent Events (SSE)
+- **SQLite** - Database for persistence (with WAL mode)
+- **APScheduler** - Background job scheduling
+- **aiohttp** - Async HTTP client for external APIs
+- **Pydantic** - Data validation and serialization
 
 ### Frontend
-| Component | Technology | Version |
-|-----------|------------|---------|
-| Framework | React | 19.2.0 |
-| Build Tool | Vite | 7.2.4 |
-| Styling | Tailwind CSS | 4.1.18 |
-| HTTP Client | axios | 1.13.4 |
-| Charts | lightweight-charts | 5.1.0 |
-| Animation | framer-motion | 12.34.0 |
+- **React 19** with hooks and context
+- **Vite** - Build tool and dev server
+- **Tailwind CSS v4** - Utility-first styling
+- **framer-motion** - Animations and transitions
+- **lightweight-charts** - TradingView-style charts
 
-### Infrastructure
-| Component | Technology |
-|-----------|------------|
-| Containerization | Docker + Docker Compose |
-| Web Server (prod) | nginx |
-| Process Management | Python asyncio |
+### External APIs
+- **Alpha Vantage** - Primary market data source
+- **Tavily AI Search** - Enhanced news and research context
+- **yfinance** - Yahoo Finance fallback
+- **NewsAPI** - News fallback
+- **Twitter/X API v2** - Social sentiment
+- **Anthropic Claude / OpenAI / xAI Grok** - LLM providers
 
 ---
 
 ## Project Structure
 
 ```
-multi-agent-market-research/
-├── src/                          # Backend source code
-│   ├── api.py                    # FastAPI application, routes, lifecycle
-│   ├── orchestrator.py           # Agent coordination, pipeline execution
+├── src/                          # Backend source
+│   ├── api.py                    # FastAPI application (all endpoints)
+│   ├── orchestrator.py           # Agent coordination and execution
+│   ├── config.py                 # Environment configuration
+│   ├── database.py               # SQLite operations and schema
 │   ├── models.py                 # Pydantic request/response models
-│   ├── database.py               # SQLite schema, migrations, CRUD
-│   ├── config.py                 # Environment-driven configuration
-│   ├── signal_contract.py        # Deterministic signal_contract_v2 builder
-│   ├── portfolio_engine.py       # Portfolio optimization v1/v2
-│   ├── scheduler.py              # APScheduler jobs, calibration economics
-│   ├── alert_engine.py           # Rule evaluation, notification logic
-│   ├── rollout_metrics.py        # Phase 7 rollout gate metrics
-│   ├── rollout_canary.py         # CLI canary runner for staged rollout
-│   ├── backfill_signal_contract.py # 180-day backfill utility
-│   ├── pdf_report.py             # Branded PDF export generation
+│   ├── scheduler.py              # APScheduler integration
+│   ├── alert_engine.py           # Alert rule evaluation
+│   ├── signal_contract.py        # Deterministic v2 signal builder
+│   ├── portfolio_engine.py       # Portfolio advisory overlay
+│   ├── pdf_report.py             # PDF export generation
 │   ├── av_rate_limiter.py        # Alpha Vantage rate limiting
-│   ├── av_cache.py               # TTL cache + in-flight request coalescing
+│   ├── av_cache.py               # In-flight request coalescing + TTL cache
+│   ├── rollout_canary.py         # Phase 7 rollout canary runner
+│   ├── rollout_metrics.py        # Rollout gate metrics
+│   ├── backfill_signal_contract.py  # Historical backfill utility
+│   ├── tavily_client.py          # Tavily AI search client
 │   └── agents/                   # Agent implementations
-│       ├── base_agent.py         # Abstract base with AV fetching
-│       ├── news_agent.py         # News fetching (AV, NewsAPI fallback)
-│       ├── sentiment_agent.py    # Sentiment analysis (depends on news)
-│       ├── fundamentals_agent.py # Financial fundamentals (AV, yfinance, SEC)
-│       ├── market_agent.py       # Market data, price history
-│       ├── technical_agent.py    # Technical indicators (RSI, MACD, BB)
-│       ├── macro_agent.py        # Macro-economic data (Fed rates, CPI)
-│       ├── options_agent.py      # Options flow analysis
-│       └── solution_agent.py     # Synthesis agent (LLM-based reasoning)
+│       ├── base_agent.py         # Abstract base with AV/fallback support
+│       ├── news_agent.py         # News gathering (Tavily → AV → NewsAPI)
+│       ├── sentiment_agent.py    # LLM-based sentiment analysis
+│       ├── fundamentals_agent.py # Financial data + equity research
+│       ├── market_agent.py       # Price trends and market data
+│       ├── technical_agent.py    # RSI, MACD, Bollinger Bands
+│       ├── macro_agent.py        # US macroeconomic indicators
+│       ├── options_agent.py      # Options flow and unusual activity
+│       └── solution_agent.py     # Final synthesis and recommendation
 │
-├── frontend/src/                 # Frontend source code
-│   ├── App.jsx                   # Root component with AnalysisProvider
-│   ├── main.jsx                  # React entry point
-│   ├── components/               # React components
-│   │   ├── Dashboard.jsx         # Main layout (sidebar + workspace)
-│   │   ├── Sidebar.jsx           # Navigation sidebar
-│   │   ├── AnalysisTabs.jsx      # Overview/Risk/Opportunities/Diagnostics
-│   │   ├── Summary.jsx           # Action/risk/evidence cards
-│   │   ├── Recommendation.jsx    # Signal display component
-│   │   ├── WatchlistPanel.jsx    # Watchlist CRUD + batch analyze
-│   │   ├── PortfolioPanel.jsx    # Holdings management
-│   │   ├── AlertPanel.jsx        # Alert rules + notifications
-│   │   ├── HistoryDashboard.jsx  # Historical analysis view
-│   │   ├── SchedulePanel.jsx     # Scheduled analysis management
-│   │   ├── PriceChart.jsx        # TradingView chart widget
-│   │   ├── AgentPipelineBar.jsx  # Agent progress visualization
-│   │   └── ...
-│   ├── context/
-│   │   └── AnalysisContext.jsx   # Global analysis state
-│   ├── hooks/
-│   │   ├── useAnalysis.js        # Analysis execution hook
-│   │   ├── useSSE.js             # Server-Sent Events hook
-│   │   └── useHistory.js         # History data fetching
-│   └── utils/
-│       └── api.js                # Axios API client
+├── frontend/                     # React frontend
+│   ├── src/
+│   │   ├── components/           # React components
+│   │   │   ├── Dashboard.jsx     # Root layout
+│   │   │   ├── Sidebar.jsx       # Navigation sidebar
+│   │   │   ├── AnalysisTabs.jsx  # Tabbed content (Overview/Risks/Opportunities/Diagnostics)
+│   │   │   ├── Recommendation.jsx # Gauge and consensus display
+│   │   │   ├── WatchlistPanel.jsx # Watchlist management
+│   │   │   ├── HistoryDashboard.jsx # Analysis history browser
+│   │   │   ├── PortfolioPanel.jsx # Portfolio management
+│   │   │   ├── AlertPanel.jsx    # Alert rules and notifications
+│   │   │   └── ...
+│   │   ├── hooks/                # Custom React hooks
+│   │   ├── context/              # React context providers
+│   │   └── utils/api.js          # API client
+│   ├── Dockerfile                # Production build (nginx)
+│   ├── Dockerfile.dev            # Development (Vite hot-reload)
+│   └── nginx.conf                # Nginx reverse proxy config
 │
 ├── tests/                        # Test suite
 │   ├── conftest.py               # Shared pytest fixtures
-│   ├── test_api.py               # API endpoint tests
-│   ├── test_orchestrator.py      # Orchestrator tests
-│   ├── test_database.py          # Database tests
-│   ├── test_signal_contract.py   # Signal contract tests
-│   ├── test_portfolio_engine.py  # Portfolio optimizer tests
-│   ├── test_scheduler.py         # Scheduler tests
-│   ├── test_alert_engine.py      # Alert engine tests
-│   ├── test_calibration.py       # Calibration economics tests
-│   ├── test_rollout_metrics.py   # Rollout metrics tests
-│   ├── test_rollout_canary.py    # Canary runner tests
-│   ├── test_backfill_signal_contract.py
-│   ├── test_pdf_report.py
-│   ├── test_av_cache.py
-│   ├── test_av_rate_limiter.py
+│   ├── test_api.py
+│   ├── test_orchestrator.py
+│   ├── test_database.py
+│   ├── test_alert_engine.py
+│   ├── test_scheduler.py
+│   ├── test_calibration.py
+│   ├── test_signal_contract.py
+│   ├── test_portfolio_engine.py
+│   ├── test_rollout_*.py
 │   └── test_agents/              # Agent-specific tests
-│       ├── test_base_agent.py
-│       ├── test_solution_agent.py
-│       └── test_options_agent.py
 │
 ├── docs/                         # Documentation
 │   ├── plans/                    # Implementation plans
-│   │   ├── 2026-02-16-quant-pm-upgrade-implementation-plan.md
-│   │   └── 2026-02-17-analysis-intelligence-design.md
-│   └── reports/                  # Audit reports
-│       └── signal-contract-backfill-report.md
+│   └── reports/                  # Backfill reports, etc.
 │
-├── run.py                        # Backend startup script
+├── run.py                        # Application entry point
+├── pyproject.toml                # Pytest configuration
 ├── requirements.txt              # Python dependencies
-├── pyproject.toml                # pytest configuration
-├── Dockerfile                    # Backend container
+├── Dockerfile                    # Backend Dockerfile
 ├── docker-compose.yml            # Production Docker stack
 ├── docker-compose.dev.yml        # Development Docker stack
-├── .env.example                  # Environment template
-└── AGENTS.md                     # This file
+└── .env.example                  # Environment variable template
 ```
 
 ---
 
-## Build and Run Commands
+## Build and Test Commands
 
-### Local Development
+### Backend
 
-**Backend:**
 ```bash
 # Setup
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 
-# Configure
-cp .env.example .env
-# Edit .env with your API keys
-
-# Run
+# Run development server
 python run.py
-# Server starts at http://localhost:8000
+
+# Run tests
+pytest
+
+# Run with coverage
+pytest --cov=src --cov-report=term-missing
+
+# Run specific test file
+pytest tests/test_orchestrator.py -v
+
+# Run with markers
+pytest -m "not slow"  # Skip slow tests
+pytest -m "integration"  # Run only integration tests
 ```
 
-**Frontend:**
+### Frontend
+
 ```bash
 cd frontend
+
+# Install dependencies
 npm install
+
+# Development server (Vite hot-reload)
 npm run dev
-# Dev server starts at http://localhost:5173
+
+# Production build
+npm run build
+
+# Preview production build
+npm run preview
+
+# Lint
+npm run lint
 ```
 
 ### Docker
 
-**Development (with hot reload):**
 ```bash
+# Development with hot reload
 docker compose -f docker-compose.dev.yml up --build
-# Backend: http://localhost:8000
-# Frontend: http://localhost:5173
-```
 
-**Production:**
-```bash
+# Production stack
 docker compose up --build
-# Frontend (nginx): http://localhost:3000
-# API proxied through nginx to backend
+
+# Access:
+# - Frontend: http://localhost:3000 (prod) or http://localhost:5173 (dev)
+# - Backend API: http://localhost:8000
+# - Health check: http://localhost:8000/health
 ```
-
----
-
-## Testing
-
-### Backend Tests
-```bash
-source venv/bin/activate
-pytest
-
-# With coverage
-pytest --cov=src
-
-# Specific markers
-pytest -m "not slow"          # Skip slow tests
-pytest -m "integration"       # Run integration tests only
-```
-
-**Test Configuration** (pyproject.toml):
-- `asyncio_mode = "auto"` for async test support
-- Custom markers: `slow`, `integration`
-- Deprecation warnings ignored
-
-**Current Status:** 214 tests passing
-
-### Frontend Quality
-```bash
-cd frontend
-npm run lint
-npm run build
-```
-
-### Canary/Rollout Testing
-```bash
-# Full canary suite
-python -m src.rollout_canary --base-url http://localhost:8000 --stage all --window-hours 72
-
-# Stage-specific
-python -m src.rollout_canary --stage preflight
-python -m src.rollout_canary --stage stage_a --window-hours 72
-python -m src.rollout_canary --stage stage_b --window-hours 72
-python -m src.rollout_canary --stage stage_c --window-hours 72
-python -m src.rollout_canary --stage stage_d --window-hours 72 --frontend-url http://localhost:5173
-```
-
----
-
-## Architecture
-
-### Request Flow
-```
-Client Request
-    ↓
-FastAPI (src/api.py)
-    ↓
-Orchestrator (src/orchestrator.py)
-    ↓
-[Data Agents in parallel]
-├── NewsAgent (Tavily AI Search primary)
-├── MarketAgent
-├── FundamentalsAgent (Tavily context)
-├── TechnicalAgent
-├── MacroAgent (if enabled)
-└── OptionsAgent (if enabled)
-    ↓
-SentimentAgent (depends on News context)
-    ↓
-SolutionAgent (synthesis + Tavily narrative)
-    ↓
-signal_contract_v2 build/validate
-    ↓
-PortfolioEngine (optimizer v1/v2)
-    ↓
-Database persistence
-    ↓
-REST/SSE response
-```
-
-### Scheduled Flow
-```
-APScheduler triggers
-    ↓
-Orchestrator.analyze_ticker()
-    ↓
-Analysis stored
-    ↓
-Outcomes recorded (analysis_outcomes table)
-    ↓
-Calibration snapshots updated
-    ↓
-AlertEngine evaluates rules
-    ↓
-Notifications created (if triggered)
-```
-
-### Database Schema
-
-**Core Tables:**
-- `analyses` - Main analysis runs with v1/v2 schema support
-- `agent_results` - Individual agent outputs
-- `sentiment_scores` - Factor-level sentiment breakdown
-- `price_history` - Cached price data
-- `news_cache` - Cached news articles
-
-**PM/Quant Tables:**
-- `watchlists`, `watchlist_tickers` - Watchlist management
-- `schedules`, `schedule_runs` - Scheduled analysis
-- `portfolio_profile`, `portfolio_holdings` - Portfolio data
-- `alert_rules`, `alert_notifications` - Alert system
-- `analysis_outcomes` - Post-analysis performance tracking
-- `calibration_snapshots` - Reliability metrics over time
-- `confidence_reliability_bins` - Binned accuracy by confidence level
-
----
-
-## Configuration
-
-Configuration is environment-driven via `.env` file, loaded in `src/config.py`.
-
-### Required API Keys
-- At least one LLM provider:
-  - `ANTHROPIC_API_KEY` (for anthropic provider)
-  - `OPENAI_API_KEY` (for openai provider)
-  - `GROK_API_KEY` (for xai provider)
-
-### Optional API Keys
-- `ALPHA_VANTAGE_API_KEY` - Primary market data source
-- `NEWS_API_KEY` - News fallback
-- `TWITTER_BEARER_TOKEN` - Social sentiment
-
-### Key Feature Flags
-| Flag | Default | Description |
-|------|---------|-------------|
-| `TAVILY_ENABLED` | true | Enable Tavily AI search integration |
-| `TAVILY_NEWS_ENABLED` | true | Use Tavily as primary news source |
-| `TAVILY_CONTEXT_ENABLED` | true | Enable contextual research for fundamentals |
-| `TAVILY_MAX_RESULTS` | 20 | Max news articles per search |
-| `TAVILY_NEWS_DAYS` | 7 | Lookback period for news |
-| `TAVILY_SEARCH_DEPTH` | advanced | Search depth: basic or advanced |
-| `SIGNAL_CONTRACT_V2_ENABLED` | false | EV scores, calibrated confidence, regime labels |
-| `COT_PERSISTENCE_ENABLED` | false | Store full chain-of-thought in DB |
-| `PORTFOLIO_OPTIMIZER_V2_ENABLED` | false | Advanced position sizing optimizer |
-| `CALIBRATION_ECONOMICS_ENABLED` | false | Net-return calibration tracking |
-| `ALERTS_V2_ENABLED` | false | EV/regime/data-quality alert types |
-| `WATCHLIST_RANKING_ENABLED` | false | EV-ranked watchlist ordering |
-| `SCHEDULER_ENABLED` | true | Background scheduled analysis |
-| `MACRO_AGENT_ENABLED` | true | Macro-economic data agent |
-| `OPTIONS_AGENT_ENABLED` | true | Options flow agent |
-
-### Scheduled-Run Overrides
-Flags for safe staged rollout (enable v2 for scheduled runs only):
-- `SCHEDULED_SIGNAL_CONTRACT_V2_ENABLED`
-- `SCHEDULED_CALIBRATION_ECONOMICS_ENABLED`
-- `SCHEDULED_PORTFOLIO_OPTIMIZER_V2_ENABLED`
-- `SCHEDULED_ALERTS_V2_ENABLED`
 
 ---
 
 ## Code Style Guidelines
 
 ### Python
-- **Type hints**: Use for function signatures and key variables
-- **Docstrings**: Google style for all public methods
-- **Async/await**: Prefer async for I/O; wrap blocking calls with `asyncio.to_thread()`
-- **Error handling**: Fail-open for external services; log warnings
-- **Imports**: Group as stdlib → third-party → local
+
+1. **Type Hints**: Use typing for function signatures and complex data structures
+   ```python
+   from typing import Dict, Any, Optional, List
+   
+   async def analyze_ticker(self, ticker: str) -> Dict[str, Any]:
+       ...
+   ```
+
+2. **Docstrings**: Google-style docstrings for all public methods
+   ```python
+   def method(self, param: str) -> Result:
+       """
+       Brief description.
+       
+       Args:
+           param: Description of param
+           
+       Returns:
+           Description of return value
+       """
+   ```
+
+3. **Async Pattern**: All I/O operations must be async
+   - Use `asyncio.to_thread()` for blocking calls (yfinance, LLM APIs)
+   - Use `aiohttp` for HTTP requests
+   - Use `asyncio.gather()` for parallel execution
+
+4. **Error Handling**: Fail gracefully with logged warnings
+   ```python
+   try:
+       data = await self.fetch()
+   except Exception as e:
+       self.logger.warning(f"Fetch failed: {e}")
+       data = None  # Allow fallback
+   ```
+
+5. **Naming**: snake_case for functions/variables, PascalCase for classes
+
+6. **Constants**: UPPER_CASE for module-level constants
 
 ### JavaScript/React
-- **Components**: PascalCase, one component per file
-- **Hooks**: camelCase, prefix with `use`
-- **Props destructuring**: Explicit prop listing
-- **State management**: Use AnalysisContext for global state
+
+1. **Components**: PascalCase, functional components with hooks
+2. **Hooks**: Prefix with `use`, camelCase
+3. **Props**: Destructure in component signature
+4. **State**: Use React Context for global state, useState for local
+5. **Styling**: Tailwind classes, prefer semantic tokens from `@theme`
 
 ---
 
-## Development Conventions
+## Testing Instructions
 
-### Agent Development
-1. Inherit from `BaseAgent` in `src/agents/base_agent.py`
-2. Implement `fetch_data()` and `analyze()` abstract methods
-3. Use `_av_request()` for Alpha Vantage calls (handles rate limiting, caching)
-4. Preserve `data_source` metadata in outputs for provenance
-5. Dependencies declared in `Orchestrator.AGENT_REGISTRY`
+### Test Organization
 
-### Database Changes
-- Schema changes live in `src/database.py`
-- Migrations are manual and idempotent
-- Use `CREATE TABLE IF NOT EXISTS` pattern
-- Add new columns with `DEFAULT` values for compatibility
+```
+tests/
+├── conftest.py              # Shared fixtures
+├── test_api.py              # API endpoint tests
+├── test_orchestrator.py     # Orchestrator logic
+├── test_database.py         # Database operations
+├── test_alert_engine.py     # Alert evaluation
+├── test_scheduler.py        # Scheduler functionality
+├── test_calibration.py      # Calibration economics
+├── test_signal_contract.py  # Signal contract v2
+├── test_portfolio_engine.py # Portfolio logic
+├── test_rollout_canary.py   # Rollout automation
+├── test_rollout_metrics.py  # Rollout metrics
+└── test_agents/             # Agent tests
+    ├── test_base_agent.py
+    ├── test_options_agent.py
+    └── test_solution_agent.py
+```
 
-### API Changes
-- Use Pydantic models in `src/models.py` for validation
-- Maintain backward compatibility for response shapes
-- Version schema changes via `analysis_schema_version` field
-- SSE events: use `progress`, `result`, `error` (stable names)
+### Running Tests
 
-### Testing
-- Mock external API calls (use fixtures in `conftest.py`)
-- Test both success and failure paths
-- Use `aioresponses` for aiohttp mocking
-- Database tests use `:memory:` or temp files
+```bash
+# All tests
+pytest
+
+# Verbose output
+pytest -v
+
+# With coverage
+pytest --cov=src --cov-report=html
+
+# Specific markers
+pytest -m "slow"           # Real API calls (>5s)
+pytest -m "integration"    # Multi-component tests
+pytest -m "not slow"       # Fast tests only
+
+# Specific test
+pytest tests/test_api.py::test_analyze_ticker -v
+```
+
+### Test Fixtures
+
+Key fixtures in `conftest.py`:
+- `db_manager` - In-memory database for tests
+- `mock_av_response` - Mocked Alpha Vantage responses
+- `test_ticker` - Standard test ticker symbol
+- `av_cache` - Fresh AVCache instance
+- `av_rate_limiter` - Rate limiter with generous limits for testing
+- `test_config` - Configuration dictionary for testing
+- `make_agent` - Factory to create agents with injected test infrastructure
+
+### Writing Tests
+
+```python
+import pytest
+
+@pytest.mark.asyncio
+async def test_agent_execution():
+    agent = TestAgent("AAPL", config)
+    result = await agent.execute()
+    assert result["success"] is True
+    assert result["agent_type"] == "test"
+```
 
 ---
 
 ## Security Considerations
 
 ### API Keys
-- Never commit `.env` file
-- API keys validated at startup in `Config.validate_config()`
-- Keys not logged or exposed in responses
+- **NEVER commit `.env` file** - it's in `.gitignore`
+- Store API keys in environment variables only
+- Rotate keys regularly
+- Use different keys for development/production
 
-### Data Handling
-- SQLite uses WAL mode (`PRAGMA journal_mode=WAL`)
-- Busy timeout set to 5 seconds to prevent locks
-- Ticker validation before processing (regex + yfinance check)
+### Required Keys
 
-### Docker
-- Non-root containers where possible
-- Backend health check endpoint for orchestration
-- Frontend nginx doesn't expose server version
+```bash
+# At least one LLM provider (required)
+ANTHROPIC_API_KEY=sk-...
+# OR
+OPENAI_API_KEY=sk-...
+# OR
+GROK_API_KEY=...
 
-### Rate Limiting
-- Alpha Vantage: per-minute and per-day limits enforced
-- In-flight request coalescing prevents duplicate API calls
+# Data sources (strongly recommended)
+ALPHA_VANTAGE_API_KEY=...
+TAVILY_API_KEY=...
+```
+
+### Security Best Practices
+
+1. **Input Validation**: All API endpoints validate ticker format (`^[A-Z]{1,5}$`)
+2. **Rate Limiting**: Alpha Vantage requests are rate-limited per-minute and per-day
+3. **SQL Injection**: Database queries use parameterized statements
+4. **CORS**: Configured via `CORS_ORIGINS` environment variable
+5. **No Sensitive Data in Logs**: API keys are never logged
+
+### Docker Security
+- Backend runs as non-root user
+- Frontend nginx runs on port 80 (unprivileged in container)
+- Health checks verify service availability
+- No secrets in Docker layers
+
+---
+
+## Agent Development
+
+### Creating a New Agent
+
+1. **Inherit from BaseAgent**:
+   ```python
+   from src.agents.base_agent import BaseAgent
+   
+   class NewAgent(BaseAgent):
+       async def fetch_data(self) -> Dict[str, Any]:
+           # Fetch from primary source (Alpha Vantage)
+           data = await self._av_request({"function": "..."})
+           if not data:
+               # Fallback implementation
+               data = await self._fetch_fallback()
+           return data
+       
+       async def analyze(self, raw_data: Dict[str, Any]) -> Dict[str, Any]:
+           # Process and return structured data
+           return {"metric": value, "summary": "..."}
+   ```
+
+2. **Register in Orchestrator**:
+   ```python
+   # src/orchestrator.py
+   AGENT_REGISTRY = {
+       "new_agent": {"class": NewAgent, "requires": []},
+       # ...
+   }
+   ```
+
+3. **Add Tests**:
+   Create `tests/test_agents/test_new_agent.py`
+
+### Agent Data Source Priority
+
+All agents follow **primary → fallback** pattern:
+1. Try Alpha Vantage (via `_av_request()`)
+2. Fall back to yfinance or other sources
+3. Track `data_source` in output for provenance
+
+### Shared Resources
+
+The orchestrator injects shared resources into agents:
+- `_shared_session` - aiohttp session for connection pooling
+- `_rate_limiter` - AVRateLimiter for rate limiting
+- `_av_cache` - AVCache for response caching and request coalescing
+
+---
+
+## Configuration Reference
+
+### Key Environment Variables
+
+#### LLM Configuration
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `LLM_PROVIDER` | anthropic | anthropic, openai, or xai |
+| `LLM_MODEL` | claude-3-5-sonnet-20241022 | Model identifier |
+| `LLM_TEMPERATURE` | 0.3 | Sampling temperature |
+| `LLM_MAX_TOKENS` | 4096 | Max response tokens |
+
+#### Feature Flags
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SIGNAL_CONTRACT_V2_ENABLED` | false | Enable deterministic signal contract |
+| `PORTFOLIO_OPTIMIZER_V2_ENABLED` | false | Enable optimizer v2 |
+| `CALIBRATION_ECONOMICS_ENABLED` | false | Enable calibration economics |
+| `ALERTS_V2_ENABLED` | false | Enable v2 alert rule types |
+| `WATCHLIST_RANKING_ENABLED` | false | Enable opportunity ranking |
+| `COT_PERSISTENCE_ENABLED` | false | Persist chain-of-thought |
+
+#### Scheduled Rollout Overrides
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SCHEDULED_SIGNAL_CONTRACT_V2_ENABLED` | false | Enable v2 for scheduled runs only |
+| `SCHEDULED_CALIBRATION_ECONOMICS_ENABLED` | false | Enable calibration for scheduled runs |
+| `SCHEDULED_PORTFOLIO_OPTIMIZER_V2_ENABLED` | false | Enable optimizer v2 for scheduled runs |
+| `SCHEDULED_ALERTS_V2_ENABLED` | false | Enable v2 alerts for scheduled runs |
+
+#### Rate Limits
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `AV_RATE_LIMIT_PER_MINUTE` | 5 | Alpha Vantage calls per minute |
+| `AV_RATE_LIMIT_PER_DAY` | 25 | Alpha Vantage calls per day |
+
+---
+
+## API Endpoints
+
+### Analysis
+- `POST /api/analyze/{ticker}` - Trigger analysis
+- `POST /api/analyze/batch` - Batch analysis (SSE stream)
+- `GET /api/analyze/{ticker}/stream` - SSE progress stream
+- `GET /api/analysis/{ticker}/latest` - Get latest analysis
+- `GET /api/analysis/{ticker}/history` - Get analysis history
+- `GET /api/analysis/{ticker}/history/detailed` - Paginated with filters
+- `GET /api/analysis/tickers` - List analyzed tickers
+- `DELETE /api/analysis/{analysis_id}` - Delete analysis
+
+### Exports
+- `GET /api/analysis/{ticker}/export/csv` - CSV export
+- `GET /api/analysis/{ticker}/export/pdf` - PDF report
+
+### Watchlists
+- `GET/POST /api/watchlists` - CRUD operations
+- `GET /api/watchlists/{id}` - Get watchlist with analyses
+- `PUT/DELETE /api/watchlists/{id}` - Update/delete
+- `POST /api/watchlists/{id}/tickers` - Add ticker
+- `DELETE /api/watchlists/{id}/tickers/{ticker}` - Remove ticker
+- `POST /api/watchlists/{id}/analyze` - Batch analyze (SSE)
+- `GET /api/watchlists/{id}/opportunities` - Ranked opportunities
+
+### Schedules
+- `GET/POST /api/schedules` - CRUD operations
+- `GET/PUT/DELETE /api/schedules/{id}` - Individual schedule
+- `GET /api/schedules/{id}/runs` - Run history
+
+### Portfolio
+- `GET /api/portfolio` - Profile + holdings + snapshot
+- `PUT /api/portfolio/profile` - Update profile
+- `GET/POST /api/portfolio/holdings` - Holdings CRUD
+- `GET /api/portfolio/risk-summary` - Risk metrics
+
+### Calibration
+- `GET /api/calibration/summary` - Calibration overview
+- `GET /api/calibration/ticker/{ticker}` - Ticker-specific
+- `GET /api/calibration/reliability` - Reliability bins
+
+### Alerts
+- `GET/POST /api/alerts` - Alert rules CRUD
+- `PUT/DELETE /api/alerts/{id}` - Individual rule
+- `GET /api/alerts/notifications` - Notifications feed
+- `POST /api/alerts/notifications/{id}/acknowledge` - Acknowledge
+- `GET /api/alerts/notifications/unacknowledged-count` - Count badge
+
+### Rollout
+- `GET /api/rollout/phase7/status` - Rollout gate status
+
+### Health
+- `GET /health` - Health check
+
+---
+
+## Database Schema
+
+### Core Tables
+- `analyses` - Analysis runs with v1/v2 schema support
+- `agent_results` - Individual agent outputs
+- `sentiment_scores` - Sentiment factor breakdowns
+- `price_history` - Cached price data
+- `news_cache` - Cached news articles
+
+### Portfolio Tables
+- `portfolio_profile` - Singleton portfolio configuration
+- `portfolio_holdings` - Position data
+
+### Watchlist/Schedule Tables
+- `watchlists` - Watchlist definitions
+- `watchlist_tickers` - Many-to-many membership
+- `schedules` - Recurring analysis schedules
+- `schedule_runs` - Execution history
+
+### Quant PM Tables
+- `analysis_outcomes` - Post-analysis outcome tracking
+- `calibration_snapshots` - Daily calibration summaries
+- `confidence_reliability_bins` - Reliability by confidence band
+
+### Alert Tables
+- `alert_rules` - Rule definitions (legacy + v2 types)
+- `alert_notifications` - Triggered notifications
+
+### Macro Tables
+- `macro_catalyst_events` - Seeded macro event calendar
+
+---
+
+## Rollout and Deployment
+
+### Phase 7 Rollout Process
+1. **Preflight** - Basic health and connectivity checks
+2. **Stage A** - Feature flag validation
+3. **Stage B** - Sample analysis validation
+4. **Stage C** - Performance benchmark
+5. **Stage D** - End-to-end frontend validation
+
+### Canary Runner
+
+```bash
+# Full rollout check
+python -m src.rollout_canary --base-url http://localhost:8000 --stage all --window-hours 72
+
+# Individual stages
+python -m src.rollout_canary --stage preflight
+python -m src.rollout_canary --stage stage_a --window-hours 72
+python -m src.rollout_canary --stage stage_b --window-hours 72
+python -m src.rollout_canary --stage stage_c --window-hours 72 --stage-c-tickers AAPL,MSFT
+python -m src.rollout_canary --stage stage_d --window-hours 72 --frontend-url http://localhost:5173
+```
 
 ---
 
 ## Common Tasks
 
-### Add a New Agent
-1. Create file in `src/agents/{name}_agent.py`
-2. Inherit from `BaseAgent`
-3. Implement `fetch_data()` and `analyze()`
-4. Register in `Orchestrator.AGENT_REGISTRY` with dependencies
-5. Add tests in `tests/test_agents/`
+### Add a New Alert Rule Type
+1. Add to `AlertRuleCreate` model in `src/models.py`
+2. Add evaluation method in `src/alert_engine.py`
+3. Update schema migration in `src/database.py` if needed
+4. Add tests in `tests/test_alert_engine.py`
 
-### Add a New API Endpoint
-1. Add Pydantic models to `src/models.py` if needed
-2. Implement route in `src/api.py`
-3. Add tests in `tests/test_api.py`
-4. Update root endpoint documentation
+### Add a New Agent
+1. Create `src/agents/new_agent.py` inheriting from `BaseAgent`
+2. Register in `src/orchestrator.py` `AGENT_REGISTRY`
+3. Add tests in `tests/test_agents/`
+4. Update SSE progress map in orchestrator
 
 ### Database Migration
-1. Add CREATE/ALTER statements to `DatabaseManager.initialize_database()`
-2. Ensure idempotent (IF NOT EXISTS, OR IGNORE)
-3. Test with existing database file
-4. Document in commit message
 
-### Feature Flag Rollout
-1. Add flag to `src/config.py` with safe default
-2. Add to `.env.example` with documentation
-3. Gate feature usage behind flag check
-4. Add canary test in `src/rollout_canary.py`
-5. Document in rollout plan
+Migrations are manual and idempotent. Add to `initialize_database()`:
 
----
-
-## External Dependencies
-
-### Data Sources
-- **Alpha Vantage**: Primary market data (rate limited: 5/min, 25/day free tier)
-- **yfinance**: Fallback market data, ticker validation
-- **NewsAPI**: News fallback
-- **SEC EDGAR**: Fundamentals fallback
-- **Twitter/X API v2**: Social sentiment
-
-### AI-Powered Research (Tavily)
-- **News Enhancement** - Primary news source with full content extraction and AI summaries
-- **Company Context** - Recent developments between earnings (products, leadership, risks, guidance)
-- **Market Narrative** - External research on analyst sentiment and price drivers
-
-### LLM Providers
-- **Anthropic**: Claude models (recommended: claude-3-5-sonnet)
-- **OpenAI**: GPT models
-- **xAI**: Grok models (OpenAI-compatible client)
-
----
-
-## Tavily AI Search Integration
-
-Tavily provides AI-powered search capabilities that enhance the platform's research quality through three integration phases:
-
-### Phase 1: Enhanced News (NewsAgent)
-**File**: `src/agents/news_agent.py`
-- Tavily is the **primary news source** (fallback to AV/NewsAPI if unavailable)
-- Provides superior relevance scoring vs keyword-based NewsAPI
-- Full article content extraction (not just snippets)
-- AI-generated summaries (`tavily_summary`) included in news output
-- No rate limiting issues (unlike Alpha Vantage 5/min)
-
-**Configuration**:
-```bash
-TAVILY_ENABLED=true
-TAVILY_NEWS_ENABLED=true
-TAVILY_MAX_RESULTS=20
-TAVILY_NEWS_DAYS=7
-TAVILY_SEARCH_DEPTH=advanced  # or 'basic' for faster results
+```python
+def initialize_database(self):
+    with self.get_connection() as conn:
+        cursor = conn.cursor()
+        # New table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS new_table (...)
+        """)
+        # Schema migration
+        self._ensure_column(cursor, "existing_table", "new_column", "TEXT")
 ```
-
-### Phase 2: Company Context (FundamentalsAgent)
-**File**: `src/agents/fundamentals_agent.py`
-- Fetches recent developments between quarterly earnings
-- Categories: earnings highlights, product news, leadership changes, risks, guidance
-- Provides context that may not appear in financial statements yet
-- Stored in `tavily_context` field of fundamentals analysis
-
-**Configuration**:
-```bash
-TAVILY_CONTEXT_ENABLED=true
-```
-
-### Phase 3: Market Narrative (SolutionAgent)
-**File**: `src/agents/solution_agent.py`
-- External market narrative research before LLM synthesis
-- Searches for: analyst upgrades/downgrades, price target changes, "why stock is up/down today"
-- Fed into LLM prompt as "Market Narrative (Tavily External Research)" section
-- Helps ground AI reasoning in current market sentiment
-
-### Shared Client
-**File**: `src/tavily_client.py`
-- Reusable async client wrapper for Tavily API
-- Methods:
-  - `search_news()` - Primary news search
-  - `search_company_context()` - Multi-dimensional company research
-  - `get_market_narrative()` - Market sentiment research
-  - `extract_article_content()` - Deep content extraction
-
-### Getting Started
-1. Sign up at [tavily.com](https://tavily.com) (free tier available)
-2. Add `TAVILY_API_KEY=your_key_here` to `.env`
-3. Tavily automatically becomes the primary news source
-4. Check diagnostics output to verify Tavily is being used:
-   ```json
-   {"tavily": {"enabled": true, "agents_using": ["news", "fundamentals"]}}
-   ```
 
 ---
 
 ## Troubleshooting
 
-### "Database is locked"
-- WAL mode enabled by default
-- Check for long-running transactions
-- Increase `busy_timeout` if needed
+### Common Issues
 
-### Alpha Vantage rate limit
-- Check `AV_RATE_LIMIT_PER_MINUTE` / `AV_RATE_LIMIT_PER_DAY` settings
-- Cache TTL may need adjustment
-- Consider yfinance fallback
+**Import errors**: Ensure `venv` is activated and dependencies installed
+```bash
+source venv/bin/activate
+pip install -r requirements.txt
+```
 
-### Frontend can't connect to backend
-- Check `VITE_API_URL` in frontend environment
-- Verify CORS_ORIGINS includes frontend URL
-- Check docker-compose networking
+**Database locked**: SQLite WAL mode handles most cases; check for unclosed connections
 
-### Tests failing with API errors
-- Ensure test config uses mock responses
-- Check `conftest.py` fixtures are being used
-- Mark real API tests with `@pytest.mark.slow`
+**Rate limit errors**: Monitor `AV_RATE_LIMIT_PER_DAY` usage; cache reduces calls
 
-### Tavily not being used
-- Check `TAVILY_API_KEY` is set in `.env`
-- Verify `TAVILY_ENABLED=true` and relevant feature flags
-- Check diagnostics: `data_quality.tavily` in analysis output
-- Tavily gracefully falls back to NewsAPI/AV if unavailable
+**Frontend API connection**: Check `VITE_API_URL` environment variable
+
+**SSE not working**: Check nginx proxy buffering settings for SSE endpoints
+
+### Debug Logging
+
+```bash
+# Enable debug logging
+LOG_LEVEL=DEBUG python run.py
+```
+
+---
+
+## Resources
+
+- **FastAPI Docs**: https://fastapi.tiangolo.com/
+- **React Docs**: https://react.dev/
+- **Tailwind CSS**: https://tailwindcss.com/
+- **Alpha Vantage**: https://www.alphavantage.co/documentation/
+- **Tavily AI**: https://docs.tavily.com/
