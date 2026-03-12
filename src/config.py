@@ -144,7 +144,7 @@ class Config:
     # OpenBB Provider Overrides
     OPENBB_EQUITY_PROVIDER = os.getenv("OPENBB_EQUITY_PROVIDER", "fmp").split("#")[0].strip()
     OPENBB_MACRO_PROVIDER = os.getenv("OPENBB_MACRO_PROVIDER", "fred").split("#")[0].strip()
-    OPENBB_OPTIONS_PROVIDER = os.getenv("OPENBB_OPTIONS_PROVIDER", "cboe").split("#")[0].strip()
+    OPENBB_OPTIONS_PROVIDER = os.getenv("OPENBB_OPTIONS_PROVIDER", "yfinance").split("#")[0].strip()
     OPENBB_NEWS_PROVIDER = os.getenv("OPENBB_NEWS_PROVIDER", "fmp").split("#")[0].strip()
 
     # FastAPI Configuration

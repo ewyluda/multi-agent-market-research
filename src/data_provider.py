@@ -48,6 +48,18 @@ class OpenBBDataProvider:
         if self._obb is not None:
             return
         try:
+            # Workaround for OpenBB SDK bug (GH #7113): the auto-generated
+            # wrapper modules import OBBject_* types from provider_interface,
+            # but those types are only created dynamically when
+            # ProviderInterface() is instantiated.  We inject them into the
+            # module namespace before the wrapper is loaded.
+            import sys
+            from openbb_core.app.provider_interface import ProviderInterface
+            pi = ProviderInterface()
+            pi_mod = sys.modules["openbb_core.app.provider_interface"]
+            for name, annotation in pi.return_annotations.items():
+                setattr(pi_mod, f"OBBject_{name}", annotation)
+
             from openbb import obb
             self._obb = obb
 
@@ -535,7 +547,7 @@ class OpenBBDataProvider:
         if self._obb is None:
             return None
         try:
-            provider = self._config.get("OPENBB_OPTIONS_PROVIDER", "cboe")
+            provider = self._config.get("OPENBB_OPTIONS_PROVIDER", "yfinance")
             result = self._obb.derivatives.options.chains(
                 symbol=ticker, provider=provider
             )

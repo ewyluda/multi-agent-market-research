@@ -64,7 +64,8 @@ async def test_run_calibration_job_computes_brier_and_direction(scheduler, mock_
     ]
     mock_db.list_completed_outcomes.side_effect = [[], [], []]
 
-    with patch.object(scheduler, "_resolve_close_on_or_after", new=AsyncMock(return_value=(103.0, "2026-02-10"))):
+    with patch.object(scheduler, "_resolve_close_and_drawdown_on_or_after", new=AsyncMock(side_effect=Exception("no data"))), \
+         patch.object(scheduler, "_resolve_close_on_or_after", new=AsyncMock(return_value=(103.0, "2026-02-10"))):
         await scheduler._run_calibration_job()
 
     assert mock_db.complete_outcome.call_count == 1
