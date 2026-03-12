@@ -7,8 +7,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from src.scheduler import AnalysisScheduler
 from src.database import DatabaseManager
-from src.av_rate_limiter import AVRateLimiter
-from src.av_cache import AVCache
 
 
 @pytest.fixture
@@ -24,8 +22,7 @@ def scheduler(mock_db):
     """Create an AnalysisScheduler with mocked deps."""
     return AnalysisScheduler(
         db_manager=mock_db,
-        rate_limiter=AVRateLimiter(100, 1000),
-        av_cache=AVCache(),
+        data_provider=MagicMock(),
         config={
             "CATALYST_SCHEDULER_ENABLED": True,
             "CATALYST_SOURCE": "earnings",
@@ -76,8 +73,7 @@ class TestSchedulerStartStop:
 
         sched = AnalysisScheduler(
             db_manager=mock_db,
-            rate_limiter=AVRateLimiter(100, 1000),
-            av_cache=AVCache(),
+            data_provider=MagicMock(),
             config={
                 "CATALYST_SCHEDULER_ENABLED": True,
                 "CATALYST_SOURCE": "earnings",
@@ -219,8 +215,7 @@ class TestSchedulerExecution:
 
         sched = AnalysisScheduler(
             db_manager=mock_db,
-            rate_limiter=AVRateLimiter(100, 1000),
-            av_cache=AVCache(),
+            data_provider=MagicMock(),
             config={
                 "SIGNAL_CONTRACT_V2_ENABLED": False,
                 "CALIBRATION_ECONOMICS_ENABLED": False,
@@ -487,8 +482,7 @@ class TestSchedulerCalibration:
         """Scheduled economics override enables net-return fields even when global flag is off."""
         sched = AnalysisScheduler(
             db_manager=mock_db,
-            rate_limiter=AVRateLimiter(100, 1000),
-            av_cache=AVCache(),
+            data_provider=MagicMock(),
             config={
                 "CALIBRATION_ENABLED": True,
                 "CALIBRATION_ECONOMICS_ENABLED": False,

@@ -8,8 +8,6 @@ import pytest
 
 from src.orchestrator import Orchestrator
 from src.database import DatabaseManager
-from src.av_rate_limiter import AVRateLimiter
-from src.av_cache import AVCache
 
 
 def _make_agent_result(agent_type, success=True, data=None):
@@ -143,8 +141,6 @@ class TestAnalyzeTicker:
             orch = Orchestrator(
                 config=test_config,
                 db_manager=db_manager,
-                rate_limiter=AVRateLimiter(100, 1000),
-                av_cache=AVCache(),
             )
             result = await orch.analyze_ticker("AAPL")
 
@@ -344,7 +340,7 @@ class TestAnalyzeTicker:
 class TestInjectSharedResources:
     """Tests for _inject_shared_resources()."""
 
-    def test_injects_session_and_cache_and_limiter(self, test_config):
+    def test_injects_session_and_data_provider(self, test_config):
         """Shared resources are injected onto the agent instance."""
         orch = Orchestrator(config=test_config)
         orch._shared_session = MagicMock()
@@ -353,8 +349,7 @@ class TestInjectSharedResources:
         orch._inject_shared_resources(mock_agent)
 
         assert mock_agent._shared_session is orch._shared_session
-        assert mock_agent._rate_limiter is orch._rate_limiter
-        assert mock_agent._av_cache is orch._av_cache
+        assert mock_agent._data_provider is orch._data_provider
 
 
 class TestDiagnostics:

@@ -10,8 +10,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from .config import Config
 from .database import DatabaseManager
-from .av_rate_limiter import AVRateLimiter
-from .av_cache import AVCache
+from .data_provider import OpenBBDataProvider
 
 try:
     from zoneinfo import ZoneInfo
@@ -28,13 +27,11 @@ class AnalysisScheduler:
     def __init__(
         self,
         db_manager: DatabaseManager,
-        rate_limiter: AVRateLimiter,
-        av_cache: AVCache,
+        data_provider: Optional[OpenBBDataProvider] = None,
         config: Optional[Dict[str, Any]] = None,
     ):
         self.db_manager = db_manager
-        self.rate_limiter = rate_limiter
-        self.av_cache = av_cache
+        self.data_provider = data_provider
         self.config = config or self._get_config_dict()
         self.scheduler = AsyncIOScheduler()
         self._running = False
@@ -446,8 +443,7 @@ class AnalysisScheduler:
             orch = Orchestrator(
                 config=orch_config,
                 db_manager=self.db_manager,
-                rate_limiter=self.rate_limiter,
-                av_cache=self.av_cache,
+                data_provider=self.data_provider,
             )
             result = await orch.analyze_ticker(ticker, requested_agents)
 

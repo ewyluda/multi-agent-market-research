@@ -1,141 +1,57 @@
 """Macroeconomic agent for fetching and analyzing US economic indicators."""
 
-import asyncio
 from typing import Dict, Any, Optional, List
 
 from .base_agent import BaseAgent
 
 
 class MacroAgent(BaseAgent):
-    """Agent for fetching US macroeconomic data from Alpha Vantage.
+    """Agent for fetching US macroeconomic data via OpenBB data provider.
 
     Provides broader economic context (interest rates, GDP, inflation,
     unemployment, yield curve) to supplement stock-specific analysis.
 
-    Data source: Alpha Vantage macroeconomic endpoints only.
+    Data source: OpenBB Platform (FRED) via injected data provider.
     No fallback source — macro data is supplementary.
     """
-
-    # ── AV fetch methods ─────────────────────────────────────────────
-
-    def _parse_av_series(self, data: Optional[Dict], limit: int) -> Optional[List[Dict[str, Any]]]:
-        """Parse an AV macro time-series response into a list of {date, value} dicts.
-
-        AV macro endpoints return: {"data": [{"date": "YYYY-MM-DD", "value": "123.45"}, ...]}
-        Values are strings; entries with "." mean no data.
-        """
-        if not data or "data" not in data:
-            return None
-
-        entries = []
-        for item in data["data"]:
-            raw = item.get("value", "")
-            if raw == "." or raw == "":
-                continue
-            try:
-                entries.append({"date": item["date"], "value": float(raw)})
-            except (ValueError, KeyError):
-                continue
-            if len(entries) >= limit:
-                break
-        return entries if entries else None
-
-    async def _fetch_av_federal_funds_rate(self) -> Optional[List[Dict[str, Any]]]:
-        data = await self._av_request({
-            "function": "FEDERAL_FUNDS_RATE",
-            "interval": "monthly",
-            "datatype": "json",
-        })
-        return self._parse_av_series(data, limit=6)
-
-    async def _fetch_av_cpi(self) -> Optional[List[Dict[str, Any]]]:
-        data = await self._av_request({
-            "function": "CPI",
-            "interval": "monthly",
-            "datatype": "json",
-        })
-        return self._parse_av_series(data, limit=6)
-
-    async def _fetch_av_real_gdp(self) -> Optional[List[Dict[str, Any]]]:
-        data = await self._av_request({
-            "function": "REAL_GDP",
-            "interval": "quarterly",
-            "datatype": "json",
-        })
-        return self._parse_av_series(data, limit=4)
-
-    async def _fetch_av_treasury_yield_10y(self) -> Optional[List[Dict[str, Any]]]:
-        data = await self._av_request({
-            "function": "TREASURY_YIELD",
-            "interval": "monthly",
-            "maturity": "10year",
-            "datatype": "json",
-        })
-        return self._parse_av_series(data, limit=6)
-
-    async def _fetch_av_treasury_yield_2y(self) -> Optional[List[Dict[str, Any]]]:
-        data = await self._av_request({
-            "function": "TREASURY_YIELD",
-            "interval": "monthly",
-            "maturity": "2year",
-            "datatype": "json",
-        })
-        return self._parse_av_series(data, limit=6)
-
-    async def _fetch_av_unemployment(self) -> Optional[List[Dict[str, Any]]]:
-        data = await self._av_request({
-            "function": "UNEMPLOYMENT",
-            "datatype": "json",
-        })
-        return self._parse_av_series(data, limit=6)
-
-    async def _fetch_av_inflation(self) -> Optional[List[Dict[str, Any]]]:
-        data = await self._av_request({
-            "function": "INFLATION",
-            "datatype": "json",
-        })
-        return self._parse_av_series(data, limit=3)
 
     # ── Core agent methods ───────────────────────────────────────────
 
     async def fetch_data(self) -> Dict[str, Any]:
-        """Fetch macroeconomic data from Alpha Vantage."""
-        av_api_key = self.config.get("ALPHA_VANTAGE_API_KEY", "")
-        if not av_api_key:
-            self.logger.info("No AV API key, skipping macro agent")
+        """Fetch macroeconomic data via the injected data provider."""
+        if not self._data_provider:
+            self.logger.info("No data provider available, skipping macro agent")
             return {"ticker": self.ticker, "source": "none", "data": {}}
 
-        self.logger.info("Fetching macroeconomic indicators from Alpha Vantage")
+        self.logger.info("Fetching macroeconomic indicators from OpenBB")
 
-        results = await asyncio.gather(
-            self._fetch_av_federal_funds_rate(),
-            self._fetch_av_cpi(),
-            self._fetch_av_real_gdp(),
-            self._fetch_av_treasury_yield_10y(),
-            self._fetch_av_treasury_yield_2y(),
-            self._fetch_av_unemployment(),
-            self._fetch_av_inflation(),
-            return_exceptions=True,
+        try:
+            result = await self._data_provider.get_macro_indicators()
+        except Exception as e:
+            self.logger.error(f"Data provider error fetching macro indicators: {e}")
+            return {"ticker": self.ticker, "source": "none", "data": {}}
+
+        if result is None:
+            self.logger.info("No macro data returned (FRED_API_KEY may be missing)")
+            return {"ticker": self.ticker, "source": "none", "data": {}}
+
+        # Map provider keys to expected dict structure
+        fetched = sum(
+            1 for k in ["fed_funds", "cpi", "gdp", "treasury_10y", "treasury_2y", "unemployment", "inflation"]
+            if result.get(k)
         )
-
-        fed_funds, cpi, gdp, yield_10y, yield_2y, unemployment, inflation = [
-            None if isinstance(r, Exception) else r for r in results
-        ]
-
-        # Log what we got
-        fetched = sum(1 for r in [fed_funds, cpi, gdp, yield_10y, yield_2y, unemployment, inflation] if r)
-        self.logger.info(f"Fetched {fetched}/7 macro indicators from Alpha Vantage")
+        self.logger.info(f"Fetched {fetched}/7 macro indicators from OpenBB")
 
         return {
             "ticker": self.ticker,
-            "source": "alpha_vantage",
-            "federal_funds_rate": fed_funds,
-            "cpi": cpi,
-            "real_gdp": gdp,
-            "treasury_yield_10y": yield_10y,
-            "treasury_yield_2y": yield_2y,
-            "unemployment": unemployment,
-            "inflation": inflation,
+            "source": "openbb",
+            "federal_funds_rate": result.get("fed_funds"),
+            "cpi": result.get("cpi"),
+            "real_gdp": result.get("gdp"),
+            "treasury_yield_10y": result.get("treasury_10y"),
+            "treasury_yield_2y": result.get("treasury_2y"),
+            "unemployment": result.get("unemployment"),
+            "inflation": result.get("inflation"),
         }
 
     async def analyze(self, raw_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -192,7 +108,7 @@ class MacroAgent(BaseAgent):
             "yield_curve": yield_curve,
             "economic_cycle": economic_cycle,
             "risk_environment": risk_environment,
-            "data_source": "alpha_vantage",
+            "data_source": raw_data.get("source", "openbb"),
             "summary": summary,
         }
 

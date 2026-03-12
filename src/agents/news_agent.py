@@ -14,8 +14,7 @@ class NewsAgent(BaseAgent):
 
     Data source priority:
         1. Tavily AI Search (primary - best relevance, full content, AI summary)
-        2. Alpha Vantage NEWS_SENTIMENT (includes built-in sentiment scores)
-        3. NewsAPI (fallback)
+        2. OpenBB Platform (secondary - broad financial news coverage)
 
     Supplementary sources (always fetched when configured):
         - Twitter/X API v2 (search/recent with cashtag filtering)
@@ -23,105 +22,6 @@ class NewsAgent(BaseAgent):
 
     RELEVANCE_THRESHOLD = 0.15  # Minimum score to keep an article (very permissive)
     TWITTER_API_BASE_URL = "https://api.twitter.com/2"
-
-    async def _fetch_av_news(self) -> Optional[List[Dict[str, Any]]]:
-        """
-        Fetch news from Alpha Vantage NEWS_SENTIMENT endpoint.
-
-        The AV NEWS_SENTIMENT endpoint provides articles with built-in
-        ticker-specific relevance scores and sentiment data.
-
-        Returns:
-            List of formatted article dicts, or None on failure
-        """
-        lookback_days = self.config.get("NEWS_LOOKBACK_DAYS", 7)
-        max_articles = self.config.get("MAX_NEWS_ARTICLES", 50)
-
-        time_from = (datetime.now() - timedelta(days=lookback_days)).strftime("%Y%m%dT0000")
-
-        data = await self._av_request({
-            "function": "NEWS_SENTIMENT",
-            "tickers": self.ticker,
-            "sort": "RELEVANCE",
-            "limit": str(min(max_articles, 200)),
-            "time_from": time_from,
-        })
-
-        if not data or "feed" not in data:
-            return None
-
-        feed = data.get("feed", [])
-        if not feed:
-            return None
-
-        articles = []
-        for item in feed:
-            # Extract ticker-specific sentiment from the ticker_sentiment array
-            ticker_sentiment = None
-            av_relevance = 0.0
-            for ts in item.get("ticker_sentiment", []):
-                if ts.get("ticker", "").upper() == self.ticker.upper():
-                    ticker_sentiment = ts
-                    try:
-                        av_relevance = float(ts.get("relevance_score", 0))
-                    except (ValueError, TypeError):
-                        av_relevance = 0.0
-                    break
-
-            # Build article in the same format as NewsAPI articles
-            articles.append({
-                "title": item.get("title", ""),
-                "source": item.get("source", ""),
-                "author": ", ".join(item.get("authors", [])),
-                "description": item.get("summary", ""),
-                "url": item.get("url", ""),
-                "published_at": self._parse_av_datetime(item.get("time_published", "")),
-                "content": item.get("summary", ""),
-                # AV-specific enrichment
-                "av_overall_sentiment_score": self._safe_float(item.get("overall_sentiment_score")),
-                "av_overall_sentiment_label": item.get("overall_sentiment_label", ""),
-                "av_ticker_relevance": av_relevance,
-                "av_ticker_sentiment_score": self._safe_float(
-                    ticker_sentiment.get("ticker_sentiment_score") if ticker_sentiment else None
-                ),
-                "av_ticker_sentiment_label": (
-                    ticker_sentiment.get("ticker_sentiment_label", "") if ticker_sentiment else ""
-                ),
-                # Use AV's relevance score directly as our relevance_score
-                "relevance_score": round(av_relevance, 3),
-            })
-
-        self.logger.info(f"Alpha Vantage NEWS_SENTIMENT returned {len(articles)} articles for {self.ticker}")
-        return articles
-
-    @staticmethod
-    def _parse_av_datetime(av_time: str) -> str:
-        """
-        Convert Alpha Vantage datetime format (20250207T120000) to ISO format.
-
-        Args:
-            av_time: AV datetime string like '20250207T120000'
-
-        Returns:
-            ISO format datetime string
-        """
-        if not av_time or len(av_time) < 15:
-            return av_time
-        try:
-            dt = datetime.strptime(av_time[:15], "%Y%m%dT%H%M%S")
-            return dt.isoformat() + "Z"
-        except (ValueError, TypeError):
-            return av_time
-
-    @staticmethod
-    def _safe_float(val) -> Optional[float]:
-        """Safely convert a value to float."""
-        if val is None or val == "None":
-            return None
-        try:
-            return float(val)
-        except (ValueError, TypeError):
-            return None
 
     # ──────────────────────────────────────────────
     # Tavily AI Search (Primary Source)
@@ -610,7 +510,7 @@ class NewsAgent(BaseAgent):
         """
         Fetch news articles and supplementary Twitter/X posts.
 
-        News: Tries Tavily first, then Alpha Vantage NEWS_SENTIMENT, then NewsAPI.
+        News: Tries Tavily first, then OpenBB Platform.
         Twitter: Always fetched concurrently when TWITTER_BEARER_TOKEN is set.
 
         Returns:
@@ -620,6 +520,8 @@ class NewsAgent(BaseAgent):
         twitter_posts = []
         source = "unknown"
         tavily_summary = None
+
+        max_articles = self.config.get("MAX_NEWS_ARTICLES", 20)
 
         # ── Launch Twitter fetch concurrently (supplementary, never blocks) ──
         twitter_task = asyncio.create_task(self._fetch_twitter_posts())
@@ -646,22 +548,22 @@ class NewsAgent(BaseAgent):
                     "tavily_summary": tavily_summary,
                 }
             else:
-                self.logger.info(f"Tavily returned no news for {self.ticker}, falling back to Alpha Vantage")
+                self.logger.info(f"Tavily returned no news for {self.ticker}, falling back to OpenBB")
         except Exception as e:
-            self.logger.warning(f"Tavily search failed: {e}, falling back to Alpha Vantage")
+            self.logger.warning(f"Tavily search failed: {e}, falling back to OpenBB")
 
-        # ── Try Alpha Vantage NEWS_SENTIMENT second ──
-        av_api_key = self.config.get("ALPHA_VANTAGE_API_KEY", "")
-        if av_api_key:
-            self.logger.info(f"Fetching {self.ticker} news from Alpha Vantage NEWS_SENTIMENT")
+        # ── Try OpenBB Platform second ──
+        data_provider = getattr(self, "_data_provider", None)
+        if data_provider:
+            self.logger.info(f"Fetching {self.ticker} news from OpenBB Platform")
             try:
-                av_articles = await self._fetch_av_news()
-                if av_articles and len(av_articles) > 0:
-                    articles.extend(av_articles)
-                    source = "alpha_vantage"
-                    self.logger.info(f"Alpha Vantage returned {len(av_articles)} news articles for {self.ticker}")
+                obb_articles = await data_provider.get_news(self.ticker, limit=max_articles)
+                if obb_articles and len(obb_articles) > 0:
+                    articles.extend(obb_articles)
+                    source = "openbb"
+                    self.logger.info(f"OpenBB returned {len(obb_articles)} news articles for {self.ticker}")
 
-                    # Still look up company info for category/relevance scoring
+                    # Look up company info for category/relevance scoring
                     company_info = await self._get_company_info()
                     self._company_info = company_info
 
@@ -678,31 +580,13 @@ class NewsAgent(BaseAgent):
                         "tavily_summary": tavily_summary,
                     }
                 else:
-                    self.logger.info(f"Alpha Vantage returned no news for {self.ticker}, falling back to NewsAPI")
+                    self.logger.info(f"OpenBB returned no news for {self.ticker}")
             except Exception as e:
-                self.logger.warning(f"Alpha Vantage NEWS_SENTIMENT failed: {e}, falling back to NewsAPI")
+                self.logger.warning(f"OpenBB news fetch failed for {self.ticker}: {e}")
 
-        # ── Fallback to NewsAPI ──
-        source = "newsapi"
-
-        # Step 1: Look up company info for smart query construction
+        # ── No news sources returned articles — return what we have ──
         company_info = await self._get_company_info()
-        self._company_info = company_info  # Cache for use in analyze()
-
-        self.logger.info(
-            f"Company info for {self.ticker}: "
-            f"long_name='{company_info.get('long_name')}', "
-            f"short_name='{company_info.get('short_name')}'"
-        )
-
-        # Step 2: Fetch from NewsAPI with smart query
-        news_api_key = self.config.get("NEWS_API_KEY")
-        if news_api_key:
-            try:
-                news_articles = await self._fetch_from_newsapi(news_api_key, company_info)
-                articles.extend(news_articles)
-            except Exception as e:
-                self.logger.warning(f"Failed to fetch from NewsAPI: {e}")
+        self._company_info = company_info
 
         # Await Twitter results
         twitter_posts = await twitter_task
@@ -717,76 +601,12 @@ class NewsAgent(BaseAgent):
             "tavily_summary": tavily_summary,
         }
 
-    async def _fetch_from_newsapi(
-        self,
-        api_key: str,
-        company_info: Dict[str, str]
-    ) -> List[Dict[str, Any]]:
-        """
-        Fetch news from NewsAPI using a smart query built from company info.
-
-        Args:
-            api_key: NewsAPI key
-            company_info: Dict with company name/sector/industry
-
-        Returns:
-            List of article dictionaries
-        """
-        base_url = self.config.get("NEWS_API_BASE_URL", "https://newsapi.org/v2")
-        lookback_days = self.config.get("NEWS_LOOKBACK_DAYS", 7)
-        max_articles = self.config.get("MAX_NEWS_ARTICLES", 20)
-
-        # Calculate date range
-        to_date = datetime.now()
-        from_date = to_date - timedelta(days=lookback_days)
-
-        # Build smart query using company name + financial identifiers
-        query = self._build_news_query(company_info)
-
-        # Construct URL
-        url = f"{base_url}/everything"
-        params = {
-            "q": query,
-            "from": from_date.strftime("%Y-%m-%d"),
-            "to": to_date.strftime("%Y-%m-%d"),
-            "language": "en",
-            "sortBy": "publishedAt",
-            "pageSize": max_articles,
-            "apiKey": api_key
-        }
-
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, params=params) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    articles = data.get("articles", [])
-
-                    # Format articles
-                    formatted_articles = []
-                    for article in articles:
-                        formatted_articles.append({
-                            "title": article.get("title"),
-                            "source": article.get("source", {}).get("name"),
-                            "author": article.get("author"),
-                            "description": article.get("description"),
-                            "url": article.get("url"),
-                            "published_at": article.get("publishedAt"),
-                            "content": article.get("content")
-                        })
-
-                    return formatted_articles
-                else:
-                    error_msg = await response.text()
-                    raise Exception(f"NewsAPI request failed: {response.status} - {error_msg}")
-
     async def analyze(self, raw_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Analyze news articles with relevance filtering and categorization.
 
-        For Alpha Vantage-sourced articles, relevance scores are pre-computed.
-        For NewsAPI-sourced articles, our two-layer defense applies:
-        1. Smart query (in fetch_data) reduces irrelevant articles from NewsAPI
-        2. Relevance scoring here catches any that slip through
+        For Tavily and OpenBB-sourced articles, relevance scores are pre-computed.
+        For other sources, our relevance scoring applies to filter irrelevant articles.
 
         Args:
             raw_data: Raw news data from fetch_data()
@@ -811,8 +631,8 @@ class NewsAgent(BaseAgent):
         # Score and filter articles for relevance
         scored_articles = []
         for article in articles:
-            # AV articles already have relevance_score from the API
-            if data_source == "alpha_vantage" and "relevance_score" in article:
+            # Tavily and OpenBB articles already have relevance_score pre-set
+            if data_source in ("alpha_vantage", "openbb", "tavily") and "relevance_score" in article:
                 scored_articles.append(article)
             else:
                 relevance = self._score_article_relevance(article, company_info)

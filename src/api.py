@@ -33,8 +33,7 @@ from .models import (
 from .orchestrator import Orchestrator
 from .config import Config
 from .database import DatabaseManager
-from .av_rate_limiter import AVRateLimiter
-from .av_cache import AVCache
+from .data_provider import OpenBBDataProvider
 from .rollout_metrics import compute_phase7_rollout_status
 from .portfolio_engine import PortfolioEngine
 
@@ -54,8 +53,7 @@ async def lifespan(app):
         from .scheduler import AnalysisScheduler
         scheduler = AnalysisScheduler(
             db_manager=db_manager,
-            rate_limiter=av_rate_limiter,
-            av_cache=av_cache,
+            data_provider=data_provider,
         )
         app.state.scheduler = scheduler
         await scheduler.start()
@@ -85,12 +83,12 @@ app.add_middleware(
 # Initialize database
 db_manager = DatabaseManager(Config.DATABASE_PATH)
 
-# Initialize shared AV infrastructure (persists across requests)
-av_rate_limiter = AVRateLimiter(
-    requests_per_minute=Config.AV_RATE_LIMIT_PER_MINUTE,
-    requests_per_day=Config.AV_RATE_LIMIT_PER_DAY,
-)
-av_cache = AVCache()
+# Initialize shared data provider (persists across requests)
+data_provider = OpenBBDataProvider({
+    attr: getattr(Config, attr)
+    for attr in dir(Config)
+    if not attr.startswith('_') and not callable(getattr(Config, attr))
+})
 
 
 @app.get("/")
@@ -186,8 +184,7 @@ async def batch_analyze_tickers(body: BatchAnalysisRequest):
             async with semaphore:
                 orchestrator = Orchestrator(
                     db_manager=db_manager,
-                    rate_limiter=av_rate_limiter,
-                    av_cache=av_cache,
+                    data_provider=data_provider,
                 )
                 result = await orchestrator.analyze_ticker(ticker, requested_agents=requested_agents)
                 return {
@@ -267,8 +264,7 @@ async def analyze_ticker(
     orchestrator = Orchestrator(
         db_manager=db_manager,
         progress_callback=None,
-        rate_limiter=av_rate_limiter,
-        av_cache=av_cache,
+        data_provider=data_provider,
     )
 
     try:
@@ -753,8 +749,7 @@ async def analyze_watchlist(
             async with semaphore:
                 orchestrator = Orchestrator(
                     db_manager=db_manager,
-                    rate_limiter=av_rate_limiter,
-                    av_cache=av_cache,
+                    data_provider=data_provider,
                 )
                 result = await orchestrator.analyze_ticker(ticker, requested_agents=requested_agents)
                 return {
@@ -1377,8 +1372,7 @@ async def analyze_ticker_stream(
         orchestrator = Orchestrator(
             db_manager=db_manager,
             progress_callback=progress_callback,
-            rate_limiter=av_rate_limiter,
-            av_cache=av_cache,
+            data_provider=data_provider,
         )
 
         async def run_analysis():

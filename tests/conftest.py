@@ -7,8 +7,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from src.av_cache import AVCache
-from src.av_rate_limiter import AVRateLimiter
 from src.database import DatabaseManager
 
 
@@ -27,151 +25,22 @@ def db_manager(tmp_db_path):
     return DatabaseManager(tmp_db_path)
 
 
-# ─── AV Infrastructure Fixtures ───
+# ─── Data Provider Fixtures ───
 
 
 @pytest.fixture
-def av_cache():
-    """Create a fresh AVCache instance."""
-    return AVCache()
-
-
-@pytest.fixture
-def av_rate_limiter():
-    """Create an AVRateLimiter with generous limits for testing."""
-    return AVRateLimiter(requests_per_minute=100, requests_per_day=1000)
-
-
-@pytest.fixture
-def exhausted_rate_limiter():
-    """Create an AVRateLimiter that is already daily-exhausted."""
-    return AVRateLimiter(requests_per_minute=5, requests_per_day=0)
-
-
-# ─── Mock AV Response Factories ───
-
-
-@pytest.fixture
-def av_global_quote_response():
-    """Sample GLOBAL_QUOTE response from Alpha Vantage."""
-    return {
-        "Global Quote": {
-            "01. symbol": "AAPL",
-            "02. open": "182.3500",
-            "03. high": "183.5800",
-            "04. low": "181.9200",
-            "05. price": "183.1500",
-            "06. volume": "48425073",
-            "07. latest trading day": "2025-02-07",
-            "08. previous close": "182.3500",
-            "09. change": "0.8000",
-            "10. change percent": "0.4388%",
-        }
-    }
-
-
-@pytest.fixture
-def av_time_series_daily_response():
-    """Sample TIME_SERIES_DAILY response (3 days)."""
-    return {
-        "Meta Data": {
-            "1. Information": "Daily Prices",
-            "2. Symbol": "AAPL",
-        },
-        "Time Series (Daily)": {
-            "2025-02-07": {
-                "1. open": "182.35",
-                "2. high": "183.58",
-                "3. low": "181.92",
-                "4. close": "183.15",
-                "5. volume": "48425073",
-            },
-            "2025-02-06": {
-                "1. open": "181.00",
-                "2. high": "182.50",
-                "3. low": "180.50",
-                "4. close": "182.35",
-                "5. volume": "42000000",
-            },
-            "2025-02-05": {
-                "1. open": "180.00",
-                "2. high": "181.20",
-                "3. low": "179.80",
-                "4. close": "181.00",
-                "5. volume": "39000000",
-            },
-        },
-    }
-
-
-@pytest.fixture
-def av_news_sentiment_response():
-    """Sample NEWS_SENTIMENT response."""
-    return {
-        "items": "3",
-        "sentiment_score_definition": "...",
-        "feed": [
-            {
-                "title": "Apple Reports Record Revenue",
-                "url": "https://example.com/article1",
-                "time_published": "20250207T120000",
-                "authors": ["Jane Doe"],
-                "summary": "Apple posted record quarterly revenue.",
-                "source": "Reuters",
-                "overall_sentiment_score": 0.35,
-                "overall_sentiment_label": "Bullish",
-                "ticker_sentiment": [
-                    {
-                        "ticker": "AAPL",
-                        "relevance_score": "0.95",
-                        "ticker_sentiment_score": "0.42",
-                        "ticker_sentiment_label": "Bullish",
-                    }
-                ],
-            },
-        ],
-    }
-
-
-@pytest.fixture
-def av_rsi_response():
-    """Sample RSI technical indicator response."""
-    return {
-        "Meta Data": {"2: Indicator": "Relative Strength Index (RSI)"},
-        "Technical Analysis: RSI": {
-            "2025-02-07": {"RSI": "62.5"},
-            "2025-02-06": {"RSI": "60.1"},
-        },
-    }
-
-
-@pytest.fixture
-def av_company_overview_response():
-    """Sample COMPANY_OVERVIEW response."""
-    return {
-        "Symbol": "AAPL",
-        "Name": "Apple Inc",
-        "MarketCapitalization": "2800000000000",
-        "PERatio": "28.5",
-        "EPS": "6.42",
-        "DividendYield": "0.005",
-        "RevenueTTM": "383000000000",
-        "ProfitMargin": "0.265",
-        "52WeekHigh": "199.62",
-        "52WeekLow": "164.08",
-    }
-
-
-@pytest.fixture
-def av_macro_fed_funds_response():
-    """Sample FEDERAL_FUNDS_RATE response."""
-    return {
-        "name": "Federal Funds Effective Rate",
-        "data": [
-            {"date": "2025-01-01", "value": "4.33"},
-            {"date": "2024-12-01", "value": "4.33"},
-        ],
-    }
+def mock_data_provider():
+    """Create a mock OpenBBDataProvider for testing."""
+    provider = MagicMock()
+    # Make async methods return AsyncMock
+    provider.get_quote = AsyncMock(return_value={})
+    provider.get_price_history = AsyncMock(return_value={})
+    provider.get_company_overview = AsyncMock(return_value={})
+    provider.get_news = AsyncMock(return_value={})
+    provider.get_technical_indicators = AsyncMock(return_value={})
+    provider.get_options_chain = AsyncMock(return_value={})
+    provider.get_macro_data = AsyncMock(return_value={})
+    return provider
 
 
 # ─── Mock LLM Response Fixtures ───
@@ -222,7 +91,6 @@ def mock_llm_solution_response():
 def test_config():
     """Configuration dictionary suitable for testing (no real API keys)."""
     return {
-        "ALPHA_VANTAGE_API_KEY": "test_av_key",
         "NEWS_API_KEY": "test_news_key",
         "AGENT_TIMEOUT": 10,
         "AGENT_MAX_RETRIES": 1,
@@ -254,8 +122,6 @@ def test_config():
         "SCHEDULED_PORTFOLIO_OPTIMIZER_V2_ENABLED": True,
         "SCHEDULED_ALERTS_V2_ENABLED": True,
         "FUNDAMENTALS_LLM_ENABLED": False,
-        "AV_RATE_LIMIT_PER_MINUTE": 100,
-        "AV_RATE_LIMIT_PER_DAY": 1000,
         "DATABASE_PATH": ":memory:",
         "YFINANCE_TIMEOUT": 5,
         "RSI_PERIOD": 14,
@@ -266,7 +132,6 @@ def test_config():
         "BB_STD": 2,
         "SEC_EDGAR_USER_AGENT": "Test/1.0",
         "SEC_EDGAR_BASE_URL": "https://data.sec.gov/api/xbrl",
-        "ALPHA_VANTAGE_BASE_URL": "https://www.alphavantage.co/query",
         "NEWS_API_BASE_URL": "https://newsapi.org/v2",
         "llm_config": {
             "provider": "anthropic",
@@ -282,13 +147,12 @@ def test_config():
 
 
 @pytest.fixture
-def make_agent(test_config, av_cache, av_rate_limiter):
+def make_agent(test_config, mock_data_provider):
     """Factory to create an agent with injected test infrastructure."""
 
     def _make(agent_class, ticker="AAPL"):
         agent = agent_class(ticker, test_config)
-        agent._av_cache = av_cache
-        agent._rate_limiter = av_rate_limiter
+        agent._data_provider = mock_data_provider
         agent._shared_session = None  # Tests should use aioresponses or mock
         return agent
 

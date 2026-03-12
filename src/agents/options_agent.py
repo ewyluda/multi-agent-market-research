@@ -1,6 +1,5 @@
 """Options flow agent for analyzing options market data and unusual activity."""
 
-import asyncio
 import yfinance as yf
 from typing import Dict, Any, Optional, List
 from .base_agent import BaseAgent
@@ -10,7 +9,7 @@ class OptionsAgent(BaseAgent):
     """Agent for fetching and analyzing options chain data.
 
     Data source priority:
-        1. Alpha Vantage API (REALTIME_OPTIONS + HISTORICAL_OPTIONS)
+        1. OpenBB data provider (via self._data_provider)
         2. yfinance (fallback)
 
     Analyzes:
@@ -20,66 +19,6 @@ class OptionsAgent(BaseAgent):
         - Implied volatility distribution
         - Near-term expiry summaries
     """
-
-    # ──────────────────────────────────────────────
-    # Alpha Vantage Data Fetching
-    # ──────────────────────────────────────────────
-
-    async def _fetch_av_realtime_options(self) -> Optional[Dict[str, Any]]:
-        """
-        Fetch realtime options chain from Alpha Vantage REALTIME_OPTIONS.
-
-        Returns:
-            Dict with options chain data, or None
-        """
-        data = await self._av_request({
-            "function": "REALTIME_OPTIONS",
-            "symbol": self.ticker,
-            "require_greeks": "true",
-            "datatype": "json",
-        })
-        if not data:
-            return None
-
-        # Check for premium endpoint error
-        if "message" in data and "premium" in data.get("message", "").lower():
-            self.logger.info(f"REALTIME_OPTIONS is a premium endpoint for {self.ticker}")
-            return None
-
-        contracts = data.get("data", [])
-        if not contracts:
-            return None
-
-        return {"contracts": contracts, "source": "realtime"}
-
-    async def _fetch_av_historical_options(self) -> Optional[Dict[str, Any]]:
-        """
-        Fetch historical options chain from Alpha Vantage HISTORICAL_OPTIONS.
-
-        Returns:
-            Dict with options chain data, or None
-        """
-        data = await self._av_request({
-            "function": "HISTORICAL_OPTIONS",
-            "symbol": self.ticker,
-            "datatype": "json",
-        })
-        if not data:
-            return None
-
-        # Check for premium endpoint error
-        if "Information" in data and "premium" in data.get("Information", "").lower():
-            self.logger.info(f"HISTORICAL_OPTIONS is a premium endpoint for {self.ticker}")
-            return None
-        if "message" in data and "premium" in data.get("message", "").lower():
-            self.logger.info(f"HISTORICAL_OPTIONS is a premium endpoint for {self.ticker}")
-            return None
-
-        contracts = data.get("data", [])
-        if not contracts:
-            return None
-
-        return {"contracts": contracts, "source": "historical"}
 
     # ──────────────────────────────────────────────
     # yfinance Fallback
@@ -128,7 +67,7 @@ class OptionsAgent(BaseAgent):
         return {"contracts": all_contracts, "source": "yfinance"}
 
     def _normalize_yf_contract(self, row, option_type: str, expiration: str) -> Dict[str, Any]:
-        """Normalize a yfinance option row to match AV schema."""
+        """Normalize a yfinance option row to match standard schema."""
         return {
             "contractID": str(row.get("contractSymbol", "")),
             "symbol": self.ticker,
@@ -145,49 +84,38 @@ class OptionsAgent(BaseAgent):
         }
 
     # ──────────────────────────────────────────────
-    # Data Fetching (AV first, yfinance fallback)
+    # Data Fetching (OpenBB first, yfinance fallback)
     # ──────────────────────────────────────────────
 
     async def fetch_data(self) -> Dict[str, Any]:
         """
-        Fetch options chain data. Tries Alpha Vantage first, falls back to yfinance.
+        Fetch options chain data. Tries OpenBB data provider first, falls back to yfinance.
 
         Returns:
             Dictionary with options chain contracts and source
         """
         result = {"ticker": self.ticker, "source": "unknown"}
 
-        # ── Try Alpha Vantage first ──
-        av_api_key = self.config.get("ALPHA_VANTAGE_API_KEY", "")
-        if av_api_key:
-            self.logger.info(f"Fetching {self.ticker} options data from Alpha Vantage (primary)")
-
-            # Try realtime first, then historical
-            av_realtime, av_historical = await asyncio.gather(
-                self._fetch_av_realtime_options(),
-                self._fetch_av_historical_options(),
-                return_exceptions=True,
-            )
-
-            if isinstance(av_realtime, Exception):
-                self.logger.warning(f"Alpha Vantage realtime options fetch raised: {av_realtime}")
-                av_realtime = None
-            if isinstance(av_historical, Exception):
-                self.logger.warning(f"Alpha Vantage historical options fetch raised: {av_historical}")
-                av_historical = None
-
-            # Prefer realtime, fall back to historical
-            av_data = av_realtime or av_historical
-            if av_data and av_data.get("contracts"):
-                self.logger.info(
-                    f"Alpha Vantage returned {len(av_data['contracts'])} option contracts for {self.ticker}"
-                )
-                result["source"] = "alpha_vantage"
-                result["contracts"] = av_data["contracts"]
-                result["av_source_type"] = av_data.get("source", "unknown")
-                return result
-            else:
-                self.logger.info(f"Alpha Vantage options incomplete for {self.ticker}, falling back to yfinance")
+        # ── Try OpenBB data provider first ──
+        if self._data_provider is not None:
+            self.logger.info(f"Fetching {self.ticker} options data from OpenBB data provider (primary)")
+            try:
+                provider_data = await self._data_provider.get_options_chain(self.ticker)
+                if provider_data and provider_data.get("contracts"):
+                    self.logger.info(
+                        f"OpenBB returned {len(provider_data['contracts'])} option contracts for {self.ticker}"
+                    )
+                    result["source"] = provider_data.get("data_source", "openbb")
+                    result["contracts"] = provider_data["contracts"]
+                    if provider_data.get("expirations"):
+                        result["expirations"] = provider_data["expirations"]
+                    if provider_data.get("put_call_ratio") is not None:
+                        result["provider_put_call_ratio"] = provider_data["put_call_ratio"]
+                    return result
+                else:
+                    self.logger.info(f"OpenBB options data incomplete for {self.ticker}, falling back to yfinance")
+            except Exception as e:
+                self.logger.warning(f"OpenBB options fetch failed for {self.ticker}: {e}, falling back to yfinance")
 
         # ── Fallback to yfinance ──
         self.logger.info(f"Fetching {self.ticker} options data from yfinance (fallback)")
@@ -213,7 +141,7 @@ class OptionsAgent(BaseAgent):
         Analyze options chain data for unusual activity and market signals.
 
         Args:
-            raw_data: Raw options chain data from AV or yfinance
+            raw_data: Raw options chain data from OpenBB or yfinance
 
         Returns:
             Options analysis with P/C ratios, unusual activity, and signals

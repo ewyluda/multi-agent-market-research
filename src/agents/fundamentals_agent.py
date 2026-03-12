@@ -16,7 +16,7 @@ class FundamentalsAgent(BaseAgent):
     """Agent for fetching and analyzing fundamental company data.
 
     Data source priority:
-        1. Alpha Vantage API (COMPANY_OVERVIEW, INCOME_STATEMENT, BALANCE_SHEET, CASH_FLOW, EARNINGS)
+        1. OpenBB Platform (company overview, financials, earnings via self._data_provider)
         2. yfinance + SEC EDGAR (fallback)
     """
 
@@ -39,290 +39,6 @@ class FundamentalsAgent(BaseAgent):
     GROSS_PROFIT_TAGS = [
         "GrossProfit",
     ]
-
-    # ──────────────────────────────────────────────
-    # Alpha Vantage Data Fetching
-    # ──────────────────────────────────────────────
-
-    async def _fetch_av_overview(self) -> Optional[Dict[str, Any]]:
-        """
-        Fetch company overview from Alpha Vantage COMPANY_OVERVIEW.
-
-        Returns:
-            Dict with company info mapped to yfinance-compatible keys, or None
-        """
-        data = await self._av_request({
-            "function": "COMPANY_OVERVIEW",
-            "symbol": self.ticker,
-        })
-        if not data or "Symbol" not in data:
-            return None
-
-        def _float(key, default=None):
-            val = data.get(key)
-            if val is None or val == "None" or val == "-":
-                return default
-            try:
-                return float(val)
-            except (ValueError, TypeError):
-                return default
-
-        def _int(key, default=None):
-            val = data.get(key)
-            if val is None or val == "None" or val == "-":
-                return default
-            try:
-                return int(val)
-            except (ValueError, TypeError):
-                return default
-
-        # Analyst rating counts (AV provides distribution, not a single recommendation)
-        strong_buy = _int("AnalystRatingStrongBuy", 0)
-        buy = _int("AnalystRatingBuy", 0)
-        hold = _int("AnalystRatingHold", 0)
-        sell = _int("AnalystRatingSell", 0)
-        strong_sell = _int("AnalystRatingStrongSell", 0)
-
-        analyst_total = strong_buy + buy + hold + sell + strong_sell
-        analyst_recommendation = None
-        if analyst_total > 0:
-            ratings = {
-                "strong_buy": strong_buy,
-                "buy": buy,
-                "hold": hold,
-                "sell": sell,
-                "strong_sell": strong_sell,
-            }
-            max_count = max(ratings.values())
-            top = [k for k, v in ratings.items() if v == max_count and v > 0]
-            if len(top) == 1:
-                analyst_recommendation = top[0]
-            elif "hold" in top:
-                analyst_recommendation = "hold"
-            else:
-                analyst_recommendation = top[0]
-
-        # Map AV fields to yfinance-compatible dict keys
-        return {
-            "longName": data.get("Name", ""),
-            "sector": data.get("Sector", ""),
-            "industry": data.get("Industry", ""),
-            "marketCap": _int("MarketCapitalization"),
-            "enterpriseValue": None,  # Not in AV overview
-            "trailingPE": _float("TrailingPE"),
-            "forwardPE": _float("ForwardPE"),
-            "pegRatio": _float("PEGRatio"),
-            "priceToBook": _float("PriceToBookRatio"),
-            "priceToSalesTrailing12Months": _float("PriceToSalesRatioTTM"),
-            "profitMargins": _float("ProfitMargin"),
-            "operatingMargins": _float("OperatingMarginTTM"),
-            "returnOnAssets": _float("ReturnOnAssetsTTM"),
-            "returnOnEquity": _float("ReturnOnEquityTTM"),
-            "dividendYield": _float("DividendYield"),
-            "dividendRate": _float("DividendPerShare"),
-            "payoutRatio": _float("PayoutRatio"),
-            "revenueGrowth": _float("QuarterlyRevenueGrowthYOY"),
-            "earningsGrowth": _float("QuarterlyEarningsGrowthYOY"),
-            "trailingEps": _float("EPS"),
-            "forwardEps": None,  # Not in AV overview
-            "targetHighPrice": _float("AnalystTargetPrice"),
-            "targetLowPrice": None,
-            "targetMeanPrice": _float("AnalystTargetPrice"),
-            "targetMedianPrice": None,
-            "recommendationKey": analyst_recommendation,
-            "numberOfAnalystOpinions": analyst_total if analyst_total > 0 else None,
-            "currentRatio": None,  # Comes from balance sheet
-            "debtToEquity": None,  # Comes from balance sheet
-            "quickRatio": None,
-            "freeCashflow": None,  # Comes from cash flow
-            "operatingCashflow": None,  # Comes from cash flow
-            "beta": _float("Beta"),
-            "52WeekHigh": _float("52WeekHigh"),
-            "52WeekLow": _float("52WeekLow"),
-            "50DayMovingAverage": _float("50DayMovingAverage"),
-            "200DayMovingAverage": _float("200DayMovingAverage"),
-        }
-
-    async def _fetch_av_earnings(self) -> Optional[Dict[str, Any]]:
-        """
-        Fetch earnings data from Alpha Vantage EARNINGS endpoint.
-
-        Returns:
-            Dict with quarterly earnings including beat/miss data, or None
-        """
-        data = await self._av_request({
-            "function": "EARNINGS",
-            "symbol": self.ticker,
-        })
-        if not data or "quarterlyEarnings" not in data:
-            return None
-
-        quarterly = data.get("quarterlyEarnings", [])
-        annual = data.get("annualEarnings", [])
-
-        # Parse quarterly earnings with beat/miss data
-        parsed_quarterly = []
-        for q in quarterly[:12]:  # Last 12 quarters
-            try:
-                reported = q.get("reportedEPS")
-                estimated = q.get("estimatedEPS")
-                surprise = q.get("surprise")
-                surprise_pct = q.get("surprisePercentage")
-
-                parsed_quarterly.append({
-                    "fiscalDateEnding": q.get("fiscalDateEnding", ""),
-                    "reportedEPS": float(reported) if reported and reported != "None" else None,
-                    "estimatedEPS": float(estimated) if estimated and estimated != "None" else None,
-                    "surprise": float(surprise) if surprise and surprise != "None" else None,
-                    "surprisePercentage": float(surprise_pct) if surprise_pct and surprise_pct != "None" else None,
-                })
-            except (ValueError, TypeError):
-                continue
-
-        return {
-            "quarterlyEarnings": parsed_quarterly,
-            "annualEarnings": annual[:5],  # Last 5 years
-        }
-
-    async def _fetch_av_balance_sheet(self) -> Optional[Dict[str, Any]]:
-        """
-        Fetch balance sheet from Alpha Vantage BALANCE_SHEET endpoint.
-
-        Returns:
-            Dict with key balance sheet metrics, or None
-        """
-        data = await self._av_request({
-            "function": "BALANCE_SHEET",
-            "symbol": self.ticker,
-        })
-        if not data or "quarterlyReports" not in data:
-            return None
-
-        reports = data.get("quarterlyReports", [])
-        if not reports:
-            return None
-
-        latest = reports[0]
-
-        def _float(key):
-            val = latest.get(key)
-            if val is None or val == "None" or val == "-":
-                return None
-            try:
-                return float(val)
-            except (ValueError, TypeError):
-                return None
-
-        total_current_assets = _float("totalCurrentAssets")
-        total_current_liabilities = _float("totalCurrentLiabilities")
-        total_debt = _float("shortLongTermDebtTotal") or _float("longTermDebt")
-        total_equity = _float("totalShareholderEquity")
-        inventory = _float("inventory")
-
-        current_ratio = None
-        if total_current_assets and total_current_liabilities and total_current_liabilities != 0:
-            current_ratio = total_current_assets / total_current_liabilities
-
-        quick_ratio = None
-        if total_current_assets and inventory and total_current_liabilities and total_current_liabilities != 0:
-            quick_ratio = (total_current_assets - (inventory or 0)) / total_current_liabilities
-
-        debt_to_equity = None
-        if total_debt and total_equity and total_equity != 0:
-            debt_to_equity = (total_debt / total_equity) * 100  # yfinance format is percentage
-
-        return {
-            "currentRatio": current_ratio,
-            "quickRatio": quick_ratio,
-            "debtToEquity": debt_to_equity,
-            "totalCurrentAssets": total_current_assets,
-            "totalCurrentLiabilities": total_current_liabilities,
-            "totalDebt": total_debt,
-            "totalEquity": total_equity,
-        }
-
-    async def _fetch_av_cash_flow(self) -> Optional[Dict[str, Any]]:
-        """
-        Fetch cash flow from Alpha Vantage CASH_FLOW endpoint.
-
-        Returns:
-            Dict with key cash flow metrics, or None
-        """
-        data = await self._av_request({
-            "function": "CASH_FLOW",
-            "symbol": self.ticker,
-        })
-        if not data or "quarterlyReports" not in data:
-            return None
-
-        reports = data.get("quarterlyReports", [])
-        if not reports:
-            return None
-
-        # Sum last 4 quarters for TTM values
-        operating_cf_ttm = 0
-        capex_ttm = 0
-        quarters_counted = 0
-
-        for report in reports[:4]:
-            try:
-                ocf = report.get("operatingCashflow")
-                capex = report.get("capitalExpenditures")
-
-                if ocf and ocf != "None":
-                    operating_cf_ttm += float(ocf)
-                if capex and capex != "None":
-                    capex_ttm += float(capex)
-                quarters_counted += 1
-            except (ValueError, TypeError):
-                continue
-
-        if quarters_counted == 0:
-            return None
-
-        return {
-            "operatingCashflow": operating_cf_ttm,
-            "freeCashflow": operating_cf_ttm - capex_ttm,
-            "capitalExpenditures": capex_ttm,
-            "quartersIncluded": quarters_counted,
-        }
-
-    async def _fetch_av_income_statement(self) -> Optional[List[Dict]]:
-        """
-        Fetch income statement from Alpha Vantage INCOME_STATEMENT endpoint.
-
-        Returns:
-            List of quarterly income statement records, or None
-        """
-        data = await self._av_request({
-            "function": "INCOME_STATEMENT",
-            "symbol": self.ticker,
-        })
-        if not data or "quarterlyReports" not in data:
-            return None
-
-        reports = data.get("quarterlyReports", [])
-        parsed = []
-        for report in reports[:8]:  # Last 8 quarters
-            def _float(key):
-                val = report.get(key)
-                if val is None or val == "None" or val == "-":
-                    return None
-                try:
-                    return float(val)
-                except (ValueError, TypeError):
-                    return None
-
-            parsed.append({
-                "fiscalDateEnding": report.get("fiscalDateEnding", ""),
-                "totalRevenue": _float("totalRevenue"),
-                "grossProfit": _float("grossProfit"),
-                "operatingIncome": _float("operatingIncome"),
-                "netIncome": _float("netIncome"),
-                "ebitda": _float("ebitda"),
-            })
-
-        return parsed if parsed else None
 
     # ──────────────────────────────────────────────
     # Tavily Context Integration (Phase 2)
@@ -376,7 +92,7 @@ class FundamentalsAgent(BaseAgent):
 
     async def fetch_data(self) -> Dict[str, Any]:
         """
-        Fetch fundamental data. Tries Alpha Vantage first, falls back to yfinance + SEC EDGAR.
+        Fetch fundamental data. Tries OpenBB data provider first, falls back to yfinance + SEC EDGAR.
         Also fetches Tavily context for recent developments (Phase 2).
 
         Returns:
@@ -384,49 +100,106 @@ class FundamentalsAgent(BaseAgent):
         """
         result = {"ticker": self.ticker, "source": "unknown"}
 
-        # ── Try Alpha Vantage first ──
-        av_api_key = self.config.get("ALPHA_VANTAGE_API_KEY", "")
-        if av_api_key:
-            self.logger.info(f"Fetching {self.ticker} fundamentals from Alpha Vantage (primary)")
+        # ── Try OpenBB data provider first ──
+        data_provider = getattr(self, "_data_provider", None)
+        if data_provider is not None:
+            self.logger.info(f"Fetching {self.ticker} fundamentals from OpenBB data provider (primary)")
 
-            # Fetch all AV endpoints concurrently
-            av_overview, av_earnings, av_balance, av_cashflow, av_income = await asyncio.gather(
-                self._fetch_av_overview(),
-                self._fetch_av_earnings(),
-                self._fetch_av_balance_sheet(),
-                self._fetch_av_cash_flow(),
-                self._fetch_av_income_statement(),
+            # Fetch all OpenBB endpoints concurrently
+            obb_overview, obb_financials, obb_earnings = await asyncio.gather(
+                data_provider.get_company_overview(self.ticker),
+                data_provider.get_financials(self.ticker),
+                data_provider.get_earnings(self.ticker),
                 return_exceptions=True,
             )
 
             # Handle exceptions from gather
-            for name, val in [("overview", av_overview), ("earnings", av_earnings),
-                              ("balance", av_balance), ("cashflow", av_cashflow),
-                              ("income", av_income)]:
+            for name, val in [("overview", obb_overview), ("financials", obb_financials),
+                              ("earnings", obb_earnings)]:
                 if isinstance(val, Exception):
-                    self.logger.warning(f"Alpha Vantage {name} fetch raised: {val}")
+                    self.logger.warning(f"OpenBB {name} fetch raised: {val}")
 
-            av_overview = None if isinstance(av_overview, Exception) else av_overview
-            av_earnings = None if isinstance(av_earnings, Exception) else av_earnings
-            av_balance = None if isinstance(av_balance, Exception) else av_balance
-            av_cashflow = None if isinstance(av_cashflow, Exception) else av_cashflow
-            av_income = None if isinstance(av_income, Exception) else av_income
+            obb_overview = None if isinstance(obb_overview, Exception) else obb_overview
+            obb_financials = None if isinstance(obb_financials, Exception) else obb_financials
+            obb_earnings = None if isinstance(obb_earnings, Exception) else obb_earnings
 
-            # We need at least the overview to use AV as primary
-            if av_overview:
-                self.logger.info(f"Alpha Vantage fundamentals retrieved for {self.ticker}")
+            # We need at least the overview to use OpenBB as primary
+            if obb_overview:
+                self.logger.info(f"OpenBB fundamentals retrieved for {self.ticker}")
 
-                result["source"] = "alpha_vantage"
+                result["source"] = "openbb"
 
-                # Merge balance sheet and cash flow metrics into info
-                info = av_overview
-                if av_balance:
-                    info["currentRatio"] = av_balance.get("currentRatio")
-                    info["quickRatio"] = av_balance.get("quickRatio")
-                    info["debtToEquity"] = av_balance.get("debtToEquity")
-                if av_cashflow:
-                    info["freeCashflow"] = av_cashflow.get("freeCashflow")
-                    info["operatingCashflow"] = av_cashflow.get("operatingCashflow")
+                # Map OpenBB keys to yfinance-compatible format expected by analyze()
+                info = {
+                    "longName": obb_overview.get("longName", ""),
+                    "sector": obb_overview.get("sector", ""),
+                    "industry": obb_overview.get("industry", ""),
+                    "marketCap": obb_overview.get("marketCap"),
+                    "enterpriseValue": obb_overview.get("enterpriseValue"),
+                    "trailingPE": obb_overview.get("PE") or obb_overview.get("trailingPE"),
+                    "forwardPE": obb_overview.get("forwardPE"),
+                    "pegRatio": obb_overview.get("pegRatio"),
+                    "priceToBook": obb_overview.get("PB") or obb_overview.get("priceToBook"),
+                    "priceToSalesTrailing12Months": obb_overview.get("priceToSalesTrailing12Months"),
+                    "profitMargins": obb_overview.get("profitMargin") or obb_overview.get("profitMargins"),
+                    "operatingMargins": obb_overview.get("operatingMargin") or obb_overview.get("operatingMargins"),
+                    "returnOnAssets": obb_overview.get("returnOnAssets"),
+                    "returnOnEquity": obb_overview.get("ROE") or obb_overview.get("returnOnEquity"),
+                    "dividendYield": obb_overview.get("dividendYield"),
+                    "dividendRate": obb_overview.get("dividendRate"),
+                    "payoutRatio": obb_overview.get("payoutRatio"),
+                    "revenueGrowth": obb_overview.get("revenueGrowth"),
+                    "earningsGrowth": obb_overview.get("earningsGrowth"),
+                    "trailingEps": obb_overview.get("trailingEps"),
+                    "forwardEps": obb_overview.get("forwardEps"),
+                    "targetHighPrice": obb_overview.get("targetHighPrice"),
+                    "targetLowPrice": obb_overview.get("targetLowPrice"),
+                    "targetMeanPrice": obb_overview.get("targetMeanPrice"),
+                    "targetMedianPrice": obb_overview.get("targetMedianPrice"),
+                    "recommendationKey": obb_overview.get("recommendationKey"),
+                    "numberOfAnalystOpinions": obb_overview.get("numberOfAnalystOpinions"),
+                    "beta": obb_overview.get("beta"),
+                    "debtToEquity": obb_overview.get("debtToEquity"),
+                    "currentRatio": None,
+                    "quickRatio": None,
+                    "freeCashflow": None,
+                    "operatingCashflow": None,
+                }
+
+                # Merge financial ratios from financials data if available
+                if obb_financials:
+                    # Extract balance sheet ratios from latest record
+                    balance_records = obb_financials.get("balance_sheet", [])
+                    if balance_records:
+                        latest_bs = balance_records[0]
+                        total_current_assets = latest_bs.get("total_current_assets")
+                        total_current_liabilities = latest_bs.get("total_current_liabilities")
+                        if total_current_assets and total_current_liabilities and total_current_liabilities != 0:
+                            info["currentRatio"] = total_current_assets / total_current_liabilities
+
+                    # Extract cash flow metrics from latest records (TTM from last 4 quarters)
+                    cf_records = obb_financials.get("cash_flow", [])
+                    if cf_records:
+                        operating_cf_ttm = 0
+                        capex_ttm = 0
+                        quarters_counted = 0
+                        for cf in cf_records[:4]:
+                            ocf = cf.get("operating_cash_flow") or cf.get("net_cash_from_operating_activities")
+                            capex = cf.get("capital_expenditure") or cf.get("capital_expenditures")
+                            if ocf is not None:
+                                try:
+                                    operating_cf_ttm += float(ocf)
+                                    quarters_counted += 1
+                                except (ValueError, TypeError):
+                                    pass
+                            if capex is not None:
+                                try:
+                                    capex_ttm += float(capex)
+                                except (ValueError, TypeError):
+                                    pass
+                        if quarters_counted > 0:
+                            info["operatingCashflow"] = operating_cf_ttm
+                            info["freeCashflow"] = operating_cf_ttm - abs(capex_ttm)
 
                 result["info"] = info
 
@@ -435,32 +208,55 @@ class FundamentalsAgent(BaseAgent):
                 result["earnings_dates_df"] = None
                 result["quarterly_earnings"] = []
 
-                if av_earnings:
-                    quarterly = av_earnings.get("quarterlyEarnings", [])
-                    # Build earnings_dates-compatible records for beat/miss analysis
-                    import pandas as pd
-                    earnings_records = []
-                    for q in quarterly:
-                        earnings_records.append({
-                            "Reported EPS": q.get("reportedEPS"),
-                            "EPS Estimate": q.get("estimatedEPS"),
-                        })
-                    if earnings_records:
-                        result["earnings_dates_df"] = pd.DataFrame(earnings_records)
-                        result["earnings_dates"] = earnings_records
+                if obb_earnings:
+                    eps_history = obb_earnings.get("eps_history", [])
+                    if eps_history:
+                        import pandas as pd
+                        earnings_records = []
+                        for record in eps_history:
+                            reported = record.get("actual_eps") or record.get("eps_actual")
+                            estimated = record.get("estimated_eps") or record.get("eps_estimated")
+                            earnings_records.append({
+                                "Reported EPS": reported,
+                                "EPS Estimate": estimated,
+                            })
+                        if earnings_records:
+                            result["earnings_dates_df"] = pd.DataFrame(earnings_records)
+                            result["earnings_dates"] = earnings_records
 
-                    # Build quarterly_earnings-compatible records
-                    for q in quarterly:
-                        result["quarterly_earnings"].append({
-                            "Earnings": q.get("reportedEPS"),
-                            "Revenue": None,
-                            "fiscalDateEnding": q.get("fiscalDateEnding"),
-                        })
+                        # Build quarterly_earnings-compatible records
+                        for record in eps_history:
+                            reported = record.get("actual_eps") or record.get("eps_actual")
+                            revenue = record.get("revenue") or record.get("revenue_actual")
+                            fiscal_date = record.get("date") or record.get("fiscal_date_ending", "")
+                            result["quarterly_earnings"].append({
+                                "Earnings": reported,
+                                "Revenue": revenue,
+                                "fiscalDateEnding": str(fiscal_date),
+                            })
 
-                # Store income statement for revenue trend analysis
-                result["av_income_statement"] = av_income
+                # Store income statement records for revenue trend analysis
+                if obb_financials:
+                    income_records = obb_financials.get("income_statement", [])
+                    if income_records:
+                        # Map to the format analyze() expects for av_income_statement
+                        parsed_income = []
+                        for record in income_records[:8]:
+                            parsed_income.append({
+                                "fiscalDateEnding": str(record.get("date") or record.get("period_ending", "")),
+                                "totalRevenue": record.get("revenue") or record.get("total_revenue"),
+                                "grossProfit": record.get("gross_profit"),
+                                "operatingIncome": record.get("operating_income"),
+                                "netIncome": record.get("net_income"),
+                                "ebitda": record.get("ebitda"),
+                            })
+                        result["av_income_statement"] = parsed_income if parsed_income else None
+                    else:
+                        result["av_income_statement"] = None
+                else:
+                    result["av_income_statement"] = None
 
-                # Skip SEC EDGAR when AV provides data
+                # Skip SEC EDGAR when OpenBB provides data
                 result["sec_data"] = None
 
                 # Fetch Tavily context asynchronously (don't block)
@@ -472,7 +268,7 @@ class FundamentalsAgent(BaseAgent):
 
                 return result
             else:
-                self.logger.info(f"Alpha Vantage overview incomplete for {self.ticker}, falling back to yfinance + SEC EDGAR")
+                self.logger.info(f"OpenBB overview incomplete for {self.ticker}, falling back to yfinance + SEC EDGAR")
 
         # ── Fallback to yfinance + SEC EDGAR ──
         self.logger.info(f"Fetching {self.ticker} fundamentals from yfinance + SEC EDGAR (fallback)")
@@ -613,7 +409,7 @@ class FundamentalsAgent(BaseAgent):
             if revenue_history:
                 analysis["revenue_trend"] = self._analyze_revenue_trend(revenue_history)
 
-        # Parse Alpha Vantage income statement for revenue trends (when AV is primary)
+        # Parse income statement for revenue trends (when OpenBB or AV is primary)
         av_income = raw_data.get("av_income_statement")
         if av_income and not analysis.get("revenue_trend"):
             revenue_history = []

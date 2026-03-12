@@ -289,31 +289,30 @@ class TestOptionsAgentAnalyze:
 
 
 class TestOptionsAgentFetchData:
-    """Tests for OptionsAgent.fetch_data() — AV primary with yfinance fallback."""
+    """Tests for OptionsAgent.fetch_data() — OpenBB primary with yfinance fallback."""
 
-    async def test_fetch_data_av_primary(self, make_agent, av_realtime_options_response):
-        """When AV returns data, source is 'alpha_vantage' and contracts are populated."""
+    async def test_fetch_data_openbb_primary(self, make_agent):
+        """When OpenBB data provider returns data, source reflects provider and contracts are populated."""
         agent = make_agent(OptionsAgent, "AAPL")
 
-        with patch.object(
-            agent, "_fetch_av_realtime_options", new_callable=AsyncMock
-        ) as mock_rt, patch.object(
-            agent, "_fetch_av_historical_options", new_callable=AsyncMock
-        ) as mock_hist:
-            mock_rt.return_value = {
-                "contracts": av_realtime_options_response["data"],
-                "source": "realtime",
-            }
-            mock_hist.return_value = None
+        openbb_contracts = [
+            {"contractID": f"OBB{i}", "type": "call", "strike": str(180 + i), "expiration": "2025-03-21",
+             "volume": "100", "open_interest": "50", "impliedVolatility": "0.30"}
+            for i in range(5)
+        ]
+        agent._data_provider = AsyncMock()
+        agent._data_provider.get_options_chain = AsyncMock(return_value={
+            "contracts": openbb_contracts,
+            "data_source": "openbb",
+        })
 
-            result = await agent.fetch_data()
+        result = await agent.fetch_data()
 
-        assert result["source"] == "alpha_vantage"
+        assert result["source"] == "openbb"
         assert len(result["contracts"]) == 5
-        assert result["av_source_type"] == "realtime"
 
-    async def test_fetch_data_av_fallback_to_yfinance(self, make_agent):
-        """When AV returns None for both endpoints, falls back to yfinance."""
+    async def test_fetch_data_openbb_fallback_to_yfinance(self, make_agent):
+        """When OpenBB returns None, falls back to yfinance."""
         agent = make_agent(OptionsAgent, "AAPL")
 
         yf_contracts = [
@@ -321,17 +320,13 @@ class TestOptionsAgentFetchData:
              "volume": "100", "open_interest": "50", "impliedVolatility": "0.30"},
         ]
 
+        agent._data_provider = AsyncMock()
+        agent._data_provider.get_options_chain = AsyncMock(return_value=None)
+
         with patch.object(
-            agent, "_fetch_av_realtime_options", new_callable=AsyncMock
-        ) as mock_rt, patch.object(
-            agent, "_fetch_av_historical_options", new_callable=AsyncMock
-        ) as mock_hist, patch.object(
             agent, "_fetch_yfinance_options", new_callable=AsyncMock
         ) as mock_yf:
-            mock_rt.return_value = None
-            mock_hist.return_value = None
             mock_yf.return_value = {"contracts": yf_contracts, "source": "yfinance"}
-
             result = await agent.fetch_data()
 
         assert result["source"] == "yfinance"
@@ -339,31 +334,25 @@ class TestOptionsAgentFetchData:
         mock_yf.assert_awaited_once()
 
     async def test_fetch_data_no_data_available(self, make_agent):
-        """When both AV and yfinance return nothing, source is 'none' with empty contracts."""
+        """When both OpenBB and yfinance return nothing, source is 'none' with empty contracts."""
         agent = make_agent(OptionsAgent, "AAPL")
 
+        agent._data_provider = AsyncMock()
+        agent._data_provider.get_options_chain = AsyncMock(return_value=None)
+
         with patch.object(
-            agent, "_fetch_av_realtime_options", new_callable=AsyncMock
-        ) as mock_rt, patch.object(
-            agent, "_fetch_av_historical_options", new_callable=AsyncMock
-        ) as mock_hist, patch.object(
             agent, "_fetch_yfinance_options", new_callable=AsyncMock
         ) as mock_yf:
-            mock_rt.return_value = None
-            mock_hist.return_value = None
             mock_yf.return_value = None
-
             result = await agent.fetch_data()
 
         assert result["source"] == "none"
         assert result["contracts"] == []
 
-    async def test_fetch_data_no_av_key(self, test_config, av_cache, av_rate_limiter):
-        """When ALPHA_VANTAGE_API_KEY is absent, skips AV and goes straight to yfinance."""
-        config_no_av = {**test_config, "ALPHA_VANTAGE_API_KEY": ""}
-        agent = OptionsAgent("AAPL", config_no_av)
-        agent._av_cache = av_cache
-        agent._rate_limiter = av_rate_limiter
+    async def test_fetch_data_no_data_provider(self, test_config):
+        """When no data provider, goes straight to yfinance."""
+        agent = OptionsAgent("AAPL", test_config)
+        agent._data_provider = None
         agent._shared_session = None
 
         yf_contracts = [
@@ -372,19 +361,11 @@ class TestOptionsAgentFetchData:
         ]
 
         with patch.object(
-            agent, "_fetch_av_realtime_options", new_callable=AsyncMock
-        ) as mock_rt, patch.object(
-            agent, "_fetch_av_historical_options", new_callable=AsyncMock
-        ) as mock_hist, patch.object(
             agent, "_fetch_yfinance_options", new_callable=AsyncMock
         ) as mock_yf:
             mock_yf.return_value = {"contracts": yf_contracts, "source": "yfinance"}
-
             result = await agent.fetch_data()
 
-        # AV endpoints should never be called when key is empty
-        mock_rt.assert_not_awaited()
-        mock_hist.assert_not_awaited()
         assert result["source"] == "yfinance"
         assert len(result["contracts"]) == 1
 

@@ -12,152 +12,71 @@ class MarketAgent(BaseAgent):
     """Agent for fetching and analyzing market price data.
 
     Data source priority:
-        1. Alpha Vantage API (GLOBAL_QUOTE + TIME_SERIES_DAILY)
+        1. OpenBB data provider (injected by orchestrator)
         2. yfinance (fallback)
     """
 
     # ──────────────────────────────────────────────
-    # Alpha Vantage Data Fetching
-    # ──────────────────────────────────────────────
-
-    async def _fetch_av_quote(self) -> Optional[Dict[str, Any]]:
-        """
-        Fetch latest quote from Alpha Vantage GLOBAL_QUOTE.
-
-        Returns:
-            Dict with current price data, or None
-        """
-        data = await self._av_request({
-            "function": "GLOBAL_QUOTE",
-            "symbol": self.ticker,
-            "datatype": "json"
-        })
-        if not data or "Global Quote" not in data:
-            return None
-
-        quote = data["Global Quote"]
-        if not quote:
-            return None
-
-        try:
-            return {
-                "current_price": float(quote.get("05. price", 0)),
-                "open": float(quote.get("02. open", 0)),
-                "day_high": float(quote.get("03. high", 0)),
-                "day_low": float(quote.get("04. low", 0)),
-                "volume": int(quote.get("06. volume", 0)),
-                "previous_close": float(quote.get("08. previous close", 0)),
-                "change": float(quote.get("09. change", 0)),
-                "change_percent": quote.get("10. change percent", "0%"),
-            }
-        except (ValueError, TypeError) as e:
-            self.logger.warning(f"Failed to parse Alpha Vantage quote: {e}")
-            return None
-
-    async def _fetch_av_daily(self, outputsize: str = "compact") -> Optional[pd.DataFrame]:
-        """
-        Fetch daily time series from Alpha Vantage TIME_SERIES_DAILY.
-
-        Args:
-            outputsize: "compact" (100 data points) or "full" (20+ years)
-
-        Returns:
-            DataFrame with OHLCV data, or None
-        """
-        data = await self._av_request({
-            "function": "TIME_SERIES_DAILY",
-            "symbol": self.ticker,
-            "outputsize": outputsize,
-            "datatype": "json"
-        })
-        if not data:
-            return None
-
-        ts_key = "Time Series (Daily)"
-        if ts_key not in data:
-            return None
-
-        time_series = data[ts_key]
-        if not time_series:
-            return None
-
-        try:
-            rows = []
-            for date_str, values in time_series.items():
-                rows.append({
-                    "Date": pd.Timestamp(date_str),
-                    "Open": float(values.get("1. open", 0)),
-                    "High": float(values.get("2. high", 0)),
-                    "Low": float(values.get("3. low", 0)),
-                    "Close": float(values.get("4. close", 0)),
-                    "Volume": int(values.get("5. volume", 0)),
-                })
-
-            df = pd.DataFrame(rows)
-            df.set_index("Date", inplace=True)
-            df.sort_index(inplace=True)
-            return df
-        except Exception as e:
-            self.logger.warning(f"Failed to parse Alpha Vantage daily data: {e}")
-            return None
-
-    # ──────────────────────────────────────────────
-    # Data Fetching (AV first, yfinance fallback)
+    # Data Fetching (OpenBB first, yfinance fallback)
     # ──────────────────────────────────────────────
 
     async def fetch_data(self) -> Dict[str, Any]:
         """
-        Fetch market price data. Tries Alpha Vantage first, falls back to yfinance.
+        Fetch market price data. Tries OpenBB data provider first, falls back to yfinance.
 
         Returns:
             Dictionary with price history and current market data
         """
         result = {"ticker": self.ticker, "source": "unknown"}
 
-        # ── Try Alpha Vantage first ──
-        av_api_key = self.config.get("ALPHA_VANTAGE_API_KEY", "")
-        if av_api_key:
-            self.logger.info(f"Fetching {self.ticker} market data from Alpha Vantage (primary)")
+        # ── Try OpenBB data provider first ──
+        data_provider = getattr(self, "_data_provider", None)
+        if data_provider is not None:
+            self.logger.info(f"Fetching {self.ticker} market data from OpenBB data provider (primary)")
 
-            # Fetch quote and daily data concurrently
-            av_quote, av_daily_full = await asyncio.gather(
-                self._fetch_av_quote(),
-                self._fetch_av_daily(outputsize="full"),
-                return_exceptions=True,
-            )
+            try:
+                # Fetch quote and price history concurrently
+                quote, history_1y = await asyncio.gather(
+                    data_provider.get_quote(self.ticker),
+                    data_provider.get_price_history(self.ticker, "1y"),
+                    return_exceptions=True,
+                )
 
-            # Handle exceptions from gather
-            if isinstance(av_quote, Exception):
-                self.logger.warning(f"Alpha Vantage quote fetch raised: {av_quote}")
-                av_quote = None
-            if isinstance(av_daily_full, Exception):
-                self.logger.warning(f"Alpha Vantage daily fetch raised: {av_daily_full}")
-                av_daily_full = None
+                # Handle exceptions from gather
+                if isinstance(quote, Exception):
+                    self.logger.warning(f"OpenBB quote fetch raised: {quote}")
+                    quote = None
+                if isinstance(history_1y, Exception):
+                    self.logger.warning(f"OpenBB price history fetch raised: {history_1y}")
+                    history_1y = None
 
-            if av_quote and av_daily_full is not None and not av_daily_full.empty:
-                self.logger.info(f"Alpha Vantage returned {len(av_daily_full)} daily records for {self.ticker}")
+                if quote and history_1y is not None and not history_1y.empty:
+                    self.logger.info(f"OpenBB returned {len(history_1y)} daily records for {self.ticker}")
 
-                result["source"] = "alpha_vantage"
-                result["info"] = {
-                    "currentPrice": av_quote["current_price"],
-                    "regularMarketPrice": av_quote["current_price"],
-                    "previousClose": av_quote["previous_close"],
-                    "open": av_quote["open"],
-                    "regularMarketOpen": av_quote["open"],
-                    "dayHigh": av_quote["day_high"],
-                    "dayLow": av_quote["day_low"],
-                    "volume": av_quote["volume"],
-                }
+                    result["source"] = "openbb"
+                    result["info"] = {
+                        "currentPrice": quote["current_price"],
+                        "regularMarketPrice": quote["current_price"],
+                        "previousClose": quote["previous_close"],
+                        "open": quote["open"],
+                        "regularMarketOpen": quote["open"],
+                        "dayHigh": quote["high"],
+                        "dayLow": quote["low"],
+                        "volume": quote["volume"],
+                    }
 
-                # Slice daily data into timeframes
-                now = pd.Timestamp.now()
-                result["history_1y"] = av_daily_full[av_daily_full.index >= now - pd.Timedelta(days=365)]
-                result["history_3m"] = av_daily_full[av_daily_full.index >= now - pd.Timedelta(days=90)]
-                result["history_1m"] = av_daily_full[av_daily_full.index >= now - pd.Timedelta(days=30)]
+                    # Slice full history into timeframes
+                    now = pd.Timestamp.now()
+                    result["history_1y"] = history_1y[history_1y.index >= now - pd.Timedelta(days=365)]
+                    result["history_3m"] = history_1y[history_1y.index >= now - pd.Timedelta(days=90)]
+                    result["history_1m"] = history_1y[history_1y.index >= now - pd.Timedelta(days=30)]
 
-                return result
-            else:
-                self.logger.info(f"Alpha Vantage incomplete for {self.ticker}, falling back to yfinance")
+                    return result
+                else:
+                    self.logger.info(f"OpenBB incomplete for {self.ticker}, falling back to yfinance")
+
+            except Exception as e:
+                self.logger.warning(f"OpenBB data provider error for {self.ticker}: {e}, falling back to yfinance")
 
         # ── Fallback to yfinance ──
         self.logger.info(f"Fetching {self.ticker} market data from yfinance (fallback)")
@@ -200,7 +119,7 @@ class MarketAgent(BaseAgent):
         Analyze market data for trends and patterns.
 
         Args:
-            raw_data: Raw price data from Alpha Vantage or yfinance
+            raw_data: Raw price data from OpenBB or yfinance
 
         Returns:
             Market analysis with trends and patterns

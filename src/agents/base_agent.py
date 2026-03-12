@@ -8,13 +8,9 @@ import asyncio
 import random
 from datetime import datetime, timezone
 
-import aiohttp
-
 
 class BaseAgent(ABC):
     """Abstract base class for all market research agents."""
-
-    AV_BASE_URL = "https://www.alphavantage.co/query"
 
     def __init__(self, ticker: str, config: Dict[str, Any]):
         """
@@ -87,110 +83,9 @@ class BaseAgent(ABC):
         """Run a blocking callable in a thread to avoid event loop stalls."""
         return await asyncio.to_thread(func)
 
-    async def _av_request(self, params: Dict[str, str]) -> Optional[Dict]:
-        """
-        Make a request to Alpha Vantage API with in-flight request coalescing.
-
-        If another agent is already making an identical request (same cache key),
-        this method awaits that request instead of making a duplicate HTTP call.
-
-        Args:
-            params: Query parameters (function, symbol, etc.) — apikey is added internally
-
-        Returns:
-            JSON response dict, or None on failure
-        """
-        api_key = self.config.get("ALPHA_VANTAGE_API_KEY", "")
-        if not api_key:
-            return None
-
-        # Check cache first (params without apikey)
-        cache = getattr(self, '_av_cache', None)
-        if cache:
-            cached = cache.get(params)
-            if cached is not None:
-                return cached
-
-            # Check for in-flight request with the same cache key
-            in_flight = cache.get_in_flight(params)
-            if in_flight is not None:
-                func_name = params.get("function", "unknown")
-                symbol = params.get("symbol", params.get("tickers", "unknown"))
-                self.logger.info(f"Coalescing: awaiting in-flight request for {func_name} ({symbol})")
-                return await in_flight
-
-        # Check rate limiter
-        rate_limiter = getattr(self, '_rate_limiter', None)
-        if rate_limiter:
-            allowed = await rate_limiter.acquire()
-            if not allowed:
-                self.logger.info("AV daily limit reached, skipping request")
-                return None
-
-        # Register as in-flight so concurrent callers coalesce
-        future = cache.set_in_flight(params) if cache else None
-
-        # Add apikey for the actual request
-        request_params = {**params, "apikey": api_key}
-        try:
-            session = getattr(self, '_shared_session', None)
-            if session and not session.closed:
-                data = await self._do_av_request(session, request_params)
-            else:
-                async with aiohttp.ClientSession() as fallback_session:
-                    data = await self._do_av_request(fallback_session, request_params)
-
-            # Cache successful responses (cache key uses params without apikey)
-            if data is not None and cache:
-                cache.put(params, data)
-
-            # Resolve the future so coalesced waiters get the result
-            if future is not None and not future.done():
-                future.set_result(data)
-
-            return data
-        except Exception as e:
-            self.logger.warning(f"Alpha Vantage request failed: {e}")
-            # Resolve with None so coalesced waiters don't hang
-            if future is not None and not future.done():
-                future.set_result(None)
-            return None
-        finally:
-            if cache:
-                cache.remove_in_flight(params)
-
-    async def _do_av_request(self, session: aiohttp.ClientSession, params: Dict[str, str]) -> Optional[Dict]:
-        """
-        Execute the actual AV HTTP request using the provided session.
-
-        Args:
-            session: aiohttp session to use
-            params: Query parameters including apikey
-
-        Returns:
-            JSON response dict, or None on failure
-        """
-        async with session.get(
-            self.AV_BASE_URL,
-            params=params,
-            timeout=aiohttp.ClientTimeout(total=15)
-        ) as resp:
-            if resp.status != 200:
-                self.logger.warning(f"Alpha Vantage returned status {resp.status}")
-                return None
-            data = await resp.json(content_type=None)
-            if "Error Message" in data or "Note" in data:
-                msg = data.get("Error Message") or data.get("Note", "")
-                self.logger.warning(f"Alpha Vantage API error: {msg}")
-                return None
-            if "Information" in data and "rate limit" in data.get("Information", "").lower():
-                self.logger.warning(f"Alpha Vantage rate limited: {data['Information']}")
-                return None
-            return data
-
     async def execute(self) -> Dict[str, Any]:
         """
-        Execute agent workflow: fetch → analyze → return result.
+        Execute agent workflow: fetch -> analyze -> return result.
 
         Returns:
             Dict with execution result including:
@@ -289,4 +184,3 @@ class BaseAgent(ABC):
         name = re.sub('([a-z0-9])([A-Z])', r'\1_\2', name).lower()
 
         return name
-

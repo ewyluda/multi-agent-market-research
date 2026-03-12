@@ -12,6 +12,8 @@ class Config:
 
     # API Keys
     ALPHA_VANTAGE_API_KEY = os.getenv("ALPHA_VANTAGE_API_KEY", "")
+    FMP_API_KEY = os.getenv("FMP_API_KEY", "")
+    FRED_API_KEY = os.getenv("FRED_API_KEY", "")
     NEWS_API_KEY = os.getenv("NEWS_API_KEY", "")
     TWITTER_API_KEY = os.getenv("TWITTER_API_KEY", "")
     TWITTER_API_SECRET = os.getenv("TWITTER_API_SECRET", "")
@@ -135,9 +137,15 @@ class Config:
     CACHE_TTL_NEWS = int(os.getenv("CACHE_TTL_NEWS", "3600"))  # 1 hour
     CACHE_TTL_FUNDAMENTALS = int(os.getenv("CACHE_TTL_FUNDAMENTALS", "86400"))  # 1 day
 
-    # Alpha Vantage Rate Limiting
+    # Alpha Vantage Rate Limiting (legacy, kept for backward compatibility)
     AV_RATE_LIMIT_PER_MINUTE = int(os.getenv("AV_RATE_LIMIT_PER_MINUTE", "5"))
     AV_RATE_LIMIT_PER_DAY = int(os.getenv("AV_RATE_LIMIT_PER_DAY", "25"))
+
+    # OpenBB Provider Overrides
+    OPENBB_EQUITY_PROVIDER = os.getenv("OPENBB_EQUITY_PROVIDER", "fmp").split("#")[0].strip()
+    OPENBB_MACRO_PROVIDER = os.getenv("OPENBB_MACRO_PROVIDER", "fred").split("#")[0].strip()
+    OPENBB_OPTIONS_PROVIDER = os.getenv("OPENBB_OPTIONS_PROVIDER", "cboe").split("#")[0].strip()
+    OPENBB_NEWS_PROVIDER = os.getenv("OPENBB_NEWS_PROVIDER", "fmp").split("#")[0].strip()
 
     # FastAPI Configuration
     API_HOST = os.getenv("API_HOST", "0.0.0.0")

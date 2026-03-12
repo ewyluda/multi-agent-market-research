@@ -20,8 +20,7 @@ from .agents.options_agent import OptionsAgent
 from .agents.leadership_agent import LeadershipAgent
 from .agents.solution_agent import SolutionAgent
 from .database import DatabaseManager
-from .av_rate_limiter import AVRateLimiter
-from .av_cache import AVCache
+from .data_provider import OpenBBDataProvider
 from .portfolio_engine import PortfolioEngine
 from .signal_contract import build_signal_contract_v2, validate_signal_contract_v2, _safe_float as safe_float
 
@@ -48,8 +47,7 @@ class Orchestrator:
         config: Optional[Dict[str, Any]] = None,
         db_manager: Optional[DatabaseManager] = None,
         progress_callback: Optional[Callable] = None,
-        rate_limiter: Optional[AVRateLimiter] = None,
-        av_cache: Optional[AVCache] = None,
+        data_provider: Optional[OpenBBDataProvider] = None,
     ):
         """
         Initialize orchestrator.
@@ -58,8 +56,7 @@ class Orchestrator:
             config: Configuration dictionary (uses Config class if not provided)
             db_manager: Database manager instance
             progress_callback: Optional callback for progress updates
-            rate_limiter: Shared AV rate limiter (persists across requests via app.state)
-            av_cache: Shared AV response cache (persists across requests via app.state)
+            data_provider: Shared OpenBB data provider (persists across requests via app.state)
         """
         self.config = config or self._get_config_dict()
         self.db_manager = db_manager or DatabaseManager(
@@ -68,12 +65,8 @@ class Orchestrator:
         self.progress_callback = progress_callback
         self.logger = logging.getLogger(__name__)
 
-        # Shared AV infrastructure
-        self._rate_limiter = rate_limiter or AVRateLimiter(
-            requests_per_minute=self.config.get("AV_RATE_LIMIT_PER_MINUTE", 5),
-            requests_per_day=self.config.get("AV_RATE_LIMIT_PER_DAY", 25),
-        )
-        self._av_cache = av_cache or AVCache()
+        # Shared data provider (OpenBB SDK)
+        self._data_provider = data_provider or OpenBBDataProvider(self.config)
         self._shared_session: Optional[aiohttp.ClientSession] = None
         self._validated_tickers: set = set()
 
@@ -137,10 +130,9 @@ class Orchestrator:
             return True  # Fail-open
 
     def _inject_shared_resources(self, agent):
-        """Inject shared AV resources into an agent instance."""
+        """Inject shared resources into an agent instance."""
         agent._shared_session = self._shared_session
-        agent._rate_limiter = self._rate_limiter
-        agent._av_cache = self._av_cache
+        agent._data_provider = self._data_provider
 
     def _resolve_agents(self, requested: Optional[List[str]] = None) -> List[str]:
         """

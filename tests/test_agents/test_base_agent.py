@@ -6,8 +6,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from src.agents.base_agent import BaseAgent
-from src.av_cache import AVCache
-from src.av_rate_limiter import AVRateLimiter
 
 
 # Concrete subclass for testing (BaseAgent is abstract)
@@ -105,44 +103,6 @@ class TestBaseAgentExecute:
         assert agent.start_time is not None
         assert agent.end_time is not None
         assert agent.get_duration() > 0
-
-
-class TestBaseAgentAVRequest:
-    """Tests for _av_request() method."""
-
-    async def test_returns_none_without_api_key(self, test_config):
-        """_av_request returns None when ALPHA_VANTAGE_API_KEY is empty."""
-        config = {**test_config, "ALPHA_VANTAGE_API_KEY": ""}
-        agent = ConcreteAgent("AAPL", config)
-
-        result = await agent._av_request({"function": "GLOBAL_QUOTE", "symbol": "AAPL"})
-        assert result is None
-
-    async def test_returns_cached_data(self, test_config):
-        """_av_request returns cached data without making HTTP request."""
-        av_cache = AVCache()
-        params = {"function": "GLOBAL_QUOTE", "symbol": "AAPL"}
-        cached_data = {"Global Quote": {"05. price": "183.15"}}
-        av_cache.put(params, cached_data)
-
-        agent = ConcreteAgent("AAPL", test_config)
-        agent._av_cache = av_cache
-        agent._rate_limiter = AVRateLimiter(requests_per_minute=100, requests_per_day=100)
-
-        result = await agent._av_request(params)
-        assert result == cached_data
-
-    async def test_returns_none_when_rate_limited(self, test_config):
-        """_av_request returns None when daily rate limit is exhausted."""
-        av_cache = AVCache()
-        rate_limiter = AVRateLimiter(requests_per_minute=100, requests_per_day=0)
-
-        agent = ConcreteAgent("AAPL", test_config)
-        agent._av_cache = av_cache
-        agent._rate_limiter = rate_limiter
-
-        result = await agent._av_request({"function": "GLOBAL_QUOTE", "symbol": "AAPL"})
-        assert result is None
 
 
 class TestBaseAgentRetryFetch:

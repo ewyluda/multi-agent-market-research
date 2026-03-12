@@ -5,8 +5,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from src.av_cache import AVCache
-from src.av_rate_limiter import AVRateLimiter
 from src.database import DatabaseManager
 from src.scheduler import AnalysisScheduler
 
@@ -24,8 +22,7 @@ def mock_db():
 def scheduler(mock_db):
     return AnalysisScheduler(
         db_manager=mock_db,
-        rate_limiter=AVRateLimiter(100, 1000),
-        av_cache=AVCache(),
+        data_provider=MagicMock(),
         config={
             "CALIBRATION_ENABLED": True,
             "CALIBRATION_TIMEZONE": "America/New_York",
