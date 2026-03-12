@@ -31,26 +31,25 @@ User → FastAPI API → Orchestrator → [7 Agents Run in Parallel]
 
 ### Data Source Priority (per agent)
 
-All data-fetching agents follow a **primary → fallback** pattern:
+All data-fetching agents use a centralized `OpenBBDataProvider` (`src/data_provider.py`) injected via `agent._data_provider`. Agents do **not** call external APIs directly.
 
-| Agent                  | Primary Source (Alpha Vantage)                                                                         | Fallback Source                              |
-| ---------------------- | ------------------------------------------------------------------------------------------------------ | -------------------------------------------- |
-| **Market Agent**       | `GLOBAL_QUOTE` + `TIME_SERIES_DAILY`                                                                   | yfinance                                     |
-| **Fundamentals Agent** | `COMPANY_OVERVIEW` + `EARNINGS` + `BALANCE_SHEET` + `CASH_FLOW` + `INCOME_STATEMENT`                   | yfinance + SEC EDGAR XBRL                    |
-| **News Agent**         | `NEWS_SENTIMENT` (includes ticker-specific relevance & sentiment scores)                               | NewsAPI + Twitter/X API v2 (`search/recent`) |
-| **Technical Agent**    | `RSI` + `MACD` + `BBANDS` + `SMA` (×3 periods) + `TIME_SERIES_DAILY`                                   | yfinance + local indicator calculation       |
-| **Macro Agent**        | `FEDERAL_FUNDS_RATE` + `CPI` + `REAL_GDP` + `TREASURY_YIELD` (10Y & 2Y) + `UNEMPLOYMENT` + `INFLATION` | None (supplementary)                         |
-| **Sentiment Agent**    | N/A (LLM-powered, enriched with AV per-article scores)                                                 | N/A                                          |
-| **Options Agent**      | `REALTIME_OPTIONS` + `HISTORICAL_OPTIONS`                                                              | yfinance options chain                       |
+| Agent                  | OpenBB Provider                                         | Fallback                  |
+| ---------------------- | ------------------------------------------------------- | ------------------------- |
+| **Market Agent**       | FMP (quote, price history)                              | yfinance                  |
+| **Fundamentals Agent** | FMP (profile, financials, earnings)                     | yfinance + SEC EDGAR XBRL |
+| **News Agent**         | Tavily (primary) → OpenBB/FMP (free tier blocks: 402)  | empty                     |
+| **Technical Agent**    | FMP price history + local pandas compute                | yfinance + local calc     |
+| **Macro Agent**        | FRED (fed_funds, treasuries, CPI, GDP, unemployment...) | None                      |
+| **Sentiment Agent**    | N/A (LLM-powered)                                       | N/A                       |
+| **Options Agent**      | yfinance via OpenBB                                     | None                      |
 
 Each agent inherits from `BaseAgent` which provides:
 
-- `_av_request()` method for Alpha Vantage API calls with error handling, rate limiting, and response caching
-- `_retry_fetch()` method for synchronous fallback calls with exponential backoff
-- Shared `aiohttp` session (injected by orchestrator) for connection pooling
-- Each agent adds `_fetch_av_*()` methods for specific AV endpoints
-- Graceful fallback when `ALPHA_VANTAGE_API_KEY` is missing or AV returns incomplete data
-- `data_source` tracking in analysis output (`"alpha_vantage"` or fallback source name)
+- `_retry_fetch(func)` — exponential backoff with jitter for synchronous fallback calls
+- `_run_blocking(func)` — runs sync functions via `asyncio.to_thread()`
+- `_shared_session` — aiohttp session injected by orchestrator for connection pooling
+- `_data_provider` — `OpenBBDataProvider` instance injected by orchestrator
+- `data_source` tracking in analysis output (`"openbb"` or `"yfinance"`)
 
 ## Core Files
 
@@ -61,12 +60,11 @@ Each agent inherits from `BaseAgent` which provides:
 
 ### Core Logic
 
-- **`src/orchestrator.py`** - Coordinates agents (configurable pipeline), manages shared session/cache/rate limiter
+- **`src/orchestrator.py`** - Coordinates agents (configurable pipeline), manages shared session and data provider
+- **`src/data_provider.py`** - Centralized OpenBB Platform SDK wrapper; TTL cache, async-safe via `asyncio.to_thread()`
 - **`src/database.py`** - SQLite operations, caching, data persistence
 - **`src/config.py`** - Environment variable management, configuration
 - **`src/models.py`** - Pydantic models for data validation
-- **`src/av_rate_limiter.py`** - Sliding-window rate limiter for AV API (per-minute + per-day)
-- **`src/av_cache.py`** - In-memory TTL cache for AV API responses
 - **`src/pdf_report.py`** - PDF report generation using ReportLab
 - **`src/scheduler.py`** - Background analysis scheduler using APScheduler
 - **`src/alert_engine.py`** - Alert rule evaluation engine for post-analysis notifications
@@ -80,14 +78,14 @@ Each agent inherits from `BaseAgent` which provides:
 
 ```
 src/agents/
-├── base_agent.py         # Abstract base class with _av_request(), _retry_fetch(), shared session support
-├── news_agent.py         # News gathering (AV NEWS_SENTIMENT → NewsAPI)
+├── base_agent.py         # Abstract base class with _retry_fetch(), _run_blocking(), shared session support
+├── news_agent.py         # News gathering (Tavily primary → OpenBB/FMP → empty)
 ├── sentiment_agent.py    # Sentiment analysis (LLM-powered)
-├── fundamentals_agent.py # Company fundamentals (AV 5-endpoint → yfinance + SEC EDGAR)
-├── market_agent.py       # Market data (AV GLOBAL_QUOTE + DAILY → yfinance)
-├── technical_agent.py    # Technical indicators (AV RSI/MACD/BBANDS/SMA → yfinance + local calc)
-├── macro_agent.py        # US macroeconomic indicators (AV 7-endpoint, no fallback)
-├── options_agent.py      # Options flow & unusual activity (AV REALTIME_OPTIONS → yfinance)
+├── fundamentals_agent.py # Company fundamentals (OpenBB/FMP → yfinance + SEC EDGAR)
+├── market_agent.py       # Market data (OpenBB/FMP → yfinance)
+├── technical_agent.py    # Technical indicators (OpenBB price history + local pandas compute)
+├── macro_agent.py        # US macroeconomic indicators (OpenBB/FRED)
+├── options_agent.py      # Options flow & unusual activity (OpenBB/yfinance)
 └── solution_agent.py     # Final synthesis (LLM-powered)
 ```
 
@@ -166,17 +164,18 @@ frontend/
 - **SQLite** - Database for caching and persistence
 - **Anthropic Claude / OpenAI / xAI Grok** - LLM for sentiment, equity research, and synthesis
 - **AsyncIO** - Parallel agent execution
-- **aiohttp** - Async HTTP client for Alpha Vantage API calls
+- **aiohttp** - Async HTTP client for SEC EDGAR calls within agents
 - **Pydantic** - Data validation and models
-- **yfinance** - Stock market data (fallback source)
-- **Alpha Vantage** - Primary market data API (22 endpoints used across 5 agents)
-- **NewsAPI** - News aggregation (fallback for news agent)
+- **OpenBB Platform SDK (v4.7+)** - Centralized market data (FMP, FRED, yfinance providers)
+- **yfinance** - Fallback/options data source via OpenBB
+- **FMP (Financial Modeling Prep)** - Primary equities/fundamentals via OpenBB (free: ~250 req/day)
+- **FRED** - Macroeconomic indicators via OpenBB (free, unlimited)
 - **Twitter/X API v2** - Social sentiment data (supplementary, `search/recent` endpoint)
 - **React + Tailwind CSS v4** - Frontend UI with Hero UI dark theme
 - **framer-motion** - Tab underline animations, stagger lists, spring physics for gauges, AnimatePresence for tab transitions
 - **lightweight-charts** - TradingView candlestick + volume charts (replaced custom SVG chart)
 - **Vite** - Frontend build tool
-- **pytest** - Test framework (208 tests with pytest-asyncio, aioresponses, httpx)
+- **pytest** - Test framework (217 tests with pytest-asyncio, aioresponses, httpx)
 - **ReportLab** - PDF report generation
 - **APScheduler** - Background job scheduling for recurring analyses
 - **Docker** - Containerization (multi-stage builds, nginx reverse proxy)
@@ -193,17 +192,18 @@ OPENAI_API_KEY=sk-...     # Alternative LLM provider
 GROK_API_KEY=...          # xAI Grok provider
 ```
 
-### Recommended API Keys
+### Recommended API Keys (OpenBB Providers)
 
 ```bash
-ALPHA_VANTAGE_API_KEY=... # Primary data source for all data agents (strongly recommended)
+FMP_API_KEY=...           # Financial Modeling Prep — equity quotes, financials, earnings
+FRED_API_KEY=...          # Federal Reserve Economic Data — macro indicators
+TAVILY_API_KEY=...        # Tavily AI search — primary news source
 ```
 
 ### Optional API Keys
 
 ```bash
-NEWS_API_KEY=...          # Fallback news source (used when AV unavailable)
-TWITTER_BEARER_TOKEN=...
+TWITTER_BEARER_TOKEN=...  # Twitter/X API v2 — social sentiment (supplementary)
 ```
 
 ### Configuration Options (`.env`)
@@ -216,8 +216,7 @@ TWITTER_BEARER_TOKEN=...
 - `MAX_NEWS_ARTICLES` - Max articles to fetch (default: 20)
 - `FUNDAMENTALS_LLM_ENABLED` - Enable LLM equity research in fundamentals agent (default: true)
 - `PARALLEL_AGENTS` - Run data agents in parallel vs sequential (default: true)
-- `AV_RATE_LIMIT_PER_MINUTE` - Max AV API requests per minute (default: 5)
-- `AV_RATE_LIMIT_PER_DAY` - Max AV API requests per day (default: 25)
+- `OPENBB_OPTIONS_PROVIDER` - Options data provider for OpenBB (default: yfinance; cboe not bundled)
 - `RSI_PERIOD` - RSI calculation period (default: 14)
 - `MACD_FAST` / `MACD_SLOW` / `MACD_SIGNAL` - MACD parameters (default: 12/26/9)
 - `BB_PERIOD` / `BB_STD` - Bollinger Bands parameters (default: 20/2)
@@ -477,8 +476,8 @@ from src.agents.base_agent import BaseAgent
 
 class NewAgent(BaseAgent):
     async def fetch_data(self) -> Dict[str, Any]:
-        # Fetch raw data — use self._av_request() for AV endpoints (inherited from BaseAgent)
-        # Session, rate limiter, and cache are injected automatically by orchestrator
+        # Fetch raw data — use self._data_provider for OpenBB calls (injected by orchestrator)
+        # Session is injected automatically; OpenBB calls run via asyncio.to_thread()
         return {"ticker": self.ticker, "data": {...}}
 
     async def analyze(self, raw_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -486,16 +485,15 @@ class NewAgent(BaseAgent):
         return {"status": "success", "data": {...}}
 ```
 
-### Adding Alpha Vantage to a New Agent
+### Adding OpenBB Data to a New Agent
 
 Follow the established pattern:
 
-1. `_av_request()` and `AV_BASE_URL` are inherited from `BaseAgent` — no duplication needed
-2. Add `_fetch_av_*()` methods for each AV endpoint that call `self._av_request(params)`
-3. Update `fetch_data()` to try AV first, then fallback
-4. Normalize AV data to match existing dict key formats
-5. Add `data_source` field to track which source was used
-6. The shared session, rate limiter, and cache are injected by the orchestrator automatically
+1. `self._data_provider` (`OpenBBDataProvider`) is injected by the orchestrator — call its methods directly
+2. All `OpenBBDataProvider` methods are sync; call them via `asyncio.to_thread()` or `self._run_blocking()`
+3. Wrap provider calls in try/except; fall through to yfinance fallback on failure
+4. Add `data_source` field (`"openbb"` or `"yfinance"`) to track which source was used
+5. See `src/data_provider.py` for available methods (get_quote, get_history, get_financials, get_macro, get_options)
 
 ### Modifying API Endpoints
 
@@ -529,15 +527,19 @@ async def test():
 asyncio.run(test())
 ```
 
-### Debugging Alpha Vantage Issues
+### Debugging OpenBB Data Issues
 
-1. Check if `ALPHA_VANTAGE_API_KEY` is set in `.env`
-2. AV free tier: 25 requests/day — agents will fallback automatically when rate-limited
-3. Look for log messages: `"Alpha Vantage rate limited"`, `"Alpha Vantage API error"`, `"falling back to"`
-4. Test AV directly:
+1. Check that `FMP_API_KEY` and/or `FRED_API_KEY` are set in `.env` for premium providers
+2. OpenBB GH#7113: if you see `ImportError: cannot import name 'OBBject_*'`, the `_ensure_obb()` workaround in `src/data_provider.py` must run before `from openbb import obb` — do not import `obb` at module level
+3. FMP news endpoint returns 402 on free tier — this is expected; Tavily is the primary news source
+4. OpenBB options provider must be `yfinance` (cboe not bundled); set `OPENBB_OPTIONS_PROVIDER=yfinance`
+5. Look for log messages: `"OpenBB data provider not available"`, `"falling back to yfinance"`
+6. Test OpenBB directly:
 
-```bash
-curl "https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=AAPL&apikey=YOUR_KEY"
+```python
+from src.data_provider import OpenBBDataProvider
+provider = OpenBBDataProvider()
+print(provider.get_quote("AAPL"))
 ```
 
 ## Important Patterns
@@ -547,14 +549,15 @@ curl "https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=AAPL&apikey
 The `Orchestrator` class coordinates all agents:
 
 1. Creates a shared `aiohttp.ClientSession` for connection pooling
-2. Resolves which agents to run (from `AGENT_REGISTRY`, with dependency enforcement)
-3. Injects shared resources (session, rate limiter, cache) into each agent
-4. Runs data agents in parallel (or sequential if `PARALLEL_AGENTS=false`) using `asyncio.gather()`
-5. Runs sentiment agent (depends on news + market + twitter_posts extracted from news results)
-6. Passes all results to Solution Agent for synthesis
-7. Saves to database
-8. Evaluates alert rules (if ALERTS_ENABLED) and triggers notifications
-9. Closes shared session in `finally` block
+2. Creates a shared `OpenBBDataProvider` instance
+3. Resolves which agents to run (from `AGENT_REGISTRY`, with dependency enforcement)
+4. Injects shared resources (session, data_provider) into each agent
+5. Runs data agents in parallel (or sequential if `PARALLEL_AGENTS=false`) using `asyncio.gather()`
+6. Runs sentiment agent (depends on news + market + twitter_posts extracted from news results)
+7. Passes all results to Solution Agent for synthesis
+8. Saves to database
+9. Evaluates alert rules (if ALERTS_ENABLED) and triggers notifications
+10. Closes shared session in `finally` block
 
 ### Agent Base Class
 
@@ -563,21 +566,19 @@ All agents inherit from `BaseAgent` which provides:
 - Error handling and timeout management
 - Logging and result validation
 - `execute()` method that orchestrates: `fetch_data()` → `analyze()` → return result dict
-- `_av_request(params)` — shared AV API method with session pooling, rate limiting, and response caching
 - `_retry_fetch(func)` — exponential backoff with jitter for synchronous fallback calls
-- `_shared_session`, `_rate_limiter`, `_av_cache` — injected by orchestrator, used automatically by `_av_request()`
+- `_run_blocking(func)` — runs sync functions in a thread pool via `asyncio.to_thread()`
+- `_shared_session`, `_data_provider` — injected by orchestrator
 
-### Alpha Vantage Integration Pattern
+### OpenBB Data Provider Pattern
 
-All data agents follow the same pattern:
+All data agents use `OpenBBDataProvider` (`src/data_provider.py`) as the centralized data layer:
 
-1. `fetch_data()` checks for `ALPHA_VANTAGE_API_KEY`
-2. If present, fetches from AV endpoints concurrently via `asyncio.gather()`
-3. Each `_fetch_av_*()` method calls `self._av_request(params)` — cache, rate limiter, and session are handled automatically
-4. Handles exceptions per-endpoint (partial success is OK)
-5. If AV provides sufficient data, returns immediately with `source: "alpha_vantage"`
-6. If AV fails or is incomplete, falls through to fallback sources
-7. Data is normalized to match existing dict key formats so `analyze()` methods work unchanged
+1. `fetch_data()` calls `self._data_provider.get_*()` methods via `self._run_blocking()`
+2. Provider handles OpenBB SDK initialization (including GH#7113 workaround), credentials, and TTL caching
+3. On failure, agents fall back to yfinance directly
+4. Data is normalized to match existing dict key formats so `analyze()` methods work unchanged
+5. `data_source` field is set to `"openbb"` or `"yfinance"` based on which source succeeded
 
 ### Configurable Agent Pipeline
 
@@ -599,7 +600,7 @@ Per Agent:
 
 ## Testing
 
-### Run Test Suite (157 tests)
+### Run Test Suite (217 tests)
 
 ```bash
 source venv/bin/activate
@@ -619,11 +620,11 @@ python -m pytest tests/ -v -m "not slow"
 
 **Test structure:**
 
-- `tests/conftest.py` — Shared fixtures (temp DB, AV cache, rate limiter, mock responses, agent factory)
+- `tests/conftest.py` — Shared fixtures (temp DB, mock responses, agent factory)
 - `tests/test_av_cache.py` — 14 tests (TTL, coalescing, key generation, stats)
 - `tests/test_av_rate_limiter.py` — 7 tests (limits, concurrency, exhaustion)
 - `tests/test_database.py` — 25 tests (CRUD, isolation, indexing, schedules, alerts)
-- `tests/test_agents/test_base_agent.py` — 18 tests (validation, execute flow, AV requests, retry)
+- `tests/test_agents/test_base_agent.py` — 18 tests (validation, execute flow, data provider, retry)
 - `tests/test_agents/test_options_agent.py` — 18 tests (analysis, fetch, helpers, fallback)
 - `tests/test_orchestrator.py` — 12 tests (resolution, dependencies, parallel, progress)
 - `tests/test_api.py` — 22 tests (all endpoints, error handling, SSE, schedules, alerts)
@@ -691,23 +692,14 @@ python run.py
 - Check network connectivity
 - Verify external API keys are working
 
-### Alpha Vantage Rate Limiting
+### OpenBB Provider Issues
 
-- Built-in `AVRateLimiter` enforces per-minute and per-day limits (configurable via `AV_RATE_LIMIT_PER_MINUTE` / `AV_RATE_LIMIT_PER_DAY`)
-- Free tier defaults: 5 requests/minute, 25 requests/day
-- The rate limiter queues excess requests automatically; agents fall back when daily limit is exhausted
-- The fundamentals agent makes 5 concurrent AV requests per analysis
-- The technical agent makes 7 concurrent AV requests per analysis
-- The macro agent makes 7 concurrent AV requests per analysis (cached 1 day, shared across tickers)
-- Total per full analysis: ~22 AV requests (queued through the shared rate limiter; macro data cached for 1 day)
-- Check logs for `"Rate limiter: waiting"` or `"AV daily limit reached"` messages
-- `AVCache` deduplicates repeated requests for the same endpoint+ticker within TTL windows
-
-### Alpha Vantage Returns No Data
-
-- Verify the ticker symbol is valid on Alpha Vantage (some international tickers differ)
-- Check for `"Error Message"` in AV response logs
-- Agents will automatically use fallback sources
+- `OpenBBDataProvider` initializes lazily on first call — startup is fast but the first analysis may be slower
+- FRED macro data is cached 24h by the provider (shared across all tickers in the same process)
+- FMP equity/fundamentals data is cached with shorter TTLs per ticker
+- If OpenBB fails to initialize, `_data_provider` returns `None` for all calls — agents fall back to yfinance
+- Check logs for `"openbb package not installed"` or `"OpenBB data provider not available"`
+- `OPENBB_OPTIONS_PROVIDER` must be `yfinance` (default); `cboe` is not bundled in the free OpenBB install
 
 ## Frontend Integration
 
@@ -734,7 +726,7 @@ The frontend is in `frontend/` directory (React + Vite + Tailwind CSS v4).
 - `agent_results.news.data` → NewsFeed (articles, headlines)
 - `agent_results.macro.data` → MacroSnapshot (indicators, yield curve, economic cycle, risk environment)
 - `agent_results.options.data` → OptionsFlow (P/C ratio, unusual activity, max pain, overall signal)
-- `agent_results.*.data.data_source` → ContentHeader source badges (AV/YF)
+- `agent_results.*.data.data_source` → ContentHeader source badges (OpenBB/YF)
 - All agent signals → Recommendation consensus strip (bullish/bearish/neutral dots)
 
 **Backend provides**:
@@ -776,22 +768,20 @@ The frontend is in `frontend/` directory (React + Vite + Tailwind CSS v4).
 - `.env.example` provided as template
 - Database is local SQLite (not exposed)
 - CORS configured for frontend access
-- Alpha Vantage API key passed as query parameter (standard for AV)
+- OpenBB credentials set via `obb.account.login()` or provider-specific env vars (`FMP_API_KEY`, `FRED_API_KEY`)
 - Twitter Bearer Token: use raw value from `.env` — do NOT URL-decode `%2B`/`%3D` characters (causes 401)
 
 ## Performance Considerations
 
 - Agents run in **parallel** for speed (configurable via `PARALLEL_AGENTS`)
-- Within each agent, AV endpoints are fetched **concurrently** via `asyncio.gather()`
 - **Shared `aiohttp` session** with connection pooling across all agents per analysis
-- **AV response caching** deduplicates repeated requests (in-memory TTL cache shared across agents)
-- **AV rate limiter** queues requests to stay within API limits instead of getting rejected
+- **Shared `OpenBBDataProvider`** instance with TTL cache deduplicates repeated requests across agents
+- OpenBB calls run in a thread pool via `asyncio.to_thread()` to avoid blocking the event loop
+- FRED macro data cached 24h (shared across tickers); FMP data cached per-ticker with shorter TTL
 - Database **caching** reduces API calls
-- News and price data **cached** with TTL
 - Agent **timeout** prevents hanging
 - SSE for **real-time** progress streaming (no polling)
-- Alpha Vantage as primary reduces yfinance rate-limit issues
-- `return_exceptions=True` in `asyncio.gather()` prevents one failed endpoint from blocking others
+- `return_exceptions=True` in `asyncio.gather()` prevents one failed agent from blocking others
 
 ## Next Steps for AI Assistants
 
@@ -805,7 +795,7 @@ When working with this codebase:
 6. **Preserve error handling** in all agents
 7. **Use type hints** for clarity
 8. **Follow existing agent patterns** when adding new ones
-9. **Follow the AV integration pattern** when adding new data sources
+9. **Use `OpenBBDataProvider`** when adding new data sources — extend `src/data_provider.py` with new methods
 10. **Keep fallback behavior** — never remove existing data sources
 
 ## File Reading Priority
