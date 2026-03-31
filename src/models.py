@@ -301,4 +301,5 @@ class CouncilAnalysisResponse(BaseModel):
     results: List[CouncilInvestorResult] = []
     disagreements: List[str] = Field(default=[], description="Flagged council disagreements")
     duration_seconds: float
+    synthesis: Optional[dict] = Field(default=None, description="Council synthesis: consensus + narrative")
     error: Optional[str] = None

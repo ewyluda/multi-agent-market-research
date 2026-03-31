@@ -1599,6 +1599,50 @@ async def run_council(
     results_dicts = [r.model_dump() for r in investor_results]
     db_manager.save_council_results(ticker, results_dicts, analysis_id=analysis_row.get("id"))
 
+    # Build council synthesis (Tier 1: deterministic + Tier 2: optional LLM)
+    from .council_synthesis import build_consensus
+    from .agents.council_synthesis_agent import CouncilSynthesisAgent
+
+    consensus = build_consensus(results_dicts)
+
+    # Load thesis health from latest analysis if available
+    latest_analysis = db_manager.get_latest_analysis(ticker)
+    analysis_payload = latest_analysis.get("analysis_payload") or {} if latest_analysis else {}
+    if isinstance(analysis_payload, str):
+        try:
+            analysis_payload = json.loads(analysis_payload)
+        except Exception:
+            analysis_payload = {}
+    thesis_health = analysis_payload.get("thesis_health")
+    signal_contract = analysis_payload.get("signal_contract_v2")
+    validation = analysis_payload.get("validation")
+
+    # Tier 2: LLM narrative (optional, graceful fallback)
+    empty_narrative = {"narrative": "", "position_implication": "", "watch_item": "", "llm_provider": "", "fallback_used": True}
+    narrative = empty_narrative
+    try:
+        synth_agent = CouncilSynthesisAgent(ticker, config)
+        synth_agent.set_synthesis_context(
+            council_results=results_dicts,
+            thesis_health=thesis_health,
+            signal_contract=signal_contract,
+            validation=validation,
+        )
+        timeout = config.get("AGENT_TIMEOUT", 30)
+        synth_result = await asyncio.wait_for(synth_agent.execute(), timeout=timeout)
+        if synth_result.get("success") and synth_result.get("data"):
+            narrative = synth_result["data"]
+    except Exception as synth_exc:
+        logger.warning(f"Council synthesis narrative failed (non-blocking): {synth_exc}")
+
+    synthesis = {"consensus": consensus, "narrative": narrative}
+
+    # Persist synthesis
+    try:
+        db_manager.save_council_synthesis(ticker, analysis_row.get("id"), synthesis)
+    except Exception as _db_exc:
+        logger.warning(f"Failed to save council synthesis: {_db_exc}")
+
     return CouncilAnalysisResponse(
         success=True,
         ticker=ticker,
@@ -1606,6 +1650,7 @@ async def run_council(
         investors_run=investor_keys,
         results=investor_results,
         disagreements=disagreements,
+        synthesis=synthesis,
         duration_seconds=round(_time.time() - start, 2),
     )
 
@@ -1643,6 +1688,15 @@ async def get_council_results(ticker: str, analysis_id: Optional[int] = Query(de
             )
         )
 
+    # Load cached synthesis if available
+    cached_synthesis = db_manager.get_latest_council_synthesis(ticker)
+    synthesis = None
+    if cached_synthesis:
+        synthesis = {
+            "consensus": cached_synthesis.get("consensus_json"),
+            "narrative": cached_synthesis.get("narrative_json"),
+        }
+
     return CouncilAnalysisResponse(
         success=True,
         ticker=ticker,
@@ -1650,6 +1704,7 @@ async def get_council_results(ticker: str, analysis_id: Optional[int] = Query(de
         investors_run=[r.investor for r in investor_results],
         results=investor_results,
         disagreements=[],
+        synthesis=synthesis,
         duration_seconds=0.0,
     )
 
