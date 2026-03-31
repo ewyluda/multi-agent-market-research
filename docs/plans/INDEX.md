@@ -19,7 +19,7 @@ Consolidated reference for all implementation plans in this project.
 | Feature | Description | Spec |
 |---------|-------------|------|
 | **Investor Council** | Qualitative layer — 26 investor personas (see `src/agents/council/`). Phase 2 (primary 5 agents) complete. Phase 3 (thesis health monitor), Phase 4 (synthesis view), Phase 5 (ATLAS layering) planned. | — |
-| **Two-Tier Validation Agent** | Cross-validates synthesis and council claims against raw agent data. Tier 1a: deterministic rule engine (direction, numeric, regime, technical, options consistency). Tier 1b: LLM-powered council validator. Tier 2: human spot-checks via alert pipeline. Contradictions penalize confidence (capped at 0.50 total penalty). Feature-flagged via `ENABLE_VALIDATION_V1`. | [Design spec](../superpowers/specs/2026-03-30-two-tier-validation-agent-design.md) · [Implementation plan](../superpowers/plans/2026-03-30-two-tier-validation-agent.md) |
+| **Two-Tier Validation Agent** | ✅ Completed — deterministic rule engine + LLM council validator in Phase 2.5; `spot_check` alert type; feedback endpoint; 249 tests passing. | [Design spec](../superpowers/specs/2026-03-30-two-tier-validation-agent-design.md) · [Implementation plan](../superpowers/plans/2026-03-30-two-tier-validation-agent.md) |
 
 ## Phase 7 Rollout Status
 
