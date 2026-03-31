@@ -102,6 +102,8 @@ class AlertEngine:
             return self._check_calibration_drop(current, previous, threshold)
         elif rule_type == "spot_check":
             return self._check_spot_check(current)
+        elif rule_type == "thesis_health_change":
+            return self._check_thesis_health_change(current, previous)
 
         return None
 
@@ -384,6 +386,42 @@ class AlertEngine:
             ),
             "previous_value": None,
             "current_value": status,
+        }
+
+    def _check_thesis_health_change(self, current, previous) -> Optional[Dict[str, Any]]:
+        """Fire when thesis health degrades from one analysis to the next."""
+        payload = self._analysis_payload(current)
+        th = payload.get("thesis_health") or {}
+        if not th.get("health_changed"):
+            return None
+
+        overall = th.get("overall_health", "UNKNOWN")
+        prev = th.get("previous_health", "UNKNOWN")
+
+        # Only fire on degradation, not improvement
+        _order = {"INTACT": 0, "WATCHING": 1, "DETERIORATING": 2, "BROKEN": 3}
+        if _order.get(overall, -1) <= _order.get(prev, -1):
+            return None
+
+        # Build message with top drifting/breached indicators
+        indicators = th.get("indicators", [])
+        drifted = [i for i in indicators if i.get("status") in ("drifting", "breached")]
+        details = []
+        for i in drifted[:3]:
+            drift_str = f"{i.get('drift_pct', 0):.0f}%" if i.get("drift_pct") is not None else "changed"
+            details.append(
+                f"{i['name']} {i['status']} {drift_str} from baseline "
+                f"({i.get('baseline_value', '?')} → {i.get('current_value', '?')})"
+            )
+
+        message = f"[THESIS HEALTH] {current.get('ticker', '')} — {prev} → {overall}"
+        if details:
+            message += "\n" + "\n".join(details)
+
+        return {
+            "message": message,
+            "previous_value": prev,
+            "current_value": overall,
         }
 
     def _extract_change_summary(self, analysis: Dict[str, Any]) -> Optional[Dict[str, Any]]:

@@ -209,3 +209,74 @@ class TestAlertEngine:
         assert notification["change_summary"]["summary"] == "Recommendation changed from HOLD to BUY"
         assert isinstance(notification["suggested_action"], str)
         assert len(notification["suggested_action"]) > 0
+
+
+class TestThesisHealthChangeAlert:
+    """Tests for the thesis_health_change alert rule type."""
+
+    def _make_engine(self, db_manager):
+        return AlertEngine(db_manager)
+
+    def test_fires_on_degradation(self, db_manager):
+        engine = self._make_engine(db_manager)
+        current = {
+            "ticker": "NVDA",
+            "analysis": {
+                "thesis_health": {
+                    "overall_health": "WATCHING",
+                    "previous_health": "INTACT",
+                    "health_changed": True,
+                    "indicators": [
+                        {"name": "RSI", "proxy_signal": "rsi", "baseline_value": "55", "current_value": "68", "drift_pct": 23.6, "status": "drifting"},
+                    ],
+                }
+            },
+        }
+        rule = {"rule_type": "thesis_health_change", "threshold": None}
+        result = engine._evaluate_rule(rule, current, previous=None)
+        assert result is not None
+        assert "THESIS HEALTH" in result["message"]
+        assert "INTACT → WATCHING" in result["message"]
+        assert result["previous_value"] == "INTACT"
+        assert result["current_value"] == "WATCHING"
+
+    def test_silent_on_improvement(self, db_manager):
+        engine = self._make_engine(db_manager)
+        current = {
+            "ticker": "NVDA",
+            "analysis": {
+                "thesis_health": {
+                    "overall_health": "INTACT",
+                    "previous_health": "WATCHING",
+                    "health_changed": True,
+                    "indicators": [],
+                }
+            },
+        }
+        rule = {"rule_type": "thesis_health_change", "threshold": None}
+        result = engine._evaluate_rule(rule, current, previous=None)
+        assert result is None
+
+    def test_silent_when_no_change(self, db_manager):
+        engine = self._make_engine(db_manager)
+        current = {
+            "ticker": "NVDA",
+            "analysis": {
+                "thesis_health": {
+                    "overall_health": "INTACT",
+                    "previous_health": "INTACT",
+                    "health_changed": False,
+                    "indicators": [],
+                }
+            },
+        }
+        rule = {"rule_type": "thesis_health_change", "threshold": None}
+        result = engine._evaluate_rule(rule, current, previous=None)
+        assert result is None
+
+    def test_silent_when_no_thesis_health(self, db_manager):
+        engine = self._make_engine(db_manager)
+        current = {"ticker": "NVDA", "analysis": {}}
+        rule = {"rule_type": "thesis_health_change", "threshold": None}
+        result = engine._evaluate_rule(rule, current, previous=None)
+        assert result is None
