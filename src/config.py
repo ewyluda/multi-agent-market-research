@@ -67,6 +67,8 @@ class Config:
     VALIDATION_V1_ENABLED = os.getenv("VALIDATION_V1_ENABLED", "true").lower() == "true"
     VALIDATION_SPOT_CHECK_RATE = int(os.getenv("VALIDATION_SPOT_CHECK_RATE", "3"))
     VALIDATION_SPOT_CHECK_ON_CONTRADICTION = os.getenv("VALIDATION_SPOT_CHECK_ON_CONTRADICTION", "true").lower() == "true"
+    # Thesis Health Monitor
+    THESIS_HEALTH_ENABLED = os.getenv("THESIS_HEALTH_ENABLED", "true").lower() == "true"
 
     # Tavily Configuration
     TAVILY_ENABLED = os.getenv("TAVILY_ENABLED", "true").lower() == "true"

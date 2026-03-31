@@ -124,6 +124,7 @@ def test_config():
         "VALIDATION_V1_ENABLED": True,
         "VALIDATION_SPOT_CHECK_RATE": 3,
         "VALIDATION_SPOT_CHECK_ON_CONTRADICTION": True,
+        "THESIS_HEALTH_ENABLED": True,
         "FUNDAMENTALS_LLM_ENABLED": False,
         "DATABASE_PATH": ":memory:",
         "YFINANCE_TIMEOUT": 5,

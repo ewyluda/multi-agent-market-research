@@ -901,3 +901,39 @@ class TestValidationTables:
         feedback = db_manager.get_validation_feedback("test-uuid-004")
         assert len(feedback) == 1
         assert feedback[0]["human_verdict"] == "confirmed"
+
+
+class TestThesisHealthAndSynthesisTables:
+    def test_save_and_get_thesis_health_snapshot(self, db_manager):
+        indicators = [{"name": "RSI", "proxy_signal": "rsi", "baseline_value": "55", "current_value": "62", "drift_pct": 12.7, "status": "drifting"}]
+        row_id = db_manager.save_thesis_health_snapshot(
+            analysis_id=1, ticker="NVDA", overall_health="WATCHING",
+            previous_health="INTACT", health_changed=True,
+            indicators_json=indicators, baselines_updated=0,
+        )
+        assert row_id is not None
+        latest = db_manager.get_latest_thesis_health("NVDA")
+        assert latest is not None
+        assert latest["overall_health"] == "WATCHING"
+        assert latest["previous_health"] == "INTACT"
+        assert latest["health_changed"] == 1
+        assert isinstance(latest["indicators_json"], list)
+        assert latest["indicators_json"][0]["name"] == "RSI"
+
+    def test_get_latest_thesis_health_nonexistent(self, db_manager):
+        assert db_manager.get_latest_thesis_health("ZZZZ") is None
+
+    def test_save_and_get_council_synthesis(self, db_manager):
+        synthesis = {
+            "consensus": {"majority_stance": "BULLISH", "conviction_strength": 0.8},
+            "narrative": {"narrative": "Council agrees...", "fallback_used": False},
+        }
+        row_id = db_manager.save_council_synthesis("AAPL", 1, synthesis)
+        assert row_id is not None
+        latest = db_manager.get_latest_council_synthesis("AAPL")
+        assert latest is not None
+        assert latest["consensus_json"]["majority_stance"] == "BULLISH"
+        assert latest["narrative_json"]["narrative"] == "Council agrees..."
+
+    def test_get_latest_council_synthesis_nonexistent(self, db_manager):
+        assert db_manager.get_latest_council_synthesis("ZZZZ") is None

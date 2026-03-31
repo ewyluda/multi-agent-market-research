@@ -309,7 +309,8 @@ class DatabaseManager:
                         'regime_change',
                         'data_quality_below',
                         'calibration_drop',
-                        'spot_check'
+                        'spot_check',
+                        'thesis_health_change'
                     )),
                     threshold REAL,
                     enabled BOOLEAN DEFAULT 1,
@@ -374,6 +375,38 @@ class DatabaseManager:
                 )
             """)
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_validation_feedback_validation ON validation_feedback(validation_id)")
+
+            # Thesis health snapshots
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS thesis_health_snapshots (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    analysis_id INTEGER NOT NULL,
+                    ticker TEXT NOT NULL,
+                    overall_health TEXT NOT NULL CHECK(overall_health IN ('INTACT', 'WATCHING', 'DETERIORATING', 'BROKEN')),
+                    previous_health TEXT,
+                    health_changed INTEGER DEFAULT 0,
+                    indicators_json TEXT NOT NULL,
+                    baselines_updated INTEGER DEFAULT 0,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (analysis_id) REFERENCES analyses(id)
+                )
+            """)
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_thesis_health_ticker ON thesis_health_snapshots(ticker, created_at DESC)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_thesis_health_analysis ON thesis_health_snapshots(analysis_id)")
+
+            # Council synthesis
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS council_synthesis (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ticker TEXT NOT NULL,
+                    analysis_id INTEGER,
+                    consensus_json TEXT NOT NULL,
+                    narrative_json TEXT,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (analysis_id) REFERENCES analyses(id)
+                )
+            """)
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_council_synthesis_ticker ON council_synthesis(ticker, created_at DESC)")
 
             # Manual/explicit schema migrations for existing databases.
             self._ensure_column(cursor, "analyses", "score", "REAL")
@@ -574,7 +607,7 @@ class DatabaseManager:
         )
         row = cursor.fetchone()
         create_sql = str((row or [None])[0] or "").lower()
-        if "ev_above" in create_sql and "regime_change" in create_sql and "calibration_drop" in create_sql:
+        if "ev_above" in create_sql and "regime_change" in create_sql and "calibration_drop" in create_sql and "thesis_health_change" in create_sql:
             return
 
         cursor.execute("ALTER TABLE alert_rules RENAME TO alert_rules_old")
@@ -594,7 +627,8 @@ class DatabaseManager:
                     'regime_change',
                     'data_quality_below',
                     'calibration_drop',
-                    'spot_check'
+                    'spot_check',
+                    'thesis_health_change'
                 )),
                 threshold REAL,
                 enabled BOOLEAN DEFAULT 1,
@@ -3101,3 +3135,79 @@ class DatabaseManager:
                 (validation_id,),
             )
             return [dict(row) for row in cursor.fetchall()]
+
+    # ── Thesis Health Snapshots ──────────────────────────────────────────────
+
+    def save_thesis_health_snapshot(self, analysis_id, ticker, overall_health, previous_health, health_changed, indicators_json, baselines_updated):
+        """Save a thesis health snapshot. Returns row ID."""
+        now = datetime.now(timezone.utc).isoformat()
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """INSERT INTO thesis_health_snapshots (
+                       analysis_id, ticker, overall_health, previous_health,
+                       health_changed, indicators_json, baselines_updated, created_at
+                   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (analysis_id, ticker.upper(), overall_health, previous_health,
+                 1 if health_changed else 0,
+                 json.dumps(indicators_json) if isinstance(indicators_json, (list, dict)) else indicators_json,
+                 baselines_updated, now),
+            )
+            return cursor.lastrowid
+
+    def get_latest_thesis_health(self, ticker):
+        """Get the most recent thesis health snapshot for a ticker."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT * FROM thesis_health_snapshots WHERE ticker = ? ORDER BY created_at DESC LIMIT 1",
+                (ticker.upper(),),
+            )
+            row = cursor.fetchone()
+            if not row:
+                return None
+            result = dict(row)
+            if isinstance(result.get("indicators_json"), str):
+                try:
+                    result["indicators_json"] = json.loads(result["indicators_json"])
+                except Exception:
+                    pass
+            return result
+
+    # ── Council Synthesis ────────────────────────────────────────────────────
+
+    def save_council_synthesis(self, ticker, analysis_id, synthesis):
+        """Save council synthesis (consensus + narrative). Returns row ID."""
+        now = datetime.now(timezone.utc).isoformat()
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """INSERT INTO council_synthesis (
+                       ticker, analysis_id, consensus_json, narrative_json, created_at
+                   ) VALUES (?, ?, ?, ?, ?)""",
+                (ticker.upper(), analysis_id,
+                 json.dumps(synthesis.get("consensus", {})),
+                 json.dumps(synthesis.get("narrative", {})),
+                 now),
+            )
+            return cursor.lastrowid
+
+    def get_latest_council_synthesis(self, ticker):
+        """Get the most recent council synthesis for a ticker."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT * FROM council_synthesis WHERE ticker = ? ORDER BY created_at DESC LIMIT 1",
+                (ticker.upper(),),
+            )
+            row = cursor.fetchone()
+            if not row:
+                return None
+            result = dict(row)
+            for field in ("consensus_json", "narrative_json"):
+                if isinstance(result.get(field), str):
+                    try:
+                        result[field] = json.loads(result[field])
+                    except Exception:
+                        pass
+            return result
