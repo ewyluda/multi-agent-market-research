@@ -23,6 +23,15 @@ The platform now includes a **Leadership Agent** that evaluates company leadersh
 3. **Organizational Capital** — Management rituals, accountability structures, culture hardwiring
 4. **Reputational Capital** — Strategic storytelling, consistency between words and actions
 
+## Earnings Call Transcripts
+The **Fundamentals Agent** now fetches earnings call transcripts from FMP's transcript API. Transcripts are:
+- Fetched concurrently alongside company overview, financials, and earnings data
+- Automatically resolved to the most recent quarter if no specific quarter/year is provided
+- Truncated to ~8,000 characters to keep LLM context manageable
+- Fed into the LLM equity research prompt so the analyst can extract management commentary on guidance, strategic priorities, and risk factors
+
+**Note**: The FMP earnings transcript endpoint may require a paid FMP plan. Free-tier users will see a graceful 402 fallback — analysis continues without transcript data.
+
 ### Leadership Scorecard Output
 ```json
 {

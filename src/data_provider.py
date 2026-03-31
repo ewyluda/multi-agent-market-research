@@ -5,6 +5,7 @@ import logging
 import time
 from typing import Any, Dict, List, Optional
 
+import aiohttp
 import pandas as pd
 
 logger = logging.getLogger(__name__)
@@ -33,6 +34,7 @@ class OpenBBDataProvider:
     TTL_MACRO = 86400          # 24 hours
     TTL_OPTIONS = 900          # 15 minutes
     TTL_NEWS = 3600            # 1 hour
+    TTL_TRANSCRIPT = 86400     # 24 hours
 
     def __init__(self, config: Dict[str, Any]):
         self._config = config
@@ -223,6 +225,103 @@ class OpenBBDataProvider:
         if result is not None:
             self._cache_put(ck, result, self.TTL_NEWS)
         return result
+
+    async def get_earnings_transcript(self, ticker: str, quarter: int = 0, year: int = 0) -> Optional[Dict[str, Any]]:
+        """Fetch earnings call transcript for *ticker* from FMP.
+
+        Args:
+            ticker: Stock ticker symbol.
+            quarter: Fiscal quarter (1-4). If 0, fetches the most recent available.
+            year: Fiscal year. If 0, fetches the most recent available.
+
+        Returns:
+            Dict with transcript content and metadata, or None.
+        """
+        ck = self._cache_key("transcript", ticker, quarter=quarter, year=year)
+        cached = self._cache_get(ck)
+        if cached is not None:
+            return cached
+
+        result = await self._async_get_earnings_transcript(ticker, quarter, year)
+        if result is not None:
+            self._cache_put(ck, result, self.TTL_TRANSCRIPT)
+        return result
+
+    async def _async_get_earnings_transcript(
+        self, ticker: str, quarter: int = 0, year: int = 0
+    ) -> Optional[Dict[str, Any]]:
+        """Fetch earnings call transcript directly from FMP REST API (async)."""
+        fmp_key = self._config.get("FMP_API_KEY", "")
+        if not fmp_key:
+            logger.info("No FMP_API_KEY — earnings transcripts unavailable")
+            return None
+
+        try:
+            # If quarter/year not specified, fetch the transcript list first to get most recent
+            if quarter == 0 or year == 0:
+                list_url = f"https://financialmodelingprep.com/api/v4/earning_call_transcript?symbol={ticker}&apikey={fmp_key}"
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(list_url, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                        if resp.status != 200:
+                            logger.warning("FMP transcript list returned status %s for %s", resp.status, ticker)
+                            return None
+                        entries = await resp.json(content_type=None)
+
+                if not entries or not isinstance(entries, list):
+                    logger.info("No earnings transcripts available for %s", ticker)
+                    return None
+
+                # Pick the most recent entry
+                latest = entries[0]
+                quarter = latest.get("quarter", 0)
+                year = latest.get("year", 0)
+
+                if quarter == 0 or year == 0:
+                    logger.warning("FMP transcript list missing quarter/year for %s", ticker)
+                    return None
+
+            # Fetch the actual transcript
+            url = (
+                f"https://financialmodelingprep.com/api/v3/earning_call_transcript/"
+                f"{ticker}?quarter={quarter}&year={year}&apikey={fmp_key}"
+            )
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                    if resp.status == 402:
+                        logger.info("FMP transcript endpoint requires paid plan (402) for %s", ticker)
+                        return None
+                    if resp.status != 200:
+                        logger.warning("FMP transcript fetch returned status %s for %s", resp.status, ticker)
+                        return None
+                    data = await resp.json(content_type=None)
+
+            if not data:
+                return None
+
+            # FMP returns a list with one entry
+            transcript_entry = data[0] if isinstance(data, list) else data
+            content = transcript_entry.get("content", "")
+
+            if not content:
+                return None
+
+            # Truncate to ~8000 chars to keep LLM context manageable
+            max_chars = 8000
+            if len(content) > max_chars:
+                content = content[:max_chars] + "\n\n[... transcript truncated for brevity ...]"
+
+            return {
+                "quarter": quarter,
+                "year": year,
+                "date": transcript_entry.get("date", ""),
+                "content": content,
+                "symbol": ticker,
+                "data_source": "fmp",
+            }
+
+        except Exception as e:
+            logger.warning("FMP earnings transcript fetch failed for %s: %s", ticker, e)
+            return None
 
     # ------------------------------------------------------------------
     # Synchronous implementations (called via asyncio.to_thread)

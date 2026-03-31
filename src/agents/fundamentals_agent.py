@@ -106,22 +106,24 @@ class FundamentalsAgent(BaseAgent):
             self.logger.info(f"Fetching {self.ticker} fundamentals from OpenBB data provider (primary)")
 
             # Fetch all OpenBB endpoints concurrently
-            obb_overview, obb_financials, obb_earnings = await asyncio.gather(
+            obb_overview, obb_financials, obb_earnings, obb_transcript = await asyncio.gather(
                 data_provider.get_company_overview(self.ticker),
                 data_provider.get_financials(self.ticker),
                 data_provider.get_earnings(self.ticker),
+                data_provider.get_earnings_transcript(self.ticker),
                 return_exceptions=True,
             )
 
             # Handle exceptions from gather
             for name, val in [("overview", obb_overview), ("financials", obb_financials),
-                              ("earnings", obb_earnings)]:
+                              ("earnings", obb_earnings), ("transcript", obb_transcript)]:
                 if isinstance(val, Exception):
                     self.logger.warning(f"OpenBB {name} fetch raised: {val}")
 
             obb_overview = None if isinstance(obb_overview, Exception) else obb_overview
             obb_financials = None if isinstance(obb_financials, Exception) else obb_financials
             obb_earnings = None if isinstance(obb_earnings, Exception) else obb_earnings
+            obb_transcript = None if isinstance(obb_transcript, Exception) else obb_transcript
 
             # We need at least the overview to use OpenBB as primary
             if obb_overview:
@@ -258,6 +260,11 @@ class FundamentalsAgent(BaseAgent):
 
                 # Skip SEC EDGAR when OpenBB provides data
                 result["sec_data"] = None
+
+                # Store earnings call transcript if available
+                if obb_transcript:
+                    result["earnings_transcript"] = obb_transcript
+                    self.logger.info(f"Earnings transcript retrieved for {self.ticker} (Q{obb_transcript.get('quarter')} {obb_transcript.get('year')})")
 
                 # Fetch Tavily context asynchronously (don't block)
                 company_name = info.get("longName", "")
@@ -423,6 +430,16 @@ class FundamentalsAgent(BaseAgent):
                     })
             if len(revenue_history) >= 2:
                 analysis["revenue_trend"] = self._analyze_revenue_trend(revenue_history)
+
+        # Add earnings call transcript if available
+        earnings_transcript = raw_data.get("earnings_transcript")
+        if earnings_transcript:
+            analysis["earnings_transcript"] = {
+                "quarter": earnings_transcript.get("quarter"),
+                "year": earnings_transcript.get("year"),
+                "date": earnings_transcript.get("date", ""),
+                "content": earnings_transcript.get("content", ""),
+            }
 
         # Add Tavily context (recent developments between earnings)
         tavily_context = raw_data.get("tavily_context")
@@ -1104,6 +1121,13 @@ class FundamentalsAgent(BaseAgent):
             pr = analysis.get('payout_ratio')
             sections.append(f"Payout Ratio: {_fmt_pct(pr, 1)}")
 
+        # Earnings call transcript
+        transcript = analysis.get('earnings_transcript')
+        if transcript and transcript.get('content'):
+            sections.append(f"\n--- EARNINGS CALL TRANSCRIPT (Q{transcript.get('quarter')} {transcript.get('year')}) ---")
+            sections.append(f"Date: {transcript.get('date', 'N/A')}")
+            sections.append(transcript['content'])
+
         # Health score
         sections.append(f"\n--- COMPUTED HEALTH SCORE ---")
         sections.append(f"Health Score: {_fmt(analysis.get('health_score'))}/100")
@@ -1140,7 +1164,8 @@ Task: Conduct a comprehensive due diligence review using the data above. Avoid g
   * The "Uncomfortable Questions": List 2 critical questions a skeptical investor would ask the CEO on an earnings call that haven't been adequately answered yet.
 
 Constraints:
-  * Prioritize recent earnings data and macro-economic factors.
+  * Prioritize recent earnings data, earnings call transcript commentary, and macro-economic factors.
+  * If an earnings call transcript is provided, extract key management commentary on guidance, strategic priorities, and risk factors.
   * Maintain a professional, skeptical, and balanced tone.
   * Base your analysis strictly on the data provided. Do not fabricate numbers.
 
