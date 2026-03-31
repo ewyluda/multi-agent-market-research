@@ -13,6 +13,7 @@ const TABS = [
   { id: 'opportunities', label: 'Opportunities' },
   { id: 'leadership', label: 'Leadership' },
   { id: 'diagnostics', label: 'Diagnostics' },
+  { id: 'council', label: 'Council' },
 ];
 
 const AnalysisTabs = ({ activeTab, onTabChange }) => {

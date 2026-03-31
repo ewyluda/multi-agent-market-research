@@ -1427,6 +1427,276 @@ async def analyze_ticker_stream(
     )
 
 
+# ── Investor Council endpoints ────────────────────────────────────────────────
+
+@app.post("/api/thesis/{ticker}")
+async def upsert_thesis_card(ticker: str, card: dict):
+    """Create or replace the thesis card for a ticker position."""
+    from .models import ThesisCard
+    ticker = ticker.upper()
+    try:
+        # Validate via Pydantic
+        validated = ThesisCard(ticker=ticker, **{k: v for k, v in card.items() if k != "ticker"})
+        result = db_manager.upsert_thesis_card(ticker, validated.model_dump())
+        return {"success": True, "thesis_card": result}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/api/thesis/{ticker}")
+async def get_thesis_card(ticker: str):
+    """Retrieve the thesis card for a ticker, or 404 if not set."""
+    card = db_manager.get_thesis_card(ticker.upper())
+    if not card:
+        raise HTTPException(status_code=404, detail=f"No thesis card found for {ticker.upper()}")
+    return {"success": True, "thesis_card": card}
+
+
+@app.delete("/api/thesis/{ticker}")
+async def delete_thesis_card(ticker: str):
+    """Delete the thesis card for a ticker."""
+    deleted = db_manager.delete_thesis_card(ticker.upper())
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"No thesis card found for {ticker.upper()}")
+    return {"success": True}
+
+
+@app.post("/api/analyze/{ticker}/council")
+async def run_council(
+    ticker: str,
+    investors: Optional[str] = Query(
+        default=None,
+        description="Comma-separated investor keys (default: 5 primary). "
+                    "Use 'all' for all 27. Example: druckenmiller,ptj,munger",
+    ),
+    analysis_id: Optional[int] = Query(default=None, description="Use data from a specific analysis ID"),
+):
+    """
+    Run the Investor Council on a ticker's latest (or specified) analysis data.
+
+    The council is opt-in — it does NOT run as part of the standard analysis pipeline.
+    Requires an existing analysis run to provide market data context.
+
+    Returns independent qualitative assessments from each requested investor,
+    including their stance, thesis health evaluation, and pre-committed if-then scenarios.
+    """
+    import time as _time
+    from .models import CouncilAnalysisResponse, CouncilInvestorResult, IfThenScenario
+    from .agents.council.profiles import INVESTOR_PROFILES, PRIMARY_INVESTORS, ALL_INVESTORS
+
+    ticker = ticker.upper()
+    start = _time.time()
+
+    # Resolve which investors to run
+    if investors and investors.strip().lower() == "all":
+        investor_keys = ALL_INVESTORS
+    elif investors:
+        requested_keys = [k.strip() for k in investors.split(",") if k.strip()]
+        invalid = [k for k in requested_keys if k not in INVESTOR_PROFILES]
+        if invalid:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unknown investor key(s): {invalid}. Valid: {ALL_INVESTORS}",
+            )
+        investor_keys = requested_keys
+    else:
+        investor_keys = PRIMARY_INVESTORS
+
+    # Load analysis data to provide context
+    if analysis_id:
+        analysis_with_agents = db_manager.get_analysis_with_agents(analysis_id)
+    else:
+        latest = db_manager.get_latest_analysis(ticker)
+        analysis_with_agents = db_manager.get_analysis_with_agents(latest["id"]) if latest else None
+
+    if not analysis_with_agents:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No analysis found for {ticker}. Run /api/analyze/{ticker} first.",
+        )
+    analysis_row = analysis_with_agents
+
+    # Extract agent_results from stored analysis
+    agent_results: dict = {}
+    try:
+        stored = analysis_with_agents.get("agent_results") or {}
+        for agent_type, ar in stored.items():
+            data = ar.get("data") if isinstance(ar, dict) else ar
+            if agent_type and data:
+                agent_results[agent_type] = {"data": data, "success": True}
+    except Exception as e:
+        logger.warning(f"Could not load agent results for council context: {e}")
+
+    # Load thesis card (optional — council works without one)
+    thesis_card = db_manager.get_thesis_card(ticker)
+
+    # Build config dict (same pattern as Orchestrator._get_config_dict)
+    config = {attr: getattr(Config, attr) for attr in dir(Config) if not attr.startswith("_") and not callable(getattr(Config, attr))}
+    config["llm_config"] = Config.get_llm_config()
+
+    council_agents = []
+    for key in investor_keys:
+        agent_cls = _get_council_agent_class(key)
+        if agent_cls is None:
+            logger.warning(f"No agent class found for investor key: {key}")
+            continue
+        agent = agent_cls(ticker, config)
+        agent.set_context(agent_results, thesis_card)
+        council_agents.append((key, agent))
+
+    # Run all council agents in parallel
+    async def _run_one(key, agent):
+        try:
+            return await agent.execute()
+        except Exception as e:
+            logger.error(f"Council agent {key} failed: {e}")
+            return {"success": False, "data": None, "error": str(e)}
+
+    raw_results = await asyncio.gather(
+        *[_run_one(key, agent) for key, agent in council_agents],
+        return_exceptions=False,
+    )
+
+    # Build response
+    investor_results = []
+    for (key, _), raw in zip(council_agents, raw_results):
+        data = raw.get("data") or {}
+        profile = INVESTOR_PROFILES.get(key, {})
+        scenarios = [
+            IfThenScenario(**s) if isinstance(s, dict) else s
+            for s in data.get("if_then_scenarios", [])
+        ]
+        investor_results.append(
+            CouncilInvestorResult(
+                investor=key,
+                investor_name=profile.get("name", key),
+                stance=data.get("stance", "PASS"),
+                thesis_health=data.get("thesis_health", "UNKNOWN"),
+                qualitative_analysis=data.get("qualitative_analysis", raw.get("error", "")),
+                primary_question_answered=data.get("primary_question_answered", ""),
+                key_observations=data.get("key_observations", []),
+                if_then_scenarios=scenarios,
+                disagreement_flag=data.get("disagreement_flag"),
+                error=data.get("error") or (None if raw.get("success") else raw.get("error")),
+            )
+        )
+
+    # Detect disagreements (stances where ≥2 investors diverge from majority)
+    stances = [r.stance for r in investor_results if r.stance != "PASS"]
+    disagreements = []
+    if len(set(stances)) > 1:
+        bullish = [r.investor_name for r in investor_results if r.stance == "BULLISH"]
+        bearish = [r.investor_name for r in investor_results if r.stance == "BEARISH"]
+        cautious = [r.investor_name for r in investor_results if r.stance == "CAUTIOUS"]
+        if bullish and (bearish or cautious):
+            disagreements.append(
+                f"Divergence: {', '.join(bullish)} bullish vs "
+                f"{', '.join(bearish + cautious)} cautious/bearish — "
+                f"pressure-test which macro or fundamental assumption is load-bearing."
+            )
+
+    # Persist to DB
+    results_dicts = [r.model_dump() for r in investor_results]
+    db_manager.save_council_results(ticker, results_dicts, analysis_id=analysis_row.get("id"))
+
+    return CouncilAnalysisResponse(
+        success=True,
+        ticker=ticker,
+        analysis_id=analysis_row.get("id"),
+        investors_run=investor_keys,
+        results=investor_results,
+        disagreements=disagreements,
+        duration_seconds=round(_time.time() - start, 2),
+    )
+
+
+@app.get("/api/analyze/{ticker}/council")
+async def get_council_results(ticker: str, analysis_id: Optional[int] = Query(default=None)):
+    """Retrieve the most recent council results for a ticker."""
+    from .models import CouncilAnalysisResponse, CouncilInvestorResult, IfThenScenario
+    from .agents.council.profiles import INVESTOR_PROFILES
+
+    ticker = ticker.upper()
+    rows = db_manager.get_council_results(ticker, analysis_id=analysis_id)
+    if not rows:
+        raise HTTPException(status_code=404, detail=f"No council results found for {ticker}")
+
+    investor_results = []
+    for row in rows:
+        profile = INVESTOR_PROFILES.get(row["investor"], {})
+        scenarios = [
+            IfThenScenario(**s) if isinstance(s, dict) else s
+            for s in row.get("if_then_scenarios", [])
+        ]
+        investor_results.append(
+            CouncilInvestorResult(
+                investor=row["investor"],
+                investor_name=row.get("investor_name") or profile.get("name", row["investor"]),
+                stance=row.get("stance", "PASS"),
+                thesis_health=row.get("thesis_health", "UNKNOWN"),
+                qualitative_analysis=row.get("qualitative_analysis", ""),
+                primary_question_answered=row.get("primary_question_answered", ""),
+                key_observations=row.get("key_observations", []),
+                if_then_scenarios=scenarios,
+                disagreement_flag=row.get("disagreement_flag"),
+                error=row.get("error"),
+            )
+        )
+
+    return CouncilAnalysisResponse(
+        success=True,
+        ticker=ticker,
+        analysis_id=analysis_id,
+        investors_run=[r.investor for r in investor_results],
+        results=investor_results,
+        disagreements=[],
+        duration_seconds=0.0,
+    )
+
+
+def _get_council_agent_class(investor_key: str):
+    """Return the council agent class for a given investor key, or None."""
+    _map = {
+        "druckenmiller": "DruckenmillerAgent",
+        "ptj":           "PTJAgent",
+        "munger":        "MungerAgent",
+        "dalio":         "DalioAgent",
+        "marks":         "MarksAgent",
+        "buffett":       "BuffettAgent",
+        "graham":        "GrahamAgent",
+        "klarman":       "KlarmanAgent",
+        "soros":         "SorosAgent",
+        "lynch":         "LynchAgent",
+        "fisher":        "FisherAgent",
+        "grantham":      "GranthamAgent",
+        "ackman":        "AckmanAgent",
+        "icahn":         "IcahnAgent",
+        "robertson":     "RobertsonAgent",
+        "simons":        "SimonsAgent",
+        "greenblatt":    "GreenblattAgent",
+        "rogers":        "RogersAgent",
+        "templeton":     "TempletonAgent",
+        "neff":          "NeffAgent",
+        "swensen":       "SwensenAgent",
+        "bogle":         "BogleAgent",
+        "li_lu":         "LiLuAgent",
+        "duan_yongping": "DuanYongpingAgent",
+        "livermore":     "LivermoreAgent",
+        "gann":          "GannAgent",
+    }
+    cls_name = _map.get(investor_key)
+    if not cls_name:
+        return None
+    module_name = f"src.agents.council.{investor_key}_agent"
+    try:
+        import importlib
+        mod = importlib.import_module(module_name)
+        return getattr(mod, cls_name)
+    except (ImportError, AttributeError) as e:
+        logger.error(f"Could not import council agent {cls_name} from {module_name}: {e}")
+        return None
+
+
 if __name__ == "__main__":
     import uvicorn
 

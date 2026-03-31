@@ -1,4 +1,8 @@
-# CLAUDE.MD - AI Assistant Guide
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## AI Assistant Guide
 
 ## Project Overview
 
@@ -89,6 +93,31 @@ src/agents/
 └── solution_agent.py     # Final synthesis (LLM-powered)
 ```
 
+### Investor Council Agents (`src/agents/council/`)
+
+Qualitative interpretation layer — 26 legendary investor personas, each with a unique framework and primary question. Opt-in via `POST /api/analyze/{ticker}/council`; does NOT run as part of the standard pipeline.
+
+```
+src/agents/council/
+├── __init__.py
+├── profiles.py              # INVESTOR_PROFILES dict — all 26 profiles (name, tagline, framework, rules)
+├── base_council_agent.py    # BaseCouncilAgent: set_context(), _build_prompt(), _parse_llm_response()
+├── druckenmiller_agent.py   # Primary (always-on)
+├── ptj_agent.py             # Primary (always-on)
+├── munger_agent.py          # Primary (always-on)
+├── dalio_agent.py           # Primary (always-on)
+├── marks_agent.py           # Primary (always-on)
+└── <21 secondary agents>    # Opt-in via "Add Voice" button (max 7 total)
+```
+
+- Each agent: `INVESTOR_KEY = "<key>"` — profile loaded from `profiles.py` at runtime
+- Loaded dynamically via `importlib.import_module` — no import cost at startup
+- LLM output schema: `{ stance, thesis_health, qualitative_analysis, primary_question_answered, key_observations[], if_then_scenarios[], disagreement_flag }`
+- Stances: `BULLISH | CAUTIOUS | BEARISH | PASS`; Thesis health: `INTACT | WATCHING | DETERIORATING | BROKEN | UNKNOWN`
+- New API endpoints: `POST/GET /api/analyze/{ticker}/council`, `POST/GET/DELETE /api/thesis/{ticker}`
+- New DB tables: `thesis_cards` (upsert by ticker), `council_results`
+- Frontend: `CouncilPanel.jsx` → Council tab (6th tab after Diagnostics)
+
 ### Frontend
 
 ```
@@ -98,7 +127,7 @@ frontend/
 │   │   ├── Dashboard.jsx          # Root layout: Sidebar + ContentHeader + tabbed content + right sidebar
 │   │   ├── Sidebar.jsx            # 64px fixed left icon sidebar (6 nav items: analysis/history/watchlist/portfolio/schedules/alerts)
 │   │   ├── ContentHeader.jsx      # Sticky header: ticker info, price, change %, search input, progress bar
-│   │   ├── AnalysisTabs.jsx       # 4-tab bar (Overview/Risks/Opportunities/Diagnostics) + framer-motion underline
+│   │   ├── AnalysisTabs.jsx       # 6-tab bar (Overview/Risks/Opportunities/Leadership/Diagnostics/Council) + framer-motion underline
 │   │   ├── AgentPipelineBar.jsx   # Compact horizontal agent status bar (8 dots, collapsible after completion)
 │   │   ├── Recommendation.jsx     # SVG gauge with BUY/HOLD/SELL + agent consensus strip
 │   │   ├── PriceChart.jsx         # lightweight-charts candlestick + volume, indicators, source badges
@@ -113,6 +142,7 @@ frontend/
 │   │   ├── OptionsFlow.jsx        # Options flow display (P/C ratio, unusual activity, max pain)
 │   │   ├── SchedulePanel.jsx      # Schedule management for recurring analyses
 │   │   ├── AlertPanel.jsx         # Alert rules management and notification feed
+│   │   ├── CouncilPanel.jsx       # Investor Council tab — 26 personas, thesis card, if-then playbook
 │   │   └── Icons.jsx              # SVG icon components (35+ icons)
 │   ├── context/
 │   │   └── AnalysisContext.jsx    # React context for analysis state
@@ -145,7 +175,7 @@ frontend/
 - `Recommendation.jsx` includes left glow line, gradient arc gauge, animated needle glow (SMIL), and agent consensus strip (bullish/bearish/neutral dots)
 - `Sidebar.jsx` has 6 NAV_ITEMS (analysis/history/watchlist/portfolio/schedules/alerts) with tooltip labels, active state glow, and alert notification badge
 - `ContentHeader.jsx` shows ticker name, price, change %, data source badges, search input, and loading progress bar
-- `AnalysisTabs.jsx` uses framer-motion `layoutId` for animated tab underline; 4 tabs (Overview/Risks/Opportunities/Diagnostics) — no icons
+- `AnalysisTabs.jsx` uses framer-motion `layoutId` for animated tab underline; 6 tabs (Overview/Risks/Opportunities/Leadership/Diagnostics/Council) — no icons
 - `AgentPipelineBar.jsx` reads from `useAnalysisContext()`, shows 8 agent dots with status colors, collapses after completion
 - `MacroSnapshot.jsx` surfaces macro data (fed funds, yields, inflation, GDP) with gradient yield bars
 - `PriceChart.jsx` uses lightweight-charts for candlestick + volume, shows indicator cards with hover borders
@@ -595,7 +625,7 @@ The API accepts a `?agents=` query parameter to select which agents to run:
 Ticker → Orchestrator → Agents (parallel) → Solution Agent → Database → API Response
 
 Per Agent:
-  fetch_data() → [AV API (primary)] → [yfinance/NewsAPI/SEC (fallback)] → analyze() → result
+  fetch_data() → [OpenBB (primary)] → [yfinance/NewsAPI/SEC (fallback)] → analyze() → result
 ```
 
 ## Testing
@@ -701,6 +731,16 @@ python run.py
 - Check logs for `"openbb package not installed"` or `"OpenBB data provider not available"`
 - `OPENBB_OPTIONS_PROVIDER` must be `yfinance` (default); `cboe` is not bundled in the free OpenBB install
 
+### SQLite In-Memory DB in Tests
+
+- SQLite `:memory:` creates a **new independent DB** on each `get_connection()` call — tables created in one call won't exist in the next
+- Use `tempfile.NamedTemporaryFile(suffix='.db', delete=False)` for any test that exercises the full DB schema across multiple calls
+
+### Council Agent Loading
+
+- `db_manager.get_analysis_with_agents(analysis_id)` is the correct method to load agent context — returns `agent_results` dict keyed by `agent_type` with `data` already parsed from JSON. Methods `get_analysis_by_id()` and `get_agent_results()` do **not** exist.
+- Council endpoint builds config directly from `Config` class: `config = {attr: getattr(Config, attr) for attr in dir(Config) if not attr.startswith('_')}` — orchestrator is instantiated per-request, not a module-level singleton.
+
 ## Frontend Integration
 
 The frontend is in `frontend/` directory (React + Vite + Tailwind CSS v4).
@@ -782,6 +822,10 @@ The frontend is in `frontend/` directory (React + Vite + Tailwind CSS v4).
 - Agent **timeout** prevents hanging
 - SSE for **real-time** progress streaming (no polling)
 - `return_exceptions=True` in `asyncio.gather()` prevents one failed agent from blocking others
+
+## Feature History
+
+All implementation plans and their completion status are indexed at [`docs/plans/INDEX.md`](docs/plans/INDEX.md).
 
 ## Next Steps for AI Assistants
 
@@ -871,12 +915,12 @@ cd frontend && npm install
     "time_horizon": "SHORT_TERM|MEDIUM_TERM|LONG_TERM"
   },
   "agent_results": {
-    "news": { "data_source": "alpha_vantage", "...": "..." },
+    "news": { "data_source": "openbb", "...": "..." },
     "sentiment": { "...": "..." },
-    "fundamentals": { "data_source": "alpha_vantage", "...": "..." },
-    "market": { "data_source": "alpha_vantage", "...": "..." },
-    "technical": { "data_source": "alpha_vantage", "...": "..." },
-    "macro": { "data_source": "alpha_vantage", "...": "..." },
+    "fundamentals": { "data_source": "openbb", "...": "..." },
+    "market": { "data_source": "openbb", "...": "..." },
+    "technical": { "data_source": "openbb", "...": "..." },
+    "macro": { "data_source": "openbb", "...": "..." },
     "options": { "data_source": "yfinance", "...": "..." }
   },
   "duration_seconds": 32.5

@@ -462,6 +462,53 @@ class DatabaseManager:
                 CREATE INDEX IF NOT EXISTS idx_leadership_ticker ON leadership_scores(ticker)
             """)
 
+            # Investor Council — thesis cards per ticker
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS thesis_cards (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ticker TEXT NOT NULL UNIQUE,
+                    structural_thesis TEXT,
+                    near_term_thesis TEXT,
+                    load_bearing_assumption TEXT,
+                    health_indicators TEXT,
+                    exit_conditions TEXT,
+                    time_horizon TEXT,
+                    sizing_class TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+            """)
+
+            # Investor Council — per-investor results linked to an analysis run
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS council_results (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    analysis_id INTEGER,
+                    ticker TEXT NOT NULL,
+                    investor TEXT NOT NULL,
+                    investor_name TEXT,
+                    stance TEXT,
+                    thesis_health TEXT,
+                    qualitative_analysis TEXT,
+                    primary_question_answered TEXT,
+                    key_observations TEXT,
+                    if_then_scenarios TEXT,
+                    disagreement_flag TEXT,
+                    error TEXT,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY(analysis_id) REFERENCES analyses(id)
+                )
+            """)
+
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_council_results_ticker
+                ON council_results(ticker, created_at DESC)
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_council_results_analysis
+                ON council_results(analysis_id)
+            """)
+
             # Ensure singleton portfolio profile exists and seed macro events.
             self._ensure_alert_rule_schema(cursor)
             self._ensure_portfolio_profile_row(cursor)
@@ -2776,4 +2823,147 @@ class DatabaseManager:
                 record["key_metrics"] = record.pop("key_metrics_json", None) or {}
                 record["red_flags"] = record.pop("red_flags_json", None) or []
                 results.append(record)
+            return results
+
+    # ── Investor Council — Thesis Cards ──────────────────────────────────────
+
+    def upsert_thesis_card(self, ticker: str, card: dict) -> dict:
+        """Create or replace the thesis card for a ticker."""
+        now = datetime.now(timezone.utc).isoformat()
+        ticker = ticker.upper()
+        health_json = json.dumps(card.get("health_indicators", []))
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO thesis_cards
+                    (ticker, structural_thesis, near_term_thesis, load_bearing_assumption,
+                     health_indicators, exit_conditions, time_horizon, sizing_class,
+                     created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(ticker) DO UPDATE SET
+                    structural_thesis       = excluded.structural_thesis,
+                    near_term_thesis        = excluded.near_term_thesis,
+                    load_bearing_assumption = excluded.load_bearing_assumption,
+                    health_indicators       = excluded.health_indicators,
+                    exit_conditions         = excluded.exit_conditions,
+                    time_horizon            = excluded.time_horizon,
+                    sizing_class            = excluded.sizing_class,
+                    updated_at              = excluded.updated_at
+                """,
+                (
+                    ticker,
+                    card.get("structural_thesis"),
+                    card.get("near_term_thesis"),
+                    card.get("load_bearing_assumption"),
+                    health_json,
+                    card.get("exit_conditions"),
+                    card.get("time_horizon"),
+                    card.get("sizing_class"),
+                    now,
+                    now,
+                ),
+            )
+            cursor.execute("SELECT * FROM thesis_cards WHERE ticker = ?", (ticker,))
+            row = cursor.fetchone()
+            result = dict(row)
+            result["health_indicators"] = json.loads(result.get("health_indicators") or "[]")
+            return result
+
+    def get_thesis_card(self, ticker: str) -> Optional[dict]:
+        """Return the thesis card for a ticker, or None."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM thesis_cards WHERE ticker = ?", (ticker.upper(),))
+            row = cursor.fetchone()
+            if not row:
+                return None
+            result = dict(row)
+            result["health_indicators"] = json.loads(result.get("health_indicators") or "[]")
+            return result
+
+    def delete_thesis_card(self, ticker: str) -> bool:
+        """Delete the thesis card for a ticker. Returns True if deleted."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM thesis_cards WHERE ticker = ?", (ticker.upper(),))
+            return cursor.rowcount > 0
+
+    # ── Investor Council — Council Results ────────────────────────────────────
+
+    def save_council_results(
+        self,
+        ticker: str,
+        results: list,
+        analysis_id: Optional[int] = None,
+    ) -> None:
+        """Persist a list of council investor result dicts."""
+        now = datetime.now(timezone.utc).isoformat()
+        ticker = ticker.upper()
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            for r in results:
+                cursor.execute(
+                    """
+                    INSERT INTO council_results
+                        (analysis_id, ticker, investor, investor_name, stance, thesis_health,
+                         qualitative_analysis, primary_question_answered, key_observations,
+                         if_then_scenarios, disagreement_flag, error, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        analysis_id,
+                        ticker,
+                        r.get("investor", ""),
+                        r.get("investor_name", ""),
+                        r.get("stance", "PASS"),
+                        r.get("thesis_health", "UNKNOWN"),
+                        r.get("qualitative_analysis", ""),
+                        r.get("primary_question_answered", ""),
+                        json.dumps(r.get("key_observations", [])),
+                        json.dumps(r.get("if_then_scenarios", [])),
+                        r.get("disagreement_flag"),
+                        r.get("error"),
+                        now,
+                    ),
+                )
+
+    def get_council_results(
+        self,
+        ticker: str,
+        analysis_id: Optional[int] = None,
+        limit: int = 5,
+    ) -> list:
+        """
+        Return council results for a ticker.
+        If analysis_id is given, returns results for that specific run.
+        Otherwise returns the most recent `limit` distinct run sets.
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            if analysis_id is not None:
+                cursor.execute(
+                    "SELECT * FROM council_results WHERE ticker = ? AND analysis_id = ? ORDER BY investor",
+                    (ticker.upper(), analysis_id),
+                )
+            else:
+                # Latest run: group by the most recent created_at batch
+                cursor.execute(
+                    """
+                    SELECT * FROM council_results
+                    WHERE ticker = ?
+                      AND created_at = (
+                          SELECT MAX(created_at) FROM council_results WHERE ticker = ?
+                      )
+                    ORDER BY investor
+                    """,
+                    (ticker.upper(), ticker.upper()),
+                )
+            rows = cursor.fetchall()
+            results = []
+            for row in rows:
+                rec = dict(row)
+                rec["key_observations"] = json.loads(rec.get("key_observations") or "[]")
+                rec["if_then_scenarios"] = json.loads(rec.get("if_then_scenarios") or "[]")
+                results.append(rec)
             return results

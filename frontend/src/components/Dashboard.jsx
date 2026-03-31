@@ -17,6 +17,7 @@ import { OverviewMetrics, ResearchContent, ChangeSummaryPanel } from './Summary'
 import ScenarioPanel from './ScenarioPanel';
 import DiagnosticsPanel from './DiagnosticsPanel';
 import LeadershipPanel from './LeadershipPanel';
+import CouncilPanel from './CouncilPanel';
 import NewsFeed from './NewsFeed';
 import OptionsFlow from './OptionsFlow';
 import MacroSnapshot from './MacroSnapshot';
@@ -293,6 +294,20 @@ const Dashboard = () => {
                               className="space-y-6"
                             >
                               <LeadershipPanel analysis={analysis} />
+                            </Motion.div>
+                          )}
+
+                          {/* Council Tab */}
+                          {activeTab === 'council' && (
+                            <Motion.div
+                              key="tab-council"
+                              initial={{ opacity: 0, y: 8 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              exit={{ opacity: 0, y: -8 }}
+                              transition={{ duration: 0.2 }}
+                              className="space-y-6"
+                            >
+                              <CouncilPanel analysis={analysis} ticker={currentTicker} />
                             </Motion.div>
                           )}
                         </AnimatePresence>

@@ -246,3 +246,59 @@ class HealthCheckResponse(BaseModel):
     timestamp: str
     database_connected: bool
     config_valid: bool
+
+
+# ── Investor Council models ───────────────────────────────────────────────────
+
+class HealthIndicator(BaseModel):
+    """One trackable proxy signal for thesis health monitoring."""
+    name: str = Field(..., description="Short label, e.g. 'BTC 30-day trend'")
+    proxy_signal: str = Field(..., description="The observable metric being tracked")
+    baseline_value: Optional[str] = Field(default=None, description="Value at entry / thesis creation")
+    current_value: Optional[str] = Field(default=None, description="Latest observed value (populated on analysis runs)")
+
+
+class ThesisCard(BaseModel):
+    """Investor thesis card for a specific position. Stored per ticker."""
+    ticker: str = Field(..., min_length=1, max_length=10)
+    structural_thesis: Optional[str] = Field(default=None, description="Why is this a great business long-term?")
+    near_term_thesis: Optional[str] = Field(default=None, description="Why now, sized this way?")
+    load_bearing_assumption: Optional[str] = Field(default=None, description="The single thing that must remain true")
+    health_indicators: List[HealthIndicator] = Field(default=[], description="3–5 trackable proxy signals (not price)")
+    exit_conditions: Optional[str] = Field(default=None, description="Pre-committed exit triggers")
+    time_horizon: Optional[str] = Field(default=None, description="e.g. SHORT_TERM, MEDIUM_TERM, LONG_TERM")
+    sizing_class: Optional[str] = Field(default=None, description="e.g. COMPOUNDER, TRADE, SPECULATIVE")
+
+
+class IfThenScenario(BaseModel):
+    """A single pre-committed conditional rule from an investor council member."""
+    type: str = Field(..., description="macro | event | price | catalyst")
+    condition: str = Field(..., description="If <specific, concrete condition>")
+    action: str = Field(..., description="then <specific action>")
+    conviction: str = Field(..., description="high | medium | low")
+
+
+class CouncilInvestorResult(BaseModel):
+    """Output from one investor agent in the council."""
+    investor: str
+    investor_name: str
+    stance: str = Field(..., description="BULLISH | CAUTIOUS | BEARISH | PASS")
+    thesis_health: str = Field(..., description="INTACT | WATCHING | DETERIORATING | BROKEN | UNKNOWN")
+    qualitative_analysis: str
+    primary_question_answered: str
+    key_observations: List[str] = []
+    if_then_scenarios: List[IfThenScenario] = []
+    disagreement_flag: Optional[str] = None
+    error: Optional[str] = None
+
+
+class CouncilAnalysisResponse(BaseModel):
+    """Full council analysis response."""
+    success: bool
+    ticker: str
+    analysis_id: Optional[int] = None
+    investors_run: List[str] = []
+    results: List[CouncilInvestorResult] = []
+    disagreements: List[str] = Field(default=[], description="Flagged council disagreements")
+    duration_seconds: float
+    error: Optional[str] = None

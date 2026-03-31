@@ -356,5 +356,52 @@ export const acknowledgeAlert = async (notificationId) => {
   return response.data;
 };
 
+// ─── Investor Council API ────────────────────────────────────────────
+
+/**
+ * Run council analysis for a ticker
+ */
+export const runCouncilAPI = async (ticker, investors = null, analysisId = null) => {
+  const params = {};
+  if (investors) params.investors = Array.isArray(investors) ? investors.join(',') : investors;
+  if (analysisId) params.analysis_id = analysisId;
+  const response = await api.post(`/api/analyze/${ticker}/council`, null, { params });
+  return response.data;
+};
+
+/**
+ * Get cached council results for a ticker
+ */
+export const getCouncilResultsAPI = async (ticker, analysisId = null) => {
+  const params = {};
+  if (analysisId) params.analysis_id = analysisId;
+  const response = await api.get(`/api/analyze/${ticker}/council`, { params });
+  return response.data;
+};
+
+/**
+ * Upsert (create or update) the thesis card for a ticker
+ */
+export const upsertThesisCardAPI = async (ticker, card) => {
+  const response = await api.post(`/api/thesis/${ticker}`, card);
+  return response.data;
+};
+
+/**
+ * Get the thesis card for a ticker
+ */
+export const getThesisCardAPI = async (ticker) => {
+  const response = await api.get(`/api/thesis/${ticker}`);
+  return response.data;
+};
+
+/**
+ * Delete the thesis card for a ticker
+ */
+export const deleteThesisCardAPI = async (ticker) => {
+  const response = await api.delete(`/api/thesis/${ticker}`);
+  return response.data;
+};
+
 export { API_BASE_URL };
 export default api;
