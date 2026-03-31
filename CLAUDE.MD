@@ -77,6 +77,8 @@ Each agent inherits from `BaseAgent` which provides:
 - **`src/rollout_canary.py`** - Phase 7 rollout preflight and staged promotion runner
 - **`src/rollout_metrics.py`** - Phase 7 rollout gate metrics and V2 alert rule type registry
 - **`src/backfill_signal_contract.py`** - Backfills signal_contract_v2 column for historical analyses
+- **`src/validation_rules.py`** - Deterministic rule engine (Tier 1a): direction, regime, options, technical consistency checks; penalty cap 0.40
+- **`src/agents/council_validator_agent.py`** - LLM-powered council validator (Tier 1b): single LLM call validates investor claims against raw agent data; graceful fallback; penalty cap 0.25
 
 ### Agent Directory Structure
 
@@ -205,7 +207,7 @@ frontend/
 - **framer-motion** - Tab underline animations, stagger lists, spring physics for gauges, AnimatePresence for tab transitions
 - **lightweight-charts** - TradingView candlestick + volume charts (replaced custom SVG chart)
 - **Vite** - Frontend build tool
-- **pytest** - Test framework (217 tests with pytest-asyncio, aioresponses, httpx)
+- **pytest** - Test framework (249 tests with pytest-asyncio, aioresponses, httpx)
 - **ReportLab** - PDF report generation
 - **APScheduler** - Background job scheduling for recurring analyses
 - **Docker** - Containerization (multi-stage builds, nginx reverse proxy)
@@ -485,6 +487,10 @@ POST   /api/alerts/notifications/{id}/acknowledge # Mark as read
 
 17. **`confidence_reliability_bins`** - Confidence bin reliability buckets for ECE calculation
 
+18. **`validation_results`** - Per-analysis validation report (rule + council contradictions, confidence penalty, spot-check flag)
+
+19. **`validation_feedback`** - Human spot-check verdicts (confirmed/flagged) linked to validation_results via validation_id
+
 Note: `analyses` table has a `signal_contract_v2` (TEXT/JSON) column added via migration at startup.
 
 ## Common Tasks
@@ -630,7 +636,7 @@ Per Agent:
 
 ## Testing
 
-### Run Test Suite (217 tests)
+### Run Test Suite (249 tests)
 
 ```bash
 source venv/bin/activate
@@ -668,6 +674,9 @@ python -m pytest tests/ -v -m "not slow"
 - `tests/test_backfill_signal_contract.py` — backfill runner for historical analyses
 - `tests/test_calibration.py` — confidence calibration and reliability bin logic
 - `tests/test_agents/test_solution_agent.py` — solution agent synthesis and signal contract output
+- `tests/test_validation_rules.py` — rule engine unit tests (direction, regime, options, technical, penalty capping)
+- `tests/test_council_validator_agent.py` — council validator unit tests (LLM mock, parse, graceful fallback)
+- `tests/test_validation_integration.py` — end-to-end validation: rule engine, council validator, DB feedback, alert spot_check
 
 ### Test API Manually
 
@@ -784,7 +793,7 @@ The frontend is in `frontend/` directory (React + Vite + Tailwind CSS v4).
 ## Development Workflow
 
 1. **Make changes** to agents or orchestrator
-2. **Run test suite**: `python -m pytest tests/ -v` (208 tests)
+2. **Run test suite**: `python -m pytest tests/ -v` (249 tests)
 3. **Test locally** with curl or Python
 4. **Check database** to verify data persistence
 5. **Run API tests** to ensure endpoints work
