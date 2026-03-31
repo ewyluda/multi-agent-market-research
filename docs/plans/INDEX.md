@@ -13,13 +13,14 @@ Consolidated reference for all implementation plans in this project.
 | 2026-02-17 | [Analysis Intelligence Design](./2026-02-17-analysis-intelligence-design.md) | ✅ Reference spec | Design spec for the above upgrade |
 | 2026-03-10 | [OpenBB Data Pipeline Migration](../superpowers/plans/2026-03-10-openbb-data-pipeline.md) | ✅ Completed | Replaced Alpha Vantage with centralized `OpenBBDataProvider` backed by OpenBB Platform SDK v4.7+ |
 | — | [Leadership Agent](./leadership-agent-implementation.md) | ✅ Completed | Four Capitals Framework leadership scorecard; LeadershipPanel tab |
+| 2026-03-30 | [Two-Tier Validation Agent](../superpowers/plans/2026-03-30-two-tier-validation-agent.md) | ✅ Completed | Deterministic rule engine + LLM council validator in Phase 2.5; `spot_check` alert type; feedback endpoint |
+| 2026-03-30 | [Thesis Health + Synthesis View](../superpowers/plans/2026-03-30-thesis-health-synthesis-view.md) | ✅ Completed | Thesis health monitor (Phase 2.6) + council synthesis (deterministic consensus + LLM narrative); 292 tests |
 
 ## In Progress / Planned
 
 | Feature | Description | Spec |
 |---------|-------------|------|
-| **Investor Council** | Qualitative layer — 26 investor personas (see `src/agents/council/`). Phase 2 (primary 5 agents) complete. Phase 3 (thesis health monitor), Phase 4 (synthesis view), Phase 5 (ATLAS layering) planned. | — |
-| **Two-Tier Validation Agent** | ✅ Completed — deterministic rule engine + LLM council validator in Phase 2.5; `spot_check` alert type; feedback endpoint; 249 tests passing. | [Design spec](../superpowers/specs/2026-03-30-two-tier-validation-agent-design.md) · [Implementation plan](../superpowers/plans/2026-03-30-two-tier-validation-agent.md) |
+| **Investor Council** | Qualitative layer — 26 investor personas. Phase 2 (primary 5) complete. **Phase 3 (thesis health monitor) complete. Phase 4 (synthesis view) complete.** Phase 5 (ATLAS layering) planned. | [Design spec](../superpowers/specs/2026-03-30-thesis-health-synthesis-view-design.md) |
 
 ## Phase 7 Rollout Status
 
