@@ -25,6 +25,7 @@ from .data_provider import OpenBBDataProvider
 from .portfolio_engine import PortfolioEngine
 from .signal_contract import build_signal_contract_v2, validate_signal_contract_v2, _safe_float as safe_float
 from .validation_rules import validate as run_validation_rules
+from .thesis_health import evaluate_thesis_health
 
 
 class Orchestrator:
@@ -247,6 +248,33 @@ class Orchestrator:
                 except Exception as _val_exc:
                     self.logger.warning(f"Validation phase failed (non-blocking): {_val_exc}")
 
+            # Phase 2.6: Thesis Health Check
+            thesis_health_report: Optional[Dict[str, Any]] = None
+            if self.config.get("THESIS_HEALTH_ENABLED", True):
+                thesis_card = self.db_manager.get_thesis_card(ticker)
+                if thesis_card and thesis_card.get("health_indicators"):
+                    try:
+                        prev_snapshot = self.db_manager.get_latest_thesis_health(ticker)
+                        prev_health = prev_snapshot.get("overall_health") if prev_snapshot else None
+
+                        thesis_health_report = evaluate_thesis_health(
+                            thesis_card=thesis_card,
+                            agent_results=agent_results,
+                            previous_health=prev_health,
+                        )
+
+                        # Auto-snapshot baselines back to thesis card
+                        if thesis_health_report.get("baselines_updated", 0) > 0:
+                            for ind in thesis_health_report["indicators"]:
+                                for tc_ind in thesis_card.get("health_indicators", []):
+                                    if tc_ind["proxy_signal"] == ind["proxy_signal"] and not tc_ind.get("baseline_value"):
+                                        tc_ind["baseline_value"] = ind["current_value"]
+                            self.db_manager.upsert_thesis_card(ticker, thesis_card)
+
+                        final_analysis["thesis_health"] = thesis_health_report
+                    except Exception as _th_exc:
+                        self.logger.warning(f"Thesis health check failed (non-blocking): {_th_exc}")
+
             # Baseline observability for rollout gating and regression tracking.
             self._log_baseline_metrics(
                 ticker=ticker,
@@ -301,6 +329,21 @@ class Orchestrator:
                     )
                 except Exception as _db_exc:
                     self.logger.warning(f"Failed to save validation result: {_db_exc}")
+
+            # Persist thesis health snapshot
+            if analysis_id and thesis_health_report is not None:
+                try:
+                    self.db_manager.save_thesis_health_snapshot(
+                        analysis_id=analysis_id,
+                        ticker=ticker,
+                        overall_health=thesis_health_report["overall_health"],
+                        previous_health=thesis_health_report.get("previous_health"),
+                        health_changed=thesis_health_report.get("health_changed", False),
+                        indicators_json=thesis_health_report.get("indicators", []),
+                        baselines_updated=thesis_health_report.get("baselines_updated", 0),
+                    )
+                except Exception as _db_exc:
+                    self.logger.warning(f"Failed to save thesis health snapshot: {_db_exc}")
 
             if analysis_id and self.config.get("CALIBRATION_ENABLED", True):
                 try:
