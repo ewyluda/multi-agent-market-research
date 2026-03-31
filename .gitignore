@@ -137,6 +137,11 @@ celerybeat.pid
 # Environments
 .env
 .envrc
+
+# SQLite database (local data, never commit)
+*.db
+*.sqlite
+*.sqlite3
 .venv
 env/
 venv/
