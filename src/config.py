@@ -64,7 +64,10 @@ class Config:
     ALERTS_V2_ENABLED = os.getenv("ALERTS_V2_ENABLED", "true").lower() == "true"
     WATCHLIST_RANKING_ENABLED = os.getenv("WATCHLIST_RANKING_ENABLED", "true").lower() == "true"
     UI_PM_DASHBOARD_ENABLED = os.getenv("UI_PM_DASHBOARD_ENABLED", "true").lower() == "true"
-    
+    VALIDATION_V1_ENABLED = os.getenv("VALIDATION_V1_ENABLED", "true").lower() == "true"
+    VALIDATION_SPOT_CHECK_RATE = int(os.getenv("VALIDATION_SPOT_CHECK_RATE", "3"))
+    VALIDATION_SPOT_CHECK_ON_CONTRADICTION = os.getenv("VALIDATION_SPOT_CHECK_ON_CONTRADICTION", "true").lower() == "true"
+
     # Tavily Configuration
     TAVILY_ENABLED = os.getenv("TAVILY_ENABLED", "true").lower() == "true"
     TAVILY_NEWS_ENABLED = os.getenv("TAVILY_NEWS_ENABLED", "true").lower() == "true"

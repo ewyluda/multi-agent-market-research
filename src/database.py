@@ -308,7 +308,8 @@ class DatabaseManager:
                         'ev_below',
                         'regime_change',
                         'data_quality_below',
-                        'calibration_drop'
+                        'calibration_drop',
+                        'spot_check'
                     )),
                     threshold REAL,
                     enabled BOOLEAN DEFAULT 1,
@@ -333,6 +334,46 @@ class DatabaseManager:
                     FOREIGN KEY(analysis_id) REFERENCES analyses(id)
                 )
             """)
+
+            # Validation results
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS validation_results (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    analysis_id INTEGER NOT NULL,
+                    ticker TEXT NOT NULL,
+                    validation_id TEXT NOT NULL UNIQUE,
+                    overall_status TEXT NOT NULL CHECK(overall_status IN ('clean', 'warnings', 'contradictions')),
+                    original_confidence REAL,
+                    adjusted_confidence REAL,
+                    total_confidence_penalty REAL,
+                    rule_checks_total INTEGER,
+                    rule_contradictions INTEGER,
+                    council_claims_total INTEGER,
+                    council_contradictions INTEGER,
+                    spot_check_requested INTEGER DEFAULT 0,
+                    report_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (analysis_id) REFERENCES analyses(id)
+                )
+            """)
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_validation_results_ticker ON validation_results(ticker)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_validation_results_status ON validation_results(overall_status)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_validation_results_analysis ON validation_results(analysis_id)")
+
+            # Validation feedback (Tier 2 spot-check responses)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS validation_feedback (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    validation_id TEXT NOT NULL,
+                    ticker TEXT NOT NULL,
+                    claim_type TEXT NOT NULL CHECK(claim_type IN ('rule', 'council')),
+                    claim_summary TEXT NOT NULL,
+                    human_verdict TEXT NOT NULL CHECK(human_verdict IN ('confirmed', 'flagged')),
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (validation_id) REFERENCES validation_results(validation_id)
+                )
+            """)
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_validation_feedback_validation ON validation_feedback(validation_id)")
 
             # Manual/explicit schema migrations for existing databases.
             self._ensure_column(cursor, "analyses", "score", "REAL")
@@ -552,7 +593,8 @@ class DatabaseManager:
                     'ev_below',
                     'regime_change',
                     'data_quality_below',
-                    'calibration_drop'
+                    'calibration_drop',
+                    'spot_check'
                 )),
                 threshold REAL,
                 enabled BOOLEAN DEFAULT 1,
@@ -2967,3 +3009,95 @@ class DatabaseManager:
                 rec["if_then_scenarios"] = json.loads(rec.get("if_then_scenarios") or "[]")
                 results.append(rec)
             return results
+
+    # ─── Validation ──────────────────────────────────────────────────────────
+
+    def save_validation_result(
+        self,
+        analysis_id: int,
+        ticker: str,
+        validation_id: str,
+        overall_status: str,
+        original_confidence,
+        adjusted_confidence,
+        total_confidence_penalty: float,
+        rule_checks_total: int,
+        rule_contradictions: int,
+        council_claims_total: int,
+        council_contradictions: int,
+        spot_check_requested: bool,
+        report_json: str,
+    ) -> int:
+        """Save a validation result. Returns row ID."""
+        now = datetime.now(timezone.utc).isoformat()
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """INSERT INTO validation_results (
+                       analysis_id, ticker, validation_id, overall_status,
+                       original_confidence, adjusted_confidence, total_confidence_penalty,
+                       rule_checks_total, rule_contradictions,
+                       council_claims_total, council_contradictions,
+                       spot_check_requested, report_json, created_at
+                   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    analysis_id, ticker.upper(), validation_id, overall_status,
+                    original_confidence, adjusted_confidence, total_confidence_penalty,
+                    rule_checks_total, rule_contradictions,
+                    council_claims_total, council_contradictions,
+                    1 if spot_check_requested else 0,
+                    json.dumps(report_json) if isinstance(report_json, (dict, list)) else report_json,
+                    now,
+                ),
+            )
+            return cursor.lastrowid
+
+    def get_validation_result(self, validation_id: str):
+        """Get a validation result by its UUID."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT * FROM validation_results WHERE validation_id = ?",
+                (validation_id,),
+            )
+            row = cursor.fetchone()
+            if not row:
+                return None
+            result = dict(row)
+            if isinstance(result.get("report_json"), str):
+                try:
+                    result["report_json"] = json.loads(result["report_json"])
+                except Exception:
+                    pass
+            return result
+
+    def save_validation_feedback(
+        self,
+        validation_id: str,
+        ticker: str,
+        claim_type: str,
+        claim_summary: str,
+        human_verdict: str,
+    ) -> int:
+        """Save spot-check feedback. Returns row ID."""
+        now = datetime.now(timezone.utc).isoformat()
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """INSERT INTO validation_feedback (
+                       validation_id, ticker, claim_type, claim_summary,
+                       human_verdict, created_at
+                   ) VALUES (?, ?, ?, ?, ?, ?)""",
+                (validation_id, ticker.upper(), claim_type, claim_summary, human_verdict, now),
+            )
+            return cursor.lastrowid
+
+    def get_validation_feedback(self, validation_id: str):
+        """Get all feedback entries for a validation ID."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT * FROM validation_feedback WHERE validation_id = ? ORDER BY created_at DESC",
+                (validation_id,),
+            )
+            return [dict(row) for row in cursor.fetchall()]

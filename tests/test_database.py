@@ -768,3 +768,136 @@ def test_wal_mode_enabled(db_manager):
     with db_manager.get_connection() as conn:
         result = conn.execute("PRAGMA journal_mode").fetchone()
         assert result[0] == "wal"
+
+
+class TestValidationTables:
+    """Tests for validation_results and validation_feedback tables."""
+
+    def test_save_validation_result(self, db_manager):
+        """Saving a validation result returns a row ID."""
+        analysis_id = db_manager.insert_analysis(
+            ticker="AAPL",
+            recommendation="BUY",
+            confidence_score=0.78,
+            overall_sentiment_score=0.5,
+            solution_agent_reasoning="Strong buy signal.",
+            duration_seconds=5.0,
+        )
+        row_id = db_manager.save_validation_result(
+            analysis_id=analysis_id,
+            ticker="AAPL",
+            validation_id="test-uuid-001",
+            overall_status="clean",
+            original_confidence=0.78,
+            adjusted_confidence=0.78,
+            total_confidence_penalty=0.0,
+            rule_checks_total=5,
+            rule_contradictions=0,
+            council_claims_total=10,
+            council_contradictions=0,
+            spot_check_requested=False,
+            report_json='{"schema_version": "1.0"}',
+        )
+        assert row_id is not None
+        assert row_id > 0
+
+    def test_get_validation_result(self, db_manager):
+        """Fetching a validation result by validation_id returns it."""
+        analysis_id = db_manager.insert_analysis(
+            ticker="AAPL",
+            recommendation="BUY",
+            confidence_score=0.78,
+            overall_sentiment_score=0.5,
+            solution_agent_reasoning="Strong buy signal.",
+            duration_seconds=5.0,
+        )
+        db_manager.save_validation_result(
+            analysis_id=analysis_id,
+            ticker="AAPL",
+            validation_id="test-uuid-002",
+            overall_status="contradictions",
+            original_confidence=0.78,
+            adjusted_confidence=0.58,
+            total_confidence_penalty=0.20,
+            rule_checks_total=5,
+            rule_contradictions=2,
+            council_claims_total=10,
+            council_contradictions=1,
+            spot_check_requested=True,
+            report_json='{"schema_version": "1.0"}',
+        )
+        result = db_manager.get_validation_result("test-uuid-002")
+        assert result is not None
+        assert result["overall_status"] == "contradictions"
+        assert result["spot_check_requested"] == 1
+
+    def test_save_validation_feedback(self, db_manager):
+        """Saving spot-check feedback returns a row ID."""
+        analysis_id = db_manager.insert_analysis(
+            ticker="AAPL",
+            recommendation="BUY",
+            confidence_score=0.78,
+            overall_sentiment_score=0.5,
+            solution_agent_reasoning="Strong buy signal.",
+            duration_seconds=5.0,
+        )
+        db_manager.save_validation_result(
+            analysis_id=analysis_id,
+            ticker="AAPL",
+            validation_id="test-uuid-003",
+            overall_status="contradictions",
+            original_confidence=0.78,
+            adjusted_confidence=0.58,
+            total_confidence_penalty=0.20,
+            rule_checks_total=5,
+            rule_contradictions=1,
+            council_claims_total=10,
+            council_contradictions=0,
+            spot_check_requested=True,
+            report_json='{}',
+        )
+        feedback_id = db_manager.save_validation_feedback(
+            validation_id="test-uuid-003",
+            ticker="AAPL",
+            claim_type="rule",
+            claim_summary="Solution says BUY but 4/6 agents bearish",
+            human_verdict="flagged",
+        )
+        assert feedback_id is not None
+        assert feedback_id > 0
+
+    def test_get_validation_feedback(self, db_manager):
+        """Fetching feedback by validation_id returns the entries."""
+        analysis_id = db_manager.insert_analysis(
+            ticker="AAPL",
+            recommendation="BUY",
+            confidence_score=0.78,
+            overall_sentiment_score=0.5,
+            solution_agent_reasoning="Strong buy signal.",
+            duration_seconds=5.0,
+        )
+        db_manager.save_validation_result(
+            analysis_id=analysis_id,
+            ticker="AAPL",
+            validation_id="test-uuid-004",
+            overall_status="warnings",
+            original_confidence=0.78,
+            adjusted_confidence=0.73,
+            total_confidence_penalty=0.05,
+            rule_checks_total=5,
+            rule_contradictions=0,
+            council_claims_total=10,
+            council_contradictions=0,
+            spot_check_requested=True,
+            report_json='{}',
+        )
+        db_manager.save_validation_feedback(
+            validation_id="test-uuid-004",
+            ticker="AAPL",
+            claim_type="council",
+            claim_summary="Druckenmiller says macro tailwind intact",
+            human_verdict="confirmed",
+        )
+        feedback = db_manager.get_validation_feedback("test-uuid-004")
+        assert len(feedback) == 1
+        assert feedback[0]["human_verdict"] == "confirmed"

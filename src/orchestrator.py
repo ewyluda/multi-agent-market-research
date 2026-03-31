@@ -19,10 +19,12 @@ from .agents.macro_agent import MacroAgent
 from .agents.options_agent import OptionsAgent
 from .agents.leadership_agent import LeadershipAgent
 from .agents.solution_agent import SolutionAgent
+from .agents.council_validator_agent import CouncilValidatorAgent
 from .database import DatabaseManager
 from .data_provider import OpenBBDataProvider
 from .portfolio_engine import PortfolioEngine
 from .signal_contract import build_signal_contract_v2, validate_signal_contract_v2, _safe_float as safe_float
+from .validation_rules import validate as run_validation_rules
 
 
 class Orchestrator:
@@ -220,6 +222,31 @@ class Orchestrator:
             final_analysis["change_summary"] = change_summary
             self._attach_signal_contract_v2(ticker, final_analysis, agent_results, diagnostics)
 
+            # Phase 2.5: Two-tier validation
+            validation_report: Optional[Dict[str, Any]] = None
+            if self.config.get("VALIDATION_V1_ENABLED", True):
+                await self._notify_progress("validating", ticker, 88)
+                try:
+                    validation_report = await self._run_validation(ticker, final_analysis, agent_results)
+                    penalty = validation_report.get("total_confidence_penalty", 0.0)
+                    if penalty > 0:
+                        raw_conf = float(final_analysis.get("confidence") or 0.5)
+                        final_analysis["confidence"] = max(raw_conf - penalty, 0.05)
+                    sc = final_analysis.get("signal_contract_v2")
+                    if isinstance(sc, dict):
+                        sc["validation"] = {
+                            "status": validation_report.get("overall_status", "clean"),
+                            "confidence_penalty": penalty,
+                            "contradictions_count": (
+                                validation_report.get("rule_validation", {}).get("contradictions", 0)
+                                + validation_report.get("council_validation", {}).get("total_contradictions", 0)
+                            ),
+                            "spot_check_requested": validation_report.get("spot_check_requested", False),
+                        }
+                    final_analysis["validation"] = validation_report
+                except Exception as _val_exc:
+                    self.logger.warning(f"Validation phase failed (non-blocking): {_val_exc}")
+
             # Baseline observability for rollout gating and regression tracking.
             self._log_baseline_metrics(
                 ticker=ticker,
@@ -253,6 +280,27 @@ class Orchestrator:
             except Exception as db_exc:
                 self.logger.error(f"Database write failed for {ticker}: {db_exc}", exc_info=True)
                 db_write_warning = f"Analysis completed but database save failed: {db_exc}"
+
+            # Persist validation result now that analysis_id is available
+            if analysis_id and validation_report is not None:
+                try:
+                    self.db_manager.save_validation_result(
+                        analysis_id=analysis_id,
+                        ticker=ticker,
+                        validation_id=validation_report["validation_id"],
+                        overall_status=validation_report["overall_status"],
+                        original_confidence=validation_report["original_confidence"],
+                        adjusted_confidence=validation_report["adjusted_confidence"],
+                        total_confidence_penalty=validation_report["total_confidence_penalty"],
+                        rule_checks_total=validation_report.get("rule_validation", {}).get("total_rules_checked", 0),
+                        rule_contradictions=validation_report.get("rule_validation", {}).get("contradictions", 0),
+                        council_claims_total=validation_report.get("council_validation", {}).get("total_claims_checked", 0),
+                        council_contradictions=validation_report.get("council_validation", {}).get("total_contradictions", 0),
+                        spot_check_requested=validation_report.get("spot_check_requested", False),
+                        report_json=validation_report,
+                    )
+                except Exception as _db_exc:
+                    self.logger.warning(f"Failed to save validation result: {_db_exc}")
 
             if analysis_id and self.config.get("CALIBRATION_ENABLED", True):
                 try:
@@ -609,6 +657,106 @@ class Orchestrator:
         # Enforce concise reasoning on outbound payloads when CoT persistence is disabled.
         if not self.config.get("COT_PERSISTENCE_ENABLED", False):
             final_analysis["reasoning"] = contract.get("rationale_summary") or final_analysis.get("summary", "")
+
+    async def _run_validation(
+        self,
+        ticker: str,
+        final_analysis: Dict[str, Any],
+        agent_results: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Run Phase 2.5 validation: Tier 1a (deterministic rules) + Tier 1b (council LLM)."""
+        import uuid
+        from datetime import datetime, timezone as tz
+
+        # Tier 1a: deterministic rule engine (sync, always runs)
+        rule_report = run_validation_rules(
+            final_analysis=final_analysis,
+            agent_results=agent_results,
+        )
+
+        # Tier 1b: LLM-powered council validator (async, graceful fallback)
+        _empty_council = {
+            "investor_validations": [],
+            "total_claims_checked": 0,
+            "total_contradictions": 0,
+            "confidence_penalty": 0.0,
+            "llm_provider": "",
+            "fallback_used": True,
+        }
+        council_report = _empty_council
+        council_results = self._extract_council_results(agent_results)
+        if council_results:
+            try:
+                cv_agent = CouncilValidatorAgent(ticker, self.config)
+                self._inject_shared_resources(cv_agent)
+                cv_agent.set_council_context(council_results, agent_results)
+                cv_result = await asyncio.wait_for(
+                    cv_agent.execute(),
+                    timeout=self.config.get("AGENT_TIMEOUT", 30),
+                )
+                if cv_result.get("success") and cv_result.get("data"):
+                    council_report = cv_result["data"]
+            except Exception as exc:
+                self.logger.warning(f"Council validator failed (non-blocking): {exc}")
+
+        # Merge penalties (combined cap 0.50)
+        rule_penalty = float(rule_report.get("total_confidence_penalty", 0.0))
+        council_penalty = float(council_report.get("confidence_penalty", 0.0))
+        total_penalty = min(rule_penalty + council_penalty, 0.50)
+
+        # Determine overall status
+        total_contradictions = (
+            rule_report.get("contradictions", 0)
+            + council_report.get("total_contradictions", 0)
+        )
+        total_warnings = rule_report.get("warnings", 0)
+        if total_contradictions > 0:
+            overall_status = "contradictions"
+        elif total_warnings > 0:
+            overall_status = "warnings"
+        else:
+            overall_status = "clean"
+
+        # Tier 2: spot-check sampling
+        run_count = self._get_analysis_run_count(ticker)
+        spot_check_rate = int(self.config.get("VALIDATION_SPOT_CHECK_RATE", 3))
+        spot_check_on_contradiction = bool(self.config.get("VALIDATION_SPOT_CHECK_ON_CONTRADICTION", True))
+        spot_check_requested = (
+            (spot_check_rate > 0 and run_count % spot_check_rate == 0)
+            or (spot_check_on_contradiction and overall_status == "contradictions")
+        )
+
+        original_conf = float(final_analysis.get("confidence") or 0.5)
+        return {
+            "schema_version": "1.0",
+            "timestamp": datetime.now(tz.utc).isoformat(),
+            "ticker": ticker,
+            "validation_id": str(uuid.uuid4()),
+            "overall_status": overall_status,
+            "total_confidence_penalty": total_penalty,
+            "original_confidence": original_conf,
+            "adjusted_confidence": max(original_conf - total_penalty, 0.05),
+            "rule_validation": rule_report,
+            "council_validation": council_report,
+            "spot_check_requested": spot_check_requested,
+            "spot_check_status": "pending" if spot_check_requested else "skipped",
+        }
+
+    def _extract_council_results(self, agent_results: Dict[str, Any]) -> Optional[List[Dict[str, Any]]]:
+        """Extract council investor results from agent_results if present."""
+        council_data = (agent_results.get("council") or {}).get("data") or {}
+        investors = council_data.get("investors") or council_data.get("results")
+        if investors and isinstance(investors, list):
+            return investors
+        return None
+
+    def _get_analysis_run_count(self, ticker: str) -> int:
+        """Return total number of analyses for a ticker (used for spot-check sampling)."""
+        try:
+            history = self.db_manager.get_analysis_history(ticker, limit=9999)
+            return len(history) if history else 1
+        except Exception:
+            return 1
 
     def _log_baseline_metrics(
         self,

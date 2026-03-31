@@ -1697,6 +1697,34 @@ def _get_council_agent_class(investor_key: str):
         return None
 
 
+@app.post("/api/validation/{validation_id}/feedback")
+async def submit_validation_feedback(validation_id: str, body: dict):
+    """Submit human spot-check feedback for a validation result."""
+    verdict = (body.get("verdict") or "").strip().lower()
+    if verdict not in ("confirmed", "flagged"):
+        raise HTTPException(status_code=400, detail="verdict must be 'confirmed' or 'flagged'")
+
+    row = db_manager.get_validation_result(validation_id)
+    if not row:
+        raise HTTPException(status_code=404, detail=f"Validation result not found: {validation_id}")
+
+    report = row.get("report_json") or {}
+    claim_summary = (
+        report.get("overall_status", "unknown")
+        + f" ({report.get('rule_validation', {}).get('contradictions', 0)} rule contradictions)"
+    )
+
+    db_manager.save_validation_feedback(
+        validation_id=validation_id,
+        ticker=row.get("ticker", ""),
+        claim_type="rule",
+        claim_summary=claim_summary,
+        human_verdict=verdict,
+    )
+
+    return {"success": True, "validation_id": validation_id, "verdict": verdict}
+
+
 if __name__ == "__main__":
     import uvicorn
 

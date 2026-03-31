@@ -100,6 +100,8 @@ class AlertEngine:
             return self._check_data_quality_below(current, previous, threshold)
         elif rule_type == "calibration_drop" and Config.ALERTS_V2_ENABLED:
             return self._check_calibration_drop(current, previous, threshold)
+        elif rule_type == "spot_check":
+            return self._check_spot_check(current)
 
         return None
 
@@ -361,6 +363,28 @@ class AlertEngine:
                 "current_value": f"{curr_val:.3f}",
             }
         return None
+
+    def _check_spot_check(self, current) -> Optional[Dict[str, Any]]:
+        """Fire when the latest analysis has a validation spot-check requested."""
+        payload = self._analysis_payload(current)
+        validation = payload.get("validation") or {}
+        if not validation.get("spot_check_requested"):
+            return None
+        status = validation.get("overall_status", "unknown")
+        penalty = validation.get("total_confidence_penalty", 0.0)
+        contradictions = (
+            (validation.get("rule_validation") or {}).get("contradictions", 0)
+            + (validation.get("council_validation") or {}).get("total_contradictions", 0)
+        )
+        return {
+            "message": (
+                f"[SPOT CHECK] {current.get('ticker', '')} — "
+                f"Validation {status}: {contradictions} contradiction(s), "
+                f"confidence penalized by {penalty:.2f}"
+            ),
+            "previous_value": None,
+            "current_value": status,
+        }
 
     def _extract_change_summary(self, analysis: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Extract run-to-run change summary from stored analysis payload."""
