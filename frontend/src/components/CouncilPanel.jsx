@@ -59,11 +59,11 @@ const stanceConfig = {
 };
 
 const healthConfig = {
-  INTACT:       { label: 'Intact',       cls: 'text-success-400 bg-success/10 border-success/25' },
-  WATCHING:     { label: 'Watching',     cls: 'text-warning-400 bg-warning/10 border-warning/25' },
-  DETERIORATING:{ label: 'Deteriorating',cls: 'text-danger-400 bg-danger/20 border-danger/40' },
-  BROKEN:       { label: 'Broken',       cls: 'text-danger-400 bg-danger/10 border-danger/25' },
-  UNKNOWN:      { label: 'No thesis',    cls: 'text-zinc-500 bg-zinc-800/50 border-zinc-700/30' },
+  INTACT:       { label: 'Intact',        cls: 'text-success-400 bg-success/10 border-success/25',  color: '#17c964', bg: 'rgba(23,201,100,0.10)' },
+  WATCHING:     { label: 'Watching',      cls: 'text-warning-400 bg-warning/10 border-warning/25',  color: '#f5a524', bg: 'rgba(245,165,36,0.10)' },
+  DETERIORATING:{ label: 'Deteriorating', cls: 'text-danger-400 bg-danger/20 border-danger/40',     color: '#f31260', bg: 'rgba(243,18,96,0.18)'  },
+  BROKEN:       { label: 'Broken',        cls: 'text-danger-400 bg-danger/10 border-danger/25',     color: '#f31260', bg: 'rgba(243,18,96,0.10)'  },
+  UNKNOWN:      { label: 'No thesis',     cls: 'text-zinc-500 bg-zinc-800/50 border-zinc-700/30',   color: '#71717a', bg: 'rgba(82,82,91,0.20)'   },
 };
 
 const scenarioTypeConfig = {
@@ -505,6 +505,144 @@ const AddVoiceModal = ({ selected, onToggle, onClose }) => {
   );
 };
 
+// ── Synthesis Card ──────────────────────────────────────────────────────────
+
+const SynthesisCard = ({ synthesis, thesisHealth }) => {
+  if (!synthesis?.consensus) return null;
+  const { consensus, narrative } = synthesis;
+  const dist = consensus.stance_distribution || {};
+  const total = (dist.bullish || 0) + (dist.cautious || 0) + (dist.bearish || 0);
+  const majority = consensus.majority_stance || 'PASS';
+  const conviction = Math.round((consensus.conviction_strength || 0) * 100);
+  const healthConsensus = consensus.thesis_health_consensus || 'UNKNOWN';
+  const disagreements = consensus.disagreements || [];
+  const topScenarios = consensus.top_scenarios || [];
+
+  const healthColor = healthConfig[healthConsensus]?.color || healthConfig.UNKNOWN.color;
+  const healthBg = healthConfig[healthConsensus]?.bg || healthConfig.UNKNOWN.bg;
+  const majorityConfig = stanceConfig[majority] || stanceConfig.PASS;
+
+  return (
+    <Motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="glass-card-elevated rounded-xl p-5 space-y-4"
+    >
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="flex items-center gap-3">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">Council Synthesis</p>
+          <span
+            className="text-[10px] font-bold px-2.5 py-0.5 rounded-full"
+            style={{ color: majorityConfig.color, background: majorityConfig.bg, border: `1px solid ${majorityConfig.border}` }}
+          >
+            {majority} ({conviction}% conviction)
+          </span>
+          {healthConsensus !== 'UNKNOWN' && (
+            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full" style={{ color: healthColor, background: healthBg }}>
+              Thesis: {healthConsensus}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Stance distribution bar */}
+      {total > 0 && (
+        <div className="flex rounded-full overflow-hidden h-2.5" style={{ background: 'rgba(255,255,255,0.04)' }}>
+          {dist.bullish > 0 && (
+            <div style={{ width: `${(dist.bullish / total) * 100}%`, background: stanceConfig.BULLISH.color }} className="transition-all duration-500" />
+          )}
+          {dist.cautious > 0 && (
+            <div style={{ width: `${(dist.cautious / total) * 100}%`, background: stanceConfig.CAUTIOUS.color }} className="transition-all duration-500" />
+          )}
+          {dist.bearish > 0 && (
+            <div style={{ width: `${(dist.bearish / total) * 100}%`, background: stanceConfig.BEARISH.color }} className="transition-all duration-500" />
+          )}
+        </div>
+      )}
+
+      {/* Disagreements */}
+      {disagreements.length > 0 && (
+        <div className="space-y-1.5">
+          {disagreements.map((d, i) => (
+            <div key={i} className="flex items-start gap-2 text-[11px]">
+              <span className="text-amber-400 mt-0.5 shrink-0">⚡</span>
+              <span className="text-gray-400"><span className="text-gray-200 font-medium">{d.investor_name || d.investor}</span>: {d.flag}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Top if-then scenarios */}
+      {topScenarios.length > 0 && (
+        <div className="space-y-1.5">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-gray-600">Top Scenarios</p>
+          {topScenarios.map((s, i) => (
+            <div key={i} className="text-[11px] text-gray-400 flex items-start gap-2">
+              <span className="text-accent-cyan shrink-0 mt-0.5">→</span>
+              <span><span className="text-gray-300">{s.condition}</span> {s.action}</span>
+              <span className="text-[9px] text-gray-600 ml-auto shrink-0">{s.investor}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* LLM Narrative */}
+      {narrative?.narrative && !narrative.fallback_used && (
+        <div className="space-y-2 pt-2 border-t border-white/5">
+          <p className="text-[11px] text-gray-300 leading-relaxed">{narrative.narrative}</p>
+          {narrative.position_implication && (
+            <div className="flex items-center gap-2 text-[11px]">
+              <span className="text-accent-cyan font-bold">▸</span>
+              <span className="text-gray-200 font-medium">{narrative.position_implication}</span>
+            </div>
+          )}
+          {narrative.watch_item && (
+            <div className="flex items-center gap-2 text-[10px] text-gray-500">
+              <span>👁</span>
+              <span>Watch: {narrative.watch_item}</span>
+            </div>
+          )}
+        </div>
+      )}
+    </Motion.div>
+  );
+};
+
+// ── Health Indicator Strip ───────────────────────────────────────────────────
+
+const statusDot = { stable: '#17c964', drifting: '#f5a524', breached: '#f31260' };
+
+const HealthIndicatorStrip = ({ thesisHealth }) => {
+  if (!thesisHealth?.indicators?.length) return null;
+  const [expanded, setExpanded] = React.useState(null);
+  const indicators = thesisHealth.indicators;
+
+  return (
+    <div className="flex flex-wrap gap-2">
+      {indicators.map((ind, i) => {
+        const isExpanded = expanded === i;
+        return (
+          <button
+            key={ind.proxy_signal || i}
+            onClick={() => setExpanded(isExpanded ? null : i)}
+            className="flex items-center gap-1.5 text-[10px] px-2.5 py-1 rounded-lg border border-white/8 bg-white/[0.02] hover:bg-white/[0.05] transition-colors cursor-pointer"
+          >
+            <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: statusDot[ind.status] || statusDot.stable }} />
+            <span className="text-gray-400">{ind.name}</span>
+            <span className="text-gray-200 font-medium">{ind.current_value}</span>
+            {isExpanded && ind.baseline_value && (
+              <span className="text-gray-600 ml-1">
+                baseline: {ind.baseline_value}
+                {ind.drift_pct != null && ` (${ind.drift_pct.toFixed(1)}%)`}
+              </span>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+};
+
 // ── Main component ───────────────────────────────────────────────────────────
 
 const CouncilPanel = ({ analysis, ticker }) => {
@@ -674,6 +812,21 @@ const CouncilPanel = ({ analysis, ticker }) => {
           <p className="text-sm font-semibold text-gray-400 mb-1">No analysis data yet</p>
           <p className="text-xs text-gray-600">Run an analysis for {ticker || 'this ticker'} first, then convene the council.</p>
         </div>
+      )}
+
+      {/* Synthesis card */}
+      {hasResults && councilData?.synthesis && (
+        <SynthesisCard
+          synthesis={councilData.synthesis}
+          thesisHealth={analysis?.analysis?.thesis_health || analysis?.thesis_health}
+        />
+      )}
+
+      {/* Health indicator strip */}
+      {(analysis?.analysis?.thesis_health || analysis?.thesis_health) && (
+        <HealthIndicatorStrip
+          thesisHealth={analysis?.analysis?.thesis_health || analysis?.thesis_health}
+        />
       )}
 
       {/* Disagreement banner */}
