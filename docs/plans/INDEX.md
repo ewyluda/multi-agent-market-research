@@ -15,6 +15,7 @@ Consolidated reference for all implementation plans in this project.
 | — | [Leadership Agent](./leadership-agent-implementation.md) | ✅ Completed | Four Capitals Framework leadership scorecard; LeadershipPanel tab |
 | 2026-03-30 | [Two-Tier Validation Agent](../superpowers/plans/2026-03-30-two-tier-validation-agent.md) | ✅ Completed | Deterministic rule engine + LLM council validator in Phase 2.5; `spot_check` alert type; feedback endpoint |
 | 2026-03-30 | [Thesis Health + Synthesis View](../superpowers/plans/2026-03-30-thesis-health-synthesis-view.md) | ✅ Completed | Thesis health monitor (Phase 2.6) + council synthesis (deterministic consensus + LLM narrative); 292 tests |
+| 2026-04-01 | [Perception Ledger & Inflection Tracker](../superpowers/plans/2026-04-01-perception-ledger-inflection-tracker.md) | ✅ Completed | KPI perception snapshots, inflection detection with convergence scoring, scheduled watchlist scanning, inflection dashboard |
 
 ## In Progress / Planned
 
