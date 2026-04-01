@@ -26,6 +26,8 @@ from .portfolio_engine import PortfolioEngine
 from .signal_contract import build_signal_contract_v2, validate_signal_contract_v2, _safe_float as safe_float
 from .validation_rules import validate as run_validation_rules
 from .thesis_health import evaluate_thesis_health
+from .perception_ledger import extract_kpi_snapshots
+from .repositories.perception_repo import PerceptionRepository
 
 
 class Orchestrator:
@@ -341,6 +343,19 @@ class Orchestrator:
                     )
                 except Exception as _db_exc:
                     self.logger.warning(f"Failed to save validation result: {_db_exc}")
+
+            # Capture perception snapshots for inflection tracking
+            if analysis_id:
+                try:
+                    data_quality = (final_analysis.get("diagnostics") or {}).get("data_quality", {})
+                    quality_score = data_quality.get("agent_success_rate", 0.8)
+                    snapshots = extract_kpi_snapshots(agent_results, confidence=quality_score)
+                    if snapshots:
+                        perception_repo = PerceptionRepository(self.db_manager)
+                        perception_repo.insert_snapshots(ticker, analysis_id, snapshots)
+                        self.logger.info(f"Captured {len(snapshots)} perception snapshots for {ticker}")
+                except Exception as e:
+                    self.logger.warning(f"Perception snapshot capture failed: {e}")
 
             # Persist thesis health snapshot
             if analysis_id and thesis_health_report is not None:
