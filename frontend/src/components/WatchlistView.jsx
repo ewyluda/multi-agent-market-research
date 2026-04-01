@@ -10,6 +10,7 @@ import {
   deleteWatchlist,
   addTickerToWatchlist,
   removeTickerFromWatchlist,
+  setWatchlistSchedule,
   API_BASE_URL,
 } from '../utils/api';
 
@@ -422,6 +423,28 @@ const WatchlistView = ({ onSelectTicker }) => {
             </div>
           ) : (
             <div>
+              {/* Auto-analyze schedule */}
+              <div className="flex items-center gap-3 mb-4 p-2 rounded-md bg-zinc-800/30">
+                <span className="text-xs text-zinc-400">Auto-analyze:</span>
+                <select
+                  value={watchlistDetail?.auto_analyze_schedule || ''}
+                  onChange={async (e) => {
+                    const schedule = e.target.value || null;
+                    try {
+                      await setWatchlistSchedule(activeWatchlist, schedule);
+                      setWatchlistDetail((prev) => prev ? { ...prev, auto_analyze_schedule: schedule } : prev);
+                    } catch (err) {
+                      setError('Failed to update schedule');
+                    }
+                  }}
+                  className="bg-zinc-800 text-zinc-300 text-xs rounded px-2 py-1 border border-zinc-700">
+                  <option value="">Off</option>
+                  <option value="daily_am">Morning (9 AM ET)</option>
+                  <option value="daily_pm">Evening (4 PM ET)</option>
+                  <option value="twice_daily">Twice Daily</option>
+                </select>
+              </div>
+
               {/* Header: add ticker + batch analyze */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
                 <form onSubmit={handleAddTicker} style={{ display: 'flex', gap: 8, flex: 1 }}>

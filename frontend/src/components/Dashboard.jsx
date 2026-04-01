@@ -24,6 +24,7 @@ import WatchlistView from './WatchlistView';
 import PortfolioView from './PortfolioView';
 import SchedulesView from './SchedulesView';
 import AlertsView from './AlertsView';
+import InflectionView from './InflectionView';
 import { PulseIcon, SparklesIcon, ChartBarIcon, LoadingSpinner } from './Icons';
 
 /* ─── View modes ─── */
@@ -31,6 +32,7 @@ const VIEW_MODES = {
   ANALYSIS: 'analysis',
   HISTORY: 'history',
   WATCHLIST: 'watchlist',
+  INFLECTIONS: 'inflections',
   PORTFOLIO: 'portfolio',
   SCHEDULES: 'schedules',
   ALERTS: 'alerts',
@@ -312,6 +314,7 @@ const Dashboard = () => {
         {viewMode === VIEW_MODES.HISTORY && (
           <HistoryView onSelectAnalysis={handleSelectFromHistory} />
         )}
+        {viewMode === VIEW_MODES.INFLECTIONS && <InflectionView />}
         {viewMode === VIEW_MODES.WATCHLIST && (
           <WatchlistView onSelectTicker={handleSelectTicker} />
         )}
