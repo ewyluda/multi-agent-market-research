@@ -310,7 +310,8 @@ class DatabaseManager:
                         'data_quality_below',
                         'calibration_drop',
                         'spot_check',
-                        'thesis_health_change'
+                        'thesis_health_change',
+                        'inflection_detected'
                     )),
                     threshold REAL,
                     enabled BOOLEAN DEFAULT 1,
@@ -647,7 +648,7 @@ class DatabaseManager:
         )
         row = cursor.fetchone()
         create_sql = str((row or [None])[0] or "").lower()
-        if "ev_above" in create_sql and "regime_change" in create_sql and "calibration_drop" in create_sql and "thesis_health_change" in create_sql:
+        if "ev_above" in create_sql and "regime_change" in create_sql and "calibration_drop" in create_sql and "thesis_health_change" in create_sql and "inflection_detected" in create_sql:
             return
 
         cursor.execute("ALTER TABLE alert_rules RENAME TO alert_rules_old")
@@ -668,7 +669,8 @@ class DatabaseManager:
                     'data_quality_below',
                     'calibration_drop',
                     'spot_check',
-                    'thesis_health_change'
+                    'thesis_health_change',
+                    'inflection_detected'
                 )),
                 threshold REAL,
                 enabled BOOLEAN DEFAULT 1,
