@@ -83,26 +83,49 @@ class LeadershipAgent(BaseAgent):
             for query in self.RESEARCH_QUERIES
         ]
         
-        self.logger.info(f"Fetching leadership data for {self.ticker} using Tavily AI search")
-        
+        self.logger.info(f"Fetching leadership data for {self.ticker} using Tavily AI search + FMP")
+
+        # Fetch FMP management data in parallel with Tavily searches
+        data_provider = getattr(self, "_data_provider", None)
+
         # Execute all queries in parallel
         tavily = get_tavily_client(self.config)
         if not tavily.is_available:
             self.logger.warning(f"Tavily not available for {self.ticker}")
+            # Still try to get management data even if Tavily is unavailable
+            management_data = None
+            if data_provider:
+                try:
+                    management_data = await data_provider.get_management(self.ticker)
+                except Exception:
+                    pass
             return {
                 "ticker": self.ticker,
                 "company_name": company_name,
                 "queries": queries,
                 "results": [],
+                "management_data": management_data,
                 "source": "tavily_unavailable"
             }
-        
+
         search_tasks = [
             self._execute_tavily_search(tavily, query, idx)
             for idx, query in enumerate(queries)
         ]
-        
+        # Add management fetch to the parallel gather
+        if data_provider:
+            search_tasks.append(data_provider.get_management(self.ticker))
+
         results = await asyncio.gather(*search_tasks, return_exceptions=True)
+
+        # Separate management data from Tavily results
+        management_data = None
+        if data_provider:
+            mgmt_result = results[-1]
+            results = results[:-1]  # Remove management from results list
+            if not isinstance(mgmt_result, Exception) and mgmt_result:
+                management_data = mgmt_result
+                self.logger.info(f"FMP management data: {len(management_data)} executives for {self.ticker}")
         
         # Process results
         processed_results = []
@@ -145,6 +168,7 @@ class LeadershipAgent(BaseAgent):
             "queries": queries,
             "query_results": processed_results,
             "articles": unique_articles,
+            "management_data": management_data,
             "source": "tavily"
         }
 
@@ -168,7 +192,7 @@ class LeadershipAgent(BaseAgent):
             response = await tavily._client.search(
                 query=query,
                 max_results=10,
-                time_range="365d",  # Look back 1 year for leadership context
+                time_range="y",  # Look back 1 year for leadership context
                 include_answer=False,
                 include_raw_content=True,
                 search_depth="advanced"
@@ -240,28 +264,45 @@ class LeadershipAgent(BaseAgent):
         """
         articles = raw_data.get("articles", [])
         company_name = raw_data.get("company_name", self.ticker)
-        
-        if not articles:
+        management_data = raw_data.get("management_data")
+
+        if not articles and not management_data:
             return self._generate_fallback_assessment(company_name)
-        
+
         # Extract key metrics from articles
         metrics = self._extract_key_metrics(articles)
-        
+
+        # Enrich metrics with FMP management data
+        if management_data:
+            metrics["executives"] = [
+                {"name": exec.get("name", ""), "title": exec.get("title", ""),
+                 "pay": exec.get("pay"), "gender": exec.get("gender", "")}
+                for exec in management_data
+            ]
+            # Count C-suite members
+            c_suite_titles = {"ceo", "cfo", "coo", "cto", "cmo", "chief"}
+            c_suite_count = sum(
+                1 for exec in management_data
+                if any(t in (exec.get("title") or "").lower() for t in c_suite_titles)
+            )
+            metrics["c_suite_count"] = c_suite_count
+            metrics["total_executives"] = len(management_data)
+
         # Detect red flags
         red_flags = self._detect_red_flags(articles)
-        
+
         # Score each of the Four Capitals
         four_capitals = self._score_four_capitals(articles, metrics, red_flags)
-        
+
         # Calculate overall score
         overall_score = self._calculate_overall_score(four_capitals)
         overall_grade = self._score_to_grade(overall_score)
-        
+
         # Generate executive summary using LLM
         executive_summary = await self._generate_executive_summary(
             company_name, four_capitals, red_flags, metrics
         )
-        
+
         assessment = {
             "overall_score": round(overall_score, 1),
             "grade": overall_grade,
@@ -270,11 +311,12 @@ class LeadershipAgent(BaseAgent):
             "key_metrics": metrics,
             "red_flags": red_flags,
             "executive_summary": executive_summary,
-            "data_source": "tavily",
+            "management_data": management_data,
+            "data_source": "tavily+fmp" if management_data else "tavily",
             "research_queries": raw_data.get("queries", []),
             "article_count": len(articles)
         }
-        
+
         return assessment
 
     def _extract_key_metrics(self, articles: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -989,8 +1031,18 @@ Key Metrics:
 - CEO Tenure: {metrics.get('ceo_tenure_years', 'N/A')} years
 - Board Independence: {metrics.get('board_independence_pct', 'N/A')}%
 - C-Suite Turnover (12m): {metrics.get('c_suite_turnover_12m', 'N/A')}
+- Total Executives: {metrics.get('total_executives', 'N/A')}
+- C-Suite Count: {metrics.get('c_suite_count', 'N/A')}
 
 """
+        # Add executive roster from FMP if available
+        executives = metrics.get("executives")
+        if executives:
+            prompt += "Executive Team (from SEC filings):\n"
+            for exec in executives[:10]:
+                pay_str = f" (${exec['pay']:,.0f})" if exec.get('pay') else ""
+                prompt += f"- {exec['name']} — {exec['title']}{pay_str}\n"
+            prompt += "\n"
         
         if red_flags:
             prompt += f"Red Flags ({len(red_flags)}):\n"

@@ -233,6 +233,18 @@ class Orchestrator:
                     if penalty > 0:
                         raw_conf = float(final_analysis.get("confidence") or 0.5)
                         final_analysis["confidence"] = max(raw_conf - penalty, 0.05)
+                    # Apply hard recommendation override if supermajority disagrees
+                    override_rec = (
+                        validation_report.get("rule_validation", {}).get("override_recommendation")
+                    )
+                    if override_rec:
+                        self.logger.warning(
+                            f"Recommendation override for {ticker}: "
+                            f"{final_analysis.get('recommendation')} → {override_rec} "
+                            f"(supermajority agent disagreement)"
+                        )
+                        final_analysis["recommendation"] = override_rec
+                        final_analysis["recommendation_overridden"] = True
                     sc = final_analysis.get("signal_contract_v2")
                     if isinstance(sc, dict):
                         sc["validation"] = {

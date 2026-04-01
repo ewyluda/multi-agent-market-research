@@ -40,6 +40,18 @@ def mock_data_provider():
     provider.get_technical_indicators = AsyncMock(return_value={})
     provider.get_options_chain = AsyncMock(return_value={})
     provider.get_macro_data = AsyncMock(return_value={})
+    # FMP Ultimate endpoints
+    provider.get_analyst_estimates = AsyncMock(return_value={})
+    provider.get_price_targets = AsyncMock(return_value=[])
+    provider.get_ratios_ttm = AsyncMock(return_value={})
+    provider.get_insider_trading = AsyncMock(return_value=[])
+    provider.get_share_statistics = AsyncMock(return_value={})
+    provider.get_management = AsyncMock(return_value=[])
+    provider.get_revenue_segments = AsyncMock(return_value={})
+    provider.get_peers = AsyncMock(return_value=[])
+    provider.get_financial_growth = AsyncMock(return_value={})
+    provider.get_dcf_valuation = AsyncMock(return_value={})
+    provider.get_earnings_transcripts = AsyncMock(return_value=[])
     return provider
 
 

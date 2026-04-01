@@ -26,12 +26,16 @@ def validate(
     results.append(_check_options_alignment(final_analysis, agent_results))
     results.append(_check_technical_alignment(final_analysis, agent_results))
 
+    # Check for hard recommendation override (supermajority disagreement)
+    override_result = _check_recommendation_override(final_analysis, agent_results)
+    results.append(override_result)
+
     passed = sum(1 for r in results if r["passed"])
     warnings = sum(1 for r in results if not r["passed"] and r["severity"] == "warning")
     contradictions = sum(1 for r in results if not r["passed"] and r["severity"] == "contradiction")
     total_penalty = min(sum(r["confidence_penalty"] for r in results if not r["passed"]), 0.40)
 
-    return {
+    report = {
         "total_rules_checked": len(results),
         "passed": passed,
         "warnings": warnings,
@@ -39,6 +43,12 @@ def validate(
         "results": results,
         "total_confidence_penalty": round(total_penalty, 4),
     }
+
+    # Propagate override if triggered
+    if override_result.get("override_recommendation"):
+        report["override_recommendation"] = override_result["override_recommendation"]
+
+    return report
 
 
 # ─── Individual rules ────────────────────────────────────────────────────────
@@ -185,6 +195,50 @@ def _check_technical_alignment(
                 penalty=0.05,
             )
     return _pass("technical_alignment", "Technical signals align with recommendation")
+
+
+def _check_recommendation_override(
+    final_analysis: Dict[str, Any],
+    agent_results: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Override recommendation to HOLD if supermajority (5+/7) of agents disagree.
+
+    Unlike _check_direction_consistency (which only penalizes confidence at 60%),
+    this is a hard override: if 5 or more agents signal the opposite direction,
+    the recommendation is forced to HOLD.
+    """
+    recommendation = str(final_analysis.get("recommendation") or "HOLD").upper()
+    rec_direction = _recommendation_to_direction(recommendation)
+
+    if rec_direction == "neutral":
+        return _pass("recommendation_override", "Recommendation is already neutral (HOLD)")
+
+    directions = _extract_agent_directions(agent_results)
+    if not directions:
+        return _pass("recommendation_override", "No agent directions to validate against")
+
+    total = len(directions)
+    if total < 5:
+        return _pass("recommendation_override", f"Only {total} agents available; override requires 5+ disagreement")
+
+    if rec_direction == "bullish":
+        disagreeing = sum(1 for d in directions.values() if d == "bearish")
+    else:
+        disagreeing = sum(1 for d in directions.values() if d == "bullish")
+
+    if disagreeing >= 5:
+        result = _fail(
+            rule_id="recommendation_override",
+            severity="contradiction",
+            claim=f"Recommendation is {recommendation} ({rec_direction})",
+            evidence=f"{disagreeing}/{total} agents signal opposite direction — overriding to HOLD",
+            source_agent="multiple",
+            penalty=0.20,
+        )
+        result["override_recommendation"] = "HOLD"
+        return result
+
+    return _pass("recommendation_override", f"Only {disagreeing}/{total} agents disagree; no override needed")
 
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────

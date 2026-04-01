@@ -69,14 +69,21 @@ class TavilyClient:
             return {"success": False, "error": "Tavily not available", "results": []}
         
         try:
-            # Calculate time cutoff
-            time_cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
-            
+            # Map days to tavily-python time_range format: d, w, m, y
+            if days <= 1:
+                time_range = "d"
+            elif days <= 7:
+                time_range = "w"
+            elif days <= 30:
+                time_range = "m"
+            else:
+                time_range = "y"
+
             response = await self._client.search(
                 query=query,
                 search_type="news",
                 topic="finance",
-                time_range=f"{days}d",
+                time_range=time_range,
                 max_results=max_results,
                 include_answer=include_answer,
                 include_raw_content=include_raw_content,
@@ -174,7 +181,7 @@ class TavilyClient:
             response = await self._client.search(
                 query=query,
                 max_results=10,
-                time_range="30d",
+                time_range="m",
                 include_answer=True,
                 include_raw_content=False,  # Snippets only for context
                 search_depth="basic"
@@ -236,7 +243,7 @@ class TavilyClient:
                 response = await self._client.search(
                     query=query,
                     max_results=10,
-                    time_range="7d",
+                    time_range="w",
                     include_answer=True,
                     include_raw_content=False,
                     search_depth="advanced"

@@ -1,5 +1,7 @@
 # CLAUDE.md
 
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
 ## Project Overview
 
 **Multi-Agent Market Research Platform** — real-time stock analysis via 7 specialized AI agents running in parallel, synthesized by a solution agent into a final recommendation.
@@ -19,7 +21,10 @@ User → FastAPI → Orchestrator → [7 Agents in Parallel] → Solution Agent 
 | Technical | `technical_agent.py` | FMP price history + local pandas | yfinance + local calc |
 | Macro | `macro_agent.py` | FRED (fed_funds, CPI, GDP, yields, unemployment) | None |
 | Options | `options_agent.py` | yfinance via OpenBB | None |
+| Leadership | `leadership_agent.py` | LLM-powered executive assessment | N/A |
 | Solution | `solution_agent.py` | Synthesizes all agent outputs (LLM) | N/A |
+| CouncilValidator | `council_validator_agent.py` | Validates council analysis coherence | N/A |
+| CouncilSynthesis | `council_synthesis_agent.py` | Aggregates council consensus | N/A |
 
 All data agents use `OpenBBDataProvider` (`src/data_provider.py`) injected via `agent._data_provider`. Agents do **not** call external APIs directly. Each inherits from `BaseAgent` which provides `_retry_fetch()`, `_run_blocking()`, shared session, and data provider injection.
 
@@ -34,13 +39,14 @@ All data agents use `OpenBBDataProvider` (`src/data_provider.py`) injected via `
 | `run.py` | App startup (FastAPI server) |
 | `src/api.py` | REST + SSE endpoints |
 | `src/orchestrator.py` | Agent coordination, pipeline, shared resources |
-| `src/data_provider.py` | OpenBB SDK wrapper; TTL cache, async-safe |
+| `src/data_provider.py` | OpenBB SDK wrapper; TTL cache, async-safe, FMP Ultimate endpoints |
 | `src/database.py` | SQLite CRUD, caching, persistence |
 | `src/config.py` | Environment variable management |
 | `src/models.py` | Pydantic models |
+| `src/llm_guardrails.py` | Deterministic LLM output validation (price targets, sentiment, scenarios, cross-checks) |
 | `src/signal_contract.py` | Signal contract v2 builder/validator |
 | `src/portfolio_engine.py` | Portfolio advisory overlay |
-| `src/validation_rules.py` | Deterministic rule engine (Tier 1a) |
+| `src/validation_rules.py` | Deterministic rule engine + recommendation override |
 | `src/thesis_health.py` | Thesis health drift detection |
 | `src/council_synthesis.py` | Council consensus aggregation |
 | `src/scheduler.py` | APScheduler background jobs |
@@ -49,12 +55,17 @@ All data agents use `OpenBBDataProvider` (`src/data_provider.py`) injected via `
 ## Quick Reference
 
 ```bash
-source venv/bin/activate && python run.py          # Backend on :8000
-cd frontend && npm run dev                          # Frontend on :5173
-python -m pytest tests/ -v                          # Run tests
-curl -X POST http://localhost:8000/api/analyze/AAPL # Analyze stock
-curl http://localhost:8000/health                    # Health check
-docker compose up --build                           # Docker production
+source venv/bin/activate && python run.py                    # Backend on :8000
+cd frontend && npm run dev                                   # Frontend on :5173
+python -m pytest tests/ -v                                   # Run all tests
+python -m pytest tests/test_api.py::test_analyze_ticker -v   # Run single test
+python -m pytest tests/ -m "not slow"                        # Skip slow/API tests
+python -m pytest tests/ -m integration                       # Integration tests only
+python -m pytest tests/ --cov=src --cov-report=term-missing  # With coverage
+cd frontend && npm run lint                                  # Lint frontend
+curl -X POST http://localhost:8000/api/analyze/AAPL          # Analyze stock
+curl http://localhost:8000/health                             # Health check
+docker compose up --build                                    # Docker production
 ```
 
 ## Environment Variables
@@ -90,9 +101,19 @@ Key config: `LLM_PROVIDER` (anthropic/openai/xai), `AGENT_TIMEOUT` (30s), `PARAL
 
 ### Data Provider
 - All `OpenBBDataProvider` methods are async with TTL caching
-- Methods: `get_quote`, `get_price_history`, `get_company_overview`, `get_financials`, `get_earnings`, `get_earnings_transcript`, `get_technical_indicators`, `get_macro_indicators`, `get_options_chain`, `get_news`
-- `get_earnings_transcript()` calls FMP REST API directly (async via aiohttp), not through OpenBB SDK
-- FMP transcript endpoint may return 402 on free tier — handled gracefully
+- **Core methods**: `get_quote`, `get_price_history`, `get_company_overview`, `get_financials`, `get_earnings`, `get_earnings_transcript`, `get_earnings_transcripts`, `get_technical_indicators`, `get_macro_indicators`, `get_options_chain`, `get_news`
+- **FMP Ultimate methods**: `get_analyst_estimates`, `get_price_targets`, `get_ratios_ttm`, `get_insider_trading`, `get_share_statistics`, `get_management`, `get_revenue_segments`, `get_peers`, `get_financial_growth`, `get_dcf_valuation`
+- `get_earnings_transcript()` calls FMP stable REST API directly (async via aiohttp); `get_earnings_transcripts()` fetches multiple quarters
+- Smart transcript truncation: keeps intro (4K) + Q&A section (10K) instead of simple head truncation
+- FMP API migrated from `/api/v3/` to `/stable/` endpoints — all legacy URLs return 403
+
+### LLM Guardrails (`src/llm_guardrails.py`)
+- `validate_price_targets()` — enforces stop_loss < entry < target, floors/ceilings relative to current price and analyst consensus
+- `validate_sentiment()` — clamps scores to [-1,1], normalizes factor weights to sum to 1.0
+- `validate_scenarios()` — clamps returns to [-30%,+30%], enforces bull > base > bear monotonicity
+- `validate_equity_research()` — regex cross-checks LLM numeric claims against input metrics, warns on >20% deviation
+- All functions return `(validated_result, warnings)` — warnings stored in analysis output for transparency
+- Recommendation override: if 5+ of 7 agents disagree with LLM recommendation, forced to HOLD via `validation_rules.py`
 
 ### Orchestrator Flow
 1. Creates shared `aiohttp.ClientSession` + `OpenBBDataProvider`
@@ -126,10 +147,7 @@ SQLite `market_research.db` — 21 tables including `analyses`, `agent_results`,
 
 ## Testing
 
-```bash
-python -m pytest tests/ -v                              # All tests
-python -m pytest tests/ --cov=src --cov-report=term-missing  # With coverage
-```
+Test markers: `slow` (real API calls, >5s), `integration` (multi-component). Configured in `pyproject.toml` with `asyncio_mode = "auto"`.
 
 SQLite `:memory:` creates a new DB on each `get_connection()` call — use `tempfile.NamedTemporaryFile(suffix='.db', delete=False)` for multi-call tests.
 

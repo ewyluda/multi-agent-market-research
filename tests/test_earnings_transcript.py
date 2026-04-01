@@ -115,8 +115,8 @@ class TestGetEarningsTranscript:
 
     @pytest.mark.asyncio
     async def test_truncates_long_transcript(self, provider):
-        """Transcripts longer than 8000 chars get truncated."""
-        long_content = "A" * 10000
+        """Transcripts longer than 16000 chars get smart-truncated (intro + Q&A)."""
+        long_content = "A" * 20000
         transcript_response = [{
             "symbol": "AAPL",
             "quarter": 1,
@@ -135,7 +135,7 @@ class TestGetEarningsTranscript:
             result = await provider.get_earnings_transcript("AAPL", quarter=1, year=2026)
 
         assert result is not None
-        assert len(result["content"]) < 10000
+        assert len(result["content"]) < 20000
         assert "truncated" in result["content"]
 
     @pytest.mark.asyncio

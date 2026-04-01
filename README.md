@@ -23,14 +23,41 @@ The platform now includes a **Leadership Agent** that evaluates company leadersh
 3. **Organizational Capital** — Management rituals, accountability structures, culture hardwiring
 4. **Reputational Capital** — Strategic storytelling, consistency between words and actions
 
-## Earnings Call Transcripts
-The **Fundamentals Agent** now fetches earnings call transcripts from FMP's transcript API. Transcripts are:
-- Fetched concurrently alongside company overview, financials, and earnings data
-- Automatically resolved to the most recent quarter if no specific quarter/year is provided
-- Truncated to ~8,000 characters to keep LLM context manageable
-- Fed into the LLM equity research prompt so the analyst can extract management commentary on guidance, strategic priorities, and risk factors
+## FMP Ultimate Data Integration
+The platform leverages **FMP Ultimate tier** for comprehensive financial data:
 
-**Note**: The FMP earnings transcript endpoint may require a paid FMP plan. Free-tier users will see a graceful 402 fallback — analysis continues without transcript data.
+### Expanded Data Endpoints
+- **Analyst Consensus** — price target high/low/median, analyst count
+- **TTM Financial Ratios** — P/E, P/B, P/S, P/FCF, margins, ROE, current ratio, debt/equity
+- **Financial Growth Rates** — revenue, EPS, operating CF, free CF growth (1Y/3Y/5Y/10Y)
+- **Revenue Segmentation** — product and geographic revenue breakdown
+- **DCF Valuation** — discounted cash flow fair value vs market price
+- **Insider Trading** — recent insider buy/sell activity with names, titles, amounts
+- **Key Executives** — management team with titles, compensation, tenure
+- **Share Statistics** — float, outstanding shares, free float percentage
+- **Stock Peers** — comparable companies with market caps
+
+### Earnings Call Transcripts (Enhanced)
+- **Multi-quarter fetch** — fetches 2 most recent quarters for quarter-over-quarter comparison
+- **Smart truncation** (16K limit) — keeps intro (4K chars) + Q&A section (10K chars), preserving analyst questions
+- **Structured extraction** — regex pre-extracts revenue guidance, EPS guidance, growth targets, and capex outlook before the LLM call
+- **Cross-quarter comparison** — prior quarter's guidance metrics compared against current quarter
+
+### Twitter/X Social Sentiment (Enhanced)
+- **Author metadata** — batch resolves usernames, verified status, follower counts via `/2/users` endpoint
+- **Expanded tweet fields** — context annotations, conversation IDs for thread detection
+- **Quality weighting** — verified accounts and high-follower users flagged as higher-signal in sentiment analysis
+
+## LLM Output Guardrails
+Deterministic validation layer (`src/llm_guardrails.py`) enforces constraints on every LLM output:
+
+- **Price targets** — stop_loss < entry < target; floor at 50% of current price; ceiling at 2x current or analyst high
+- **Sentiment scores** — clamped to [-1, 1]; factor weights normalized to sum to 1.0
+- **Scenario probabilities** — warns if sum deviates from 1.0; returns clamped to [-30%, +30%]; monotonicity enforced (bull > base > bear)
+- **Equity research cross-check** — regex scans LLM report text for numeric claims (P/E, margins) and warns if >20% deviation from input data
+- **Recommendation override** — if 5+ of 7 agents disagree directionally with the LLM recommendation, forced to HOLD
+
+All guardrail warnings are stored in the analysis output JSON for transparency and debugging.
 
 ### Leadership Scorecard Output
 ```json
@@ -104,7 +131,10 @@ APScheduler -> Orchestrator -> analysis_outcomes/calibration_snapshots/reliabili
 ### Prerequisites
 - Python 3.10+
 - Node.js 18+
-- API keys (at least one LLM provider; Alpha Vantage strongly recommended)
+- API keys (at least one LLM provider required)
+- FMP Ultimate API key (recommended for full data coverage: analyst estimates, transcripts, ratios, insider trading, management data)
+- FRED API key (recommended for macro indicators)
+- Tavily API key (recommended for news)
 
 ### Install
 ```bash
@@ -305,6 +335,12 @@ All runtime configuration is in `.env` (`src/config.py`, `.env.example`).
 
 Default for all above is `false` (safe rollout posture).
 
+### Data Provider Configuration
+- `FMP_API_KEY` — Financial Modeling Prep (Ultimate tier recommended)
+- `FRED_API_KEY` — Federal Reserve Economic Data
+- `TAVILY_API_KEY` — Tavily AI Search (requires `tavily-python>=0.5.0`)
+- `TWITTER_BEARER_TOKEN` — Twitter/X API v2 (raw value, do not URL-decode)
+
 ### Leadership Agent Configuration
 - `LEADERSHIP_AGENT_ENABLED` — Enable/disable the Leadership Agent (default: `true`)
 
@@ -337,6 +373,7 @@ multi-agent-market-research/
 ├── src/
 │   ├── api.py
 │   ├── orchestrator.py
+│   ├── llm_guardrails.py
 │   ├── signal_contract.py
 │   ├── rollout_metrics.py
 │   ├── rollout_canary.py
@@ -378,6 +415,8 @@ multi-agent-market-research/
 │   ├── test_portfolio_engine.py
 │   ├── test_backfill_signal_contract.py
 │   ├── test_rollout_metrics.py
+│   ├── test_llm_guardrails.py
+│   ├── test_data_quality.py
 │   ├── test_rollout_canary.py
 │   └── test_agents/
 ├── docs/plans/
@@ -396,7 +435,7 @@ source venv/bin/activate
 pytest
 ```
 
-Current backend suite status in this branch: `214 passed`.
+Current backend suite status in this branch: `325 passed` (unit) + `79 passed` (data quality/integration).
 
 Frontend quality checks:
 ```bash

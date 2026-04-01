@@ -101,6 +101,7 @@ class TestAnalyzeTicker:
         """End-to-end analyze_ticker with all agents mocked."""
         db_path = str(tmp_path / "test.db")
         db_manager = DatabaseManager(db_path)
+        test_config["AGENT_TIMEOUT"] = 60  # Allow time for OpenBB SDK init + parallel fetches
 
         with (
             patch("src.orchestrator.NewsAgent") as MockNews,

@@ -168,6 +168,14 @@ Respond in JSON format:
 
             result = json.loads(json_str)
 
+            # ── Guardrails: validate sentiment bounds ──
+            from ..llm_guardrails import validate_sentiment
+            result, guardrail_warnings = validate_sentiment(result)
+            if guardrail_warnings:
+                result["guardrail_warnings"] = guardrail_warnings
+                for w in guardrail_warnings:
+                    self.logger.warning(f"Sentiment guardrail: {w}")
+
             # Add summary
             result["summary"] = self._generate_summary_from_llm_result(result)
 
@@ -281,6 +289,14 @@ Respond in JSON format:
                     raise ValueError("Could not find JSON in LLM response")
 
             result = json.loads(json_str)
+
+            # ── Guardrails: validate sentiment bounds ──
+            from ..llm_guardrails import validate_sentiment
+            result, guardrail_warnings = validate_sentiment(result)
+            if guardrail_warnings:
+                result["guardrail_warnings"] = guardrail_warnings
+                for w in guardrail_warnings:
+                    self.logger.warning(f"Sentiment guardrail: {w}")
 
             # Add summary
             result["summary"] = self._generate_summary_from_llm_result(result)
@@ -425,13 +441,30 @@ Respond in JSON format:
             return ""
 
         lines = ["\nTwitter/X Social Sentiment (recent cashtag mentions, sorted by engagement):"]
+        verified_count = 0
+        high_follower_count = 0
         for i, tweet in enumerate(twitter_posts[:10], 1):
             text = tweet.get("text", "").replace("\n", " ")[:200]
             metrics = tweet.get("metrics", {})
             engagement = tweet.get("engagement", 0)
             created = tweet.get("created_at", "")
+
+            # Author metadata enrichment
+            author_tag = ""
+            username = tweet.get("author_username", "")
+            followers = tweet.get("author_followers", 0)
+            is_verified = tweet.get("author_verified", False)
+            if username:
+                author_tag = f"@{username}"
+                if is_verified:
+                    author_tag += " ✓"
+                    verified_count += 1
+                if followers >= 10000:
+                    author_tag += f" ({followers:,} followers)"
+                    high_follower_count += 1
+
             lines.append(
-                f"{i}. [{created}] {text}\n"
+                f"{i}. {author_tag} [{created}] {text}\n"
                 f"   [Likes: {metrics.get('likes', 0)}, "
                 f"RTs: {metrics.get('retweets', 0)}, "
                 f"Replies: {metrics.get('replies', 0)}, "
@@ -440,9 +473,15 @@ Respond in JSON format:
 
         total = len(twitter_posts)
         total_engagement = sum(t.get("engagement", 0) for t in twitter_posts)
+        quality_note = ""
+        if verified_count > 0 or high_follower_count > 0:
+            quality_note = (
+                f" ({verified_count} verified accounts, "
+                f"{high_follower_count} high-follower accounts — higher signal weight)"
+            )
         lines.append(
             f"\nTwitter Summary: {total} tweets found, "
-            f"total engagement: {total_engagement}. "
+            f"total engagement: {total_engagement}.{quality_note} "
             f"Use these as a supplementary social signal — not a primary indicator.\n"
         )
 

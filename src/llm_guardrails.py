@@ -1,0 +1,336 @@
+"""Deterministic guardrails for LLM output validation.
+
+Pure functions that clamp, normalize, and cross-check LLM-generated values
+against known input data. No classes, no state, no LLM calls.
+
+Every public function returns ``(validated_result, warnings)`` where
+*warnings* is a list of human-readable strings suitable for inclusion
+in the analysis output JSON.
+"""
+
+from __future__ import annotations
+
+import re
+from typing import Any, Dict, List, Optional, Tuple
+
+
+# ─── Helpers ────────────────────────────────────────────────────────────────
+
+
+def _safe_float(val: Any) -> Optional[float]:
+    if val is None:
+        return None
+    try:
+        f = float(val)
+        if f != f:  # NaN check
+            return None
+        return f
+    except (ValueError, TypeError):
+        return None
+
+
+def _clamp(val: float, lo: float, hi: float) -> float:
+    return max(lo, min(hi, val))
+
+
+# ─── Price Targets ──────────────────────────────────────────────────────────
+
+
+def validate_price_targets(
+    targets: Dict[str, Any],
+    current_price: float,
+    analyst_estimates: Optional[Dict[str, Any]] = None,
+) -> Tuple[Dict[str, Any], List[str]]:
+    """Validate and clamp LLM-generated price targets against market reality.
+
+    Rules:
+        - stop_loss < entry < target
+        - stop_loss >= 0.5 * current_price
+        - target <= max(2.0 * current_price, analyst_target_high)
+
+    Returns:
+        (validated_targets, warnings)
+    """
+    warnings: List[str] = []
+    validated = dict(targets)
+
+    entry = _safe_float(validated.get("entry"))
+    target = _safe_float(validated.get("target"))
+    stop_loss = _safe_float(validated.get("stop_loss"))
+
+    if entry is None:
+        entry = current_price
+    if target is None:
+        target = entry * 1.10  # default 10% upside
+    if stop_loss is None:
+        stop_loss = entry * 0.93  # default 7% downside
+
+    # Fix ordering: entry should be between stop_loss and target
+    if entry > target:
+        warnings.append(f"Price target entry ({entry:.2f}) > target ({target:.2f}); swapped")
+        entry, target = target, entry
+
+    if stop_loss >= entry:
+        clamped = round(entry * 0.95, 2)
+        warnings.append(f"Stop loss ({stop_loss:.2f}) >= entry ({entry:.2f}); clamped to {clamped:.2f}")
+        stop_loss = clamped
+
+    # Floor: stop_loss must be at least 50% of current price
+    floor = current_price * 0.50
+    if stop_loss < floor:
+        warnings.append(f"Stop loss ({stop_loss:.2f}) below 50% of current price ({current_price:.2f}); clamped to {floor:.2f}")
+        stop_loss = floor
+
+    # Ceiling: target must be reasonable relative to current price and analyst data
+    analyst_high = None
+    if analyst_estimates:
+        analyst_high = _safe_float(analyst_estimates.get("target_high"))
+    ceiling = max(current_price * 2.0, analyst_high or 0)
+    if target > ceiling:
+        warnings.append(f"Price target ({target:.2f}) exceeds ceiling ({ceiling:.2f}); clamped")
+        target = ceiling
+
+    validated["entry"] = round(entry, 2)
+    validated["target"] = round(target, 2)
+    validated["stop_loss"] = round(stop_loss, 2)
+
+    return validated, warnings
+
+
+# ─── Sentiment ──────────────────────────────────────────────────────────────
+
+
+def validate_sentiment(
+    result: Dict[str, Any],
+) -> Tuple[Dict[str, Any], List[str]]:
+    """Validate and clamp LLM-generated sentiment analysis.
+
+    Rules:
+        - overall_sentiment in [-1.0, 1.0]
+        - confidence in [0.0, 1.0]
+        - factor scores in [-1.0, 1.0]
+        - factor weights normalized to sum to 1.0
+        - contribution recomputed as score * weight
+
+    Returns:
+        (validated_result, warnings)
+    """
+    warnings: List[str] = []
+    validated = dict(result)
+
+    # Clamp overall sentiment
+    sentiment = _safe_float(validated.get("overall_sentiment"))
+    if sentiment is not None:
+        clamped = _clamp(sentiment, -1.0, 1.0)
+        if clamped != sentiment:
+            warnings.append(f"overall_sentiment ({sentiment:.3f}) outside [-1, 1]; clamped to {clamped:.3f}")
+        validated["overall_sentiment"] = clamped
+
+    # Clamp confidence
+    confidence = _safe_float(validated.get("confidence"))
+    if confidence is not None:
+        clamped = _clamp(confidence, 0.0, 1.0)
+        if clamped != confidence:
+            warnings.append(f"confidence ({confidence:.3f}) outside [0, 1]; clamped to {clamped:.3f}")
+        validated["confidence"] = clamped
+
+    # Validate factors
+    factors = validated.get("factors")
+    if isinstance(factors, dict):
+        weight_sum = 0.0
+        for name, factor in factors.items():
+            if not isinstance(factor, dict):
+                continue
+            # Clamp score
+            score = _safe_float(factor.get("score"))
+            if score is not None:
+                clamped = _clamp(score, -1.0, 1.0)
+                if clamped != score:
+                    warnings.append(f"factor '{name}' score ({score:.3f}) outside [-1, 1]; clamped")
+                factor["score"] = clamped
+            # Accumulate weights
+            w = _safe_float(factor.get("weight"))
+            if w is not None:
+                weight_sum += abs(w)
+
+        # Normalize weights to sum to 1.0
+        if weight_sum > 0 and abs(weight_sum - 1.0) > 0.01:
+            warnings.append(f"factor weights sum to {weight_sum:.3f}; normalizing to 1.0")
+            for name, factor in factors.items():
+                if not isinstance(factor, dict):
+                    continue
+                w = _safe_float(factor.get("weight"))
+                if w is not None:
+                    factor["weight"] = round(abs(w) / weight_sum, 4)
+                    # Recompute contribution
+                    s = _safe_float(factor.get("score"))
+                    if s is not None:
+                        factor["contribution"] = round(s * factor["weight"], 4)
+
+    return validated, warnings
+
+
+# ─── Scenarios ──────────────────────────────────────────────────────────────
+
+
+def validate_scenarios(
+    scenarios: Dict[str, Any],
+) -> Tuple[Dict[str, Any], List[str]]:
+    """Validate and clamp LLM-generated scenario probabilities and returns.
+
+    Rules:
+        - Probability sum should be in [0.95, 1.05] (warn if outside)
+        - expected_return_pct in [-30, +30] for 7d horizon
+        - bull.return >= base.return >= bear.return (monotonicity)
+
+    Returns:
+        (validated_scenarios, warnings)
+    """
+    warnings: List[str] = []
+    validated = dict(scenarios)
+
+    # Check probability sum before normalization
+    prob_sum = 0.0
+    for name in ("bull", "base", "bear"):
+        block = validated.get(name)
+        if isinstance(block, dict):
+            p = _safe_float(block.get("probability"))
+            if p is not None:
+                prob_sum += p
+
+    if prob_sum > 0 and not (0.95 <= prob_sum <= 1.05):
+        warnings.append(f"scenario probabilities sum to {prob_sum:.3f} (expected ~1.0)")
+
+    # Clamp returns and collect for monotonicity check
+    returns = {}
+    for name in ("bull", "base", "bear"):
+        block = validated.get(name)
+        if not isinstance(block, dict):
+            continue
+        ret = _safe_float(block.get("expected_return_pct"))
+        if ret is not None:
+            clamped = _clamp(ret, -30.0, 30.0)
+            if clamped != ret:
+                warnings.append(f"scenario '{name}' return ({ret:.1f}%) clamped to [{-30}, {30}]")
+            block["expected_return_pct"] = round(clamped, 2)
+            returns[name] = clamped
+
+    # Enforce monotonicity: bull >= base >= bear
+    if len(returns) == 3:
+        bull_r = returns["bull"]
+        base_r = returns["base"]
+        bear_r = returns["bear"]
+
+        if not (bull_r >= base_r >= bear_r):
+            sorted_returns = sorted([bull_r, base_r, bear_r], reverse=True)
+            warnings.append(
+                f"scenario returns not monotonic (bull={bull_r:.1f}%, base={base_r:.1f}%, bear={bear_r:.1f}%); "
+                f"reordered to bull={sorted_returns[0]:.1f}%, base={sorted_returns[1]:.1f}%, bear={sorted_returns[2]:.1f}%"
+            )
+            validated["bull"]["expected_return_pct"] = sorted_returns[0]
+            validated["base"]["expected_return_pct"] = sorted_returns[1]
+            validated["bear"]["expected_return_pct"] = sorted_returns[2]
+
+    return validated, warnings
+
+
+# ─── Equity Research Cross-Validation ───────────────────────────────────────
+
+
+def validate_equity_research(
+    report: Dict[str, Any],
+    input_metrics: Dict[str, Any],
+) -> Tuple[Dict[str, Any], List[str]]:
+    """Cross-check LLM equity research claims against known input metrics.
+
+    Scans report text fields for numeric claims (P/E, revenue, etc.) and
+    compares against actual input data. Warns on >20% deviation.
+
+    Does NOT modify the report — warnings only.
+
+    Returns:
+        (report, warnings)
+    """
+    warnings: List[str] = []
+
+    if not report or not input_metrics:
+        return report, warnings
+
+    # Collect all text from report for scanning
+    text_fields = [
+        report.get("executive_summary", ""),
+        report.get("overall_assessment", ""),
+    ]
+    # Nested fields
+    fhc = report.get("financial_health_check") or {}
+    text_fields.append(fhc.get("fcf_analysis", ""))
+    text_fields.append(fhc.get("valuation_analysis", ""))
+
+    all_text = " ".join(str(t) for t in text_fields if t).lower()
+
+    if not all_text:
+        return report, warnings
+
+    # Cross-check P/E ratio
+    _cross_check_metric(
+        all_text,
+        pattern=r'p/?e\s*(?:ratio)?\s*(?:of|at|is|around|near|approximately)?\s*~?(\d+(?:\.\d+)?)',
+        input_value=_safe_float(input_metrics.get("pe_ratio")),
+        metric_name="P/E ratio",
+        warnings=warnings,
+    )
+
+    # Cross-check profit margin (as percentage)
+    _cross_check_metric(
+        all_text,
+        pattern=r'(?:profit|net)\s*margin\s*(?:of|at|is|around)?\s*~?(\d+(?:\.\d+)?)\s*%',
+        input_value=_pct(_safe_float(input_metrics.get("profit_margins"))),
+        metric_name="profit margin",
+        warnings=warnings,
+    )
+
+    # Cross-check ROE (as percentage)
+    _cross_check_metric(
+        all_text,
+        pattern=r'(?:roe|return on equity)\s*(?:of|at|is|around)?\s*~?(\d+(?:\.\d+)?)\s*%',
+        input_value=_pct(_safe_float(input_metrics.get("return_on_equity"))),
+        metric_name="ROE",
+        warnings=warnings,
+    )
+
+    return report, warnings
+
+
+def _pct(val: Optional[float]) -> Optional[float]:
+    """Convert a ratio (0.27) to a percentage (27.0) if <1, else pass through."""
+    if val is None:
+        return None
+    return val * 100 if abs(val) < 1 else val
+
+
+def _cross_check_metric(
+    text: str,
+    pattern: str,
+    input_value: Optional[float],
+    metric_name: str,
+    warnings: List[str],
+    tolerance: float = 0.20,
+) -> None:
+    """Check if a metric claimed in text deviates from the known input value."""
+    if input_value is None or input_value == 0:
+        return
+
+    match = re.search(pattern, text, re.IGNORECASE)
+    if not match:
+        return
+
+    claimed = _safe_float(match.group(1))
+    if claimed is None:
+        return
+
+    deviation = abs(claimed - input_value) / abs(input_value)
+    if deviation > tolerance:
+        warnings.append(
+            f"LLM claims {metric_name} ≈ {claimed:.1f} but input data shows {input_value:.1f} "
+            f"({deviation:.0%} deviation)"
+        )

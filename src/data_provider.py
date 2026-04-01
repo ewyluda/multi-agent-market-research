@@ -35,6 +35,8 @@ class OpenBBDataProvider:
     TTL_OPTIONS = 900          # 15 minutes
     TTL_NEWS = 3600            # 1 hour
     TTL_TRANSCRIPT = 86400     # 24 hours
+    TTL_ESTIMATES = 86400      # 24 hours
+    TTL_OWNERSHIP = 86400      # 24 hours
 
     def __init__(self, config: Dict[str, Any]):
         self._config = config
@@ -247,6 +249,56 @@ class OpenBBDataProvider:
             self._cache_put(ck, result, self.TTL_TRANSCRIPT)
         return result
 
+    async def get_earnings_transcripts(self, ticker: str, num_quarters: int = 2) -> List[Dict[str, Any]]:
+        """Fetch the N most recent earnings call transcripts for *ticker*.
+
+        Args:
+            ticker: Stock ticker symbol.
+            num_quarters: Number of most recent transcripts to fetch (default 2).
+
+        Returns:
+            List of transcript dicts (most recent first), or empty list.
+        """
+        ck = self._cache_key("transcripts_multi", ticker, num_quarters=num_quarters)
+        cached = self._cache_get(ck)
+        if cached is not None:
+            return cached
+
+        fmp_key = self._config.get("FMP_API_KEY", "")
+        if not fmp_key:
+            return []
+
+        try:
+            # Fetch transcript date list
+            list_url = f"https://financialmodelingprep.com/stable/earning-call-transcript-dates?symbol={ticker}&apikey={fmp_key}"
+            async with aiohttp.ClientSession() as session:
+                async with session.get(list_url, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                    if resp.status != 200:
+                        return []
+                    entries = await resp.json(content_type=None)
+
+            if not entries or not isinstance(entries, list):
+                return []
+
+            # Fetch each transcript
+            transcripts = []
+            for entry in entries[:num_quarters]:
+                q = entry.get("quarter") or entry.get("period", 0)
+                y = entry.get("year") or entry.get("fiscalYear", 0)
+                if q == 0 or y == 0:
+                    continue
+                transcript = await self._async_get_earnings_transcript(ticker, q, y)
+                if transcript:
+                    transcripts.append(transcript)
+
+            if transcripts:
+                self._cache_put(ck, transcripts, self.TTL_TRANSCRIPT)
+            return transcripts
+
+        except Exception as e:
+            logger.warning("FMP multi-quarter transcript fetch failed for %s: %s", ticker, e)
+            return []
+
     async def _async_get_earnings_transcript(
         self, ticker: str, quarter: int = 0, year: int = 0
     ) -> Optional[Dict[str, Any]]:
@@ -259,7 +311,7 @@ class OpenBBDataProvider:
         try:
             # If quarter/year not specified, fetch the transcript list first to get most recent
             if quarter == 0 or year == 0:
-                list_url = f"https://financialmodelingprep.com/api/v4/earning_call_transcript?symbol={ticker}&apikey={fmp_key}"
+                list_url = f"https://financialmodelingprep.com/stable/earning-call-transcript-dates?symbol={ticker}&apikey={fmp_key}"
                 async with aiohttp.ClientSession() as session:
                     async with session.get(list_url, timeout=aiohttp.ClientTimeout(total=15)) as resp:
                         if resp.status != 200:
@@ -271,19 +323,19 @@ class OpenBBDataProvider:
                     logger.info("No earnings transcripts available for %s", ticker)
                     return None
 
-                # Pick the most recent entry
+                # Pick the most recent entry (stable API uses "fiscalYear" instead of "year")
                 latest = entries[0]
-                quarter = latest.get("quarter", 0)
-                year = latest.get("year", 0)
+                quarter = latest.get("quarter") or latest.get("period", 0)
+                year = latest.get("year") or latest.get("fiscalYear", 0)
 
                 if quarter == 0 or year == 0:
                     logger.warning("FMP transcript list missing quarter/year for %s", ticker)
                     return None
 
-            # Fetch the actual transcript
+            # Fetch the actual transcript (stable API)
             url = (
-                f"https://financialmodelingprep.com/api/v3/earning_call_transcript/"
-                f"{ticker}?quarter={quarter}&year={year}&apikey={fmp_key}"
+                f"https://financialmodelingprep.com/stable/earning-call-transcript"
+                f"?symbol={ticker}&quarter={quarter}&year={year}&apikey={fmp_key}"
             )
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as resp:
@@ -305,10 +357,22 @@ class OpenBBDataProvider:
             if not content:
                 return None
 
-            # Truncate to ~8000 chars to keep LLM context manageable
-            max_chars = 8000
+            # Smart truncation: keep intro + Q&A section (most valuable part)
+            max_chars = 16000
             if len(content) > max_chars:
-                content = content[:max_chars] + "\n\n[... transcript truncated for brevity ...]"
+                intro = content[:4000]
+                # Find Q&A section start in the latter 2/3 of the transcript
+                qa_start = -1
+                for marker in ("Question-and-Answer", "Q&A Session", "Operator\n"):
+                    idx = content.find(marker, len(content) // 3)
+                    if idx != -1:
+                        qa_start = idx
+                        break
+                if qa_start == -1:
+                    # No marker found — take the last 10K chars as likely Q&A
+                    qa_start = max(len(content) - 10000, 4000)
+                qa_section = content[qa_start:qa_start + 10000]
+                content = intro + "\n\n[... prepared remarks truncated ...]\n\n" + qa_section
 
             return {
                 "quarter": quarter,
@@ -321,6 +385,189 @@ class OpenBBDataProvider:
 
         except Exception as e:
             logger.warning("FMP earnings transcript fetch failed for %s: %s", ticker, e)
+            return None
+
+    # ------------------------------------------------------------------
+    # FMP Ultimate endpoints (analyst, ownership, ratios, segments)
+    # ------------------------------------------------------------------
+
+    async def get_analyst_estimates(self, ticker: str) -> Optional[Dict[str, Any]]:
+        """Fetch analyst consensus estimates (price targets) for *ticker*."""
+        ck = self._cache_key("analyst_estimates", ticker)
+        cached = self._cache_get(ck)
+        if cached is not None:
+            return cached
+        result = await asyncio.to_thread(self._sync_get_analyst_estimates, ticker)
+        if result is not None:
+            self._cache_put(ck, result, self.TTL_ESTIMATES)
+        return result
+
+    async def get_price_targets(self, ticker: str) -> Optional[List[Dict[str, Any]]]:
+        """Fetch individual analyst price targets for *ticker*."""
+        ck = self._cache_key("price_targets", ticker)
+        cached = self._cache_get(ck)
+        if cached is not None:
+            return cached
+        result = await asyncio.to_thread(self._sync_get_price_targets, ticker)
+        if result is not None:
+            self._cache_put(ck, result, self.TTL_ESTIMATES)
+        return result
+
+    async def get_ratios_ttm(self, ticker: str) -> Optional[Dict[str, Any]]:
+        """Fetch comprehensive TTM financial ratios for *ticker*."""
+        ck = self._cache_key("ratios_ttm", ticker)
+        cached = self._cache_get(ck)
+        if cached is not None:
+            return cached
+        result = await asyncio.to_thread(self._sync_get_ratios_ttm, ticker)
+        if result is not None:
+            self._cache_put(ck, result, self.TTL_FUNDAMENTALS)
+        return result
+
+    async def get_insider_trading(self, ticker: str) -> Optional[List[Dict[str, Any]]]:
+        """Fetch insider trading activity for *ticker*."""
+        ck = self._cache_key("insider_trading", ticker)
+        cached = self._cache_get(ck)
+        if cached is not None:
+            return cached
+        result = await asyncio.to_thread(self._sync_get_insider_trading, ticker)
+        if result is not None:
+            self._cache_put(ck, result, self.TTL_OWNERSHIP)
+        return result
+
+    async def get_share_statistics(self, ticker: str) -> Optional[Dict[str, Any]]:
+        """Fetch share float and outstanding shares for *ticker*."""
+        ck = self._cache_key("share_stats", ticker)
+        cached = self._cache_get(ck)
+        if cached is not None:
+            return cached
+        result = await asyncio.to_thread(self._sync_get_share_statistics, ticker)
+        if result is not None:
+            self._cache_put(ck, result, self.TTL_OWNERSHIP)
+        return result
+
+    async def get_management(self, ticker: str) -> Optional[List[Dict[str, Any]]]:
+        """Fetch key executives for *ticker*."""
+        ck = self._cache_key("management", ticker)
+        cached = self._cache_get(ck)
+        if cached is not None:
+            return cached
+        result = await asyncio.to_thread(self._sync_get_management, ticker)
+        if result is not None:
+            self._cache_put(ck, result, self.TTL_FUNDAMENTALS)
+        return result
+
+    async def get_revenue_segments(self, ticker: str) -> Optional[Dict[str, Any]]:
+        """Fetch product and geographic revenue segmentation for *ticker*."""
+        ck = self._cache_key("revenue_segments", ticker)
+        cached = self._cache_get(ck)
+        if cached is not None:
+            return cached
+        result = await asyncio.to_thread(self._sync_get_revenue_segments, ticker)
+        if result is not None:
+            self._cache_put(ck, result, self.TTL_FUNDAMENTALS)
+        return result
+
+    async def get_peers(self, ticker: str) -> Optional[List[Dict[str, Any]]]:
+        """Fetch stock peers for *ticker*."""
+        ck = self._cache_key("peers", ticker)
+        cached = self._cache_get(ck)
+        if cached is not None:
+            return cached
+        result = await asyncio.to_thread(self._sync_get_peers, ticker)
+        if result is not None:
+            self._cache_put(ck, result, self.TTL_FUNDAMENTALS)
+        return result
+
+    async def get_financial_growth(self, ticker: str) -> Optional[Dict[str, Any]]:
+        """Fetch financial growth rates for *ticker* (direct FMP stable API)."""
+        ck = self._cache_key("financial_growth", ticker)
+        cached = self._cache_get(ck)
+        if cached is not None:
+            return cached
+        result = await self._async_get_financial_growth(ticker)
+        if result is not None:
+            self._cache_put(ck, result, self.TTL_FUNDAMENTALS)
+        return result
+
+    async def get_dcf_valuation(self, ticker: str) -> Optional[Dict[str, Any]]:
+        """Fetch DCF valuation for *ticker* (direct FMP stable API)."""
+        ck = self._cache_key("dcf", ticker)
+        cached = self._cache_get(ck)
+        if cached is not None:
+            return cached
+        result = await self._async_get_dcf_valuation(ticker)
+        if result is not None:
+            self._cache_put(ck, result, self.TTL_FUNDAMENTALS)
+        return result
+
+    # ------------------------------------------------------------------
+    # Direct FMP stable REST API methods (async, no OpenBB wrapper)
+    # ------------------------------------------------------------------
+
+    async def _async_get_financial_growth(self, ticker: str) -> Optional[Dict[str, Any]]:
+        """Fetch financial growth rates from FMP /stable/financial-growth."""
+        fmp_key = self._config.get("FMP_API_KEY", "")
+        if not fmp_key:
+            return None
+        try:
+            url = f"https://financialmodelingprep.com/stable/financial-growth?symbol={ticker}&limit=4&apikey={fmp_key}"
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                    if resp.status != 200:
+                        logger.warning("FMP financial-growth returned %s for %s", resp.status, ticker)
+                        return None
+                    data = await resp.json(content_type=None)
+            if not data or not isinstance(data, list):
+                return None
+            latest = data[0]
+            return {
+                "revenue_growth": latest.get("revenueGrowth"),
+                "gross_profit_growth": latest.get("grossProfitGrowth"),
+                "operating_income_growth": latest.get("operatingIncomeGrowth"),
+                "net_income_growth": latest.get("netIncomeGrowth"),
+                "eps_growth": latest.get("epsgrowth"),
+                "eps_diluted_growth": latest.get("epsdilutedGrowth"),
+                "operating_cf_growth": latest.get("operatingCashFlowGrowth"),
+                "free_cf_growth": latest.get("freeCashFlowGrowth"),
+                "rd_expense_growth": latest.get("rdexpenseGrowth"),
+                "ten_y_revenue_growth_per_share": latest.get("tenYRevenueGrowthPerShare"),
+                "five_y_revenue_growth_per_share": latest.get("fiveYRevenueGrowthPerShare"),
+                "three_y_revenue_growth_per_share": latest.get("threeYRevenueGrowthPerShare"),
+                "ten_y_net_income_growth_per_share": latest.get("tenYNetIncomeGrowthPerShare"),
+                "five_y_net_income_growth_per_share": latest.get("fiveYNetIncomeGrowthPerShare"),
+                "fiscal_year": latest.get("fiscalYear"),
+                "period": latest.get("period"),
+                "data_source": "fmp",
+            }
+        except Exception as e:
+            logger.warning("FMP financial-growth fetch failed for %s: %s", ticker, e)
+            return None
+
+    async def _async_get_dcf_valuation(self, ticker: str) -> Optional[Dict[str, Any]]:
+        """Fetch DCF valuation from FMP /stable/discounted-cash-flow."""
+        fmp_key = self._config.get("FMP_API_KEY", "")
+        if not fmp_key:
+            return None
+        try:
+            url = f"https://financialmodelingprep.com/stable/discounted-cash-flow?symbol={ticker}&apikey={fmp_key}"
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                    if resp.status != 200:
+                        logger.warning("FMP DCF returned %s for %s", resp.status, ticker)
+                        return None
+                    data = await resp.json(content_type=None)
+            if not data:
+                return None
+            entry = data[0] if isinstance(data, list) else data
+            return {
+                "dcf": entry.get("dcf"),
+                "stock_price": entry.get("Stock Price"),
+                "date": entry.get("date"),
+                "data_source": "fmp",
+            }
+        except Exception as e:
+            logger.warning("FMP DCF fetch failed for %s: %s", ticker, e)
             return None
 
     # ------------------------------------------------------------------
@@ -731,4 +978,271 @@ class OpenBBDataProvider:
             return articles
         except Exception as e:
             logger.warning("OpenBB news fetch failed for %s: %s", ticker, e)
+            return None
+
+    # ------------------------------------------------------------------
+    # FMP Ultimate sync implementations
+    # ------------------------------------------------------------------
+
+    def _sync_get_analyst_estimates(self, ticker: str) -> Optional[Dict[str, Any]]:
+        self._ensure_obb()
+        if self._obb is None:
+            return None
+        try:
+            provider = self._config.get("OPENBB_EQUITY_PROVIDER", "fmp")
+            result = self._obb.equity.estimates.consensus(symbol=ticker, provider=provider)
+            if result is None or result.results is None:
+                return None
+            df = result.to_df()
+            if df is None or df.empty:
+                return None
+            row = df.iloc[0].to_dict()
+            return {
+                "target_high": row.get("target_high"),
+                "target_low": row.get("target_low"),
+                "target_consensus": row.get("target_consensus"),
+                "target_median": row.get("target_median"),
+                "data_source": "openbb",
+            }
+        except Exception as e:
+            logger.warning("OpenBB analyst estimates fetch failed for %s: %s", ticker, e)
+            return None
+
+    def _sync_get_price_targets(self, ticker: str) -> Optional[List[Dict[str, Any]]]:
+        self._ensure_obb()
+        if self._obb is None:
+            return None
+        try:
+            provider = self._config.get("OPENBB_EQUITY_PROVIDER", "fmp")
+            result = self._obb.equity.estimates.price_target(symbol=ticker, provider=provider)
+            if result is None or result.results is None:
+                return None
+            df = result.to_df()
+            if df is None or df.empty:
+                return None
+            targets = []
+            for _, row in df.head(20).iterrows():
+                row_dict = row.to_dict()
+                pub_date = row_dict.get("published_date")
+                if hasattr(pub_date, "isoformat"):
+                    pub_date = pub_date.isoformat()
+                targets.append({
+                    "analyst_name": row_dict.get("analyst_name", ""),
+                    "analyst_firm": row_dict.get("analyst_firm", ""),
+                    "price_target": row_dict.get("price_target"),
+                    "adj_price_target": row_dict.get("adj_price_target"),
+                    "price_when_posted": row_dict.get("price_when_posted"),
+                    "published_date": str(pub_date) if pub_date else "",
+                    "news_title": row_dict.get("news_title", ""),
+                })
+            return targets
+        except Exception as e:
+            logger.warning("OpenBB price targets fetch failed for %s: %s", ticker, e)
+            return None
+
+    def _sync_get_ratios_ttm(self, ticker: str) -> Optional[Dict[str, Any]]:
+        self._ensure_obb()
+        if self._obb is None:
+            return None
+        try:
+            provider = self._config.get("OPENBB_EQUITY_PROVIDER", "fmp")
+            result = self._obb.equity.fundamental.ratios(symbol=ticker, provider=provider)
+            if result is None or result.results is None:
+                return None
+            df = result.to_df()
+            if df is None or df.empty:
+                return None
+            row = df.iloc[0].to_dict()
+            return {
+                "gross_profit_margin": row.get("gross_profit_margin"),
+                "operating_profit_margin": row.get("operating_profit_margin"),
+                "net_profit_margin": row.get("net_profit_margin"),
+                "ebitda_margin": row.get("ebitda_margin"),
+                "current_ratio": row.get("current_ratio"),
+                "quick_ratio": row.get("quick_ratio"),
+                "cash_ratio": row.get("cash_ratio"),
+                "debt_to_equity": row.get("debt_to_equity"),
+                "debt_to_assets": row.get("debt_to_assets"),
+                "interest_coverage": row.get("interest_coverage_ratio"),
+                "price_to_earnings": row.get("price_to_earnings"),
+                "price_to_book": row.get("price_to_book"),
+                "price_to_sales": row.get("price_to_sales"),
+                "price_to_free_cash_flow": row.get("price_to_free_cash_flow"),
+                "price_earnings_to_growth": row.get("price_to_earnings_growth"),
+                "forward_pe_to_growth": row.get("forward_price_to_earnings_growth"),
+                "dividend_yield": row.get("dividend_yield"),
+                "payout_ratio": row.get("dividend_payout_ratio"),
+                "inventory_turnover": row.get("inventory_turnover"),
+                "receivables_turnover": row.get("receivables_turnover"),
+                "asset_turnover": row.get("asset_turnover"),
+                "free_cash_flow_per_share": row.get("free_cash_flow_per_share"),
+                "operating_cash_flow_per_share": row.get("operating_cash_flow_per_share"),
+                "revenue_per_share": row.get("revenue_per_share"),
+                "net_income_per_share": row.get("net_income_per_share"),
+                "enterprise_value_multiple": row.get("enterprise_value_multiple"),
+                "data_source": "openbb",
+            }
+        except Exception as e:
+            logger.warning("OpenBB ratios TTM fetch failed for %s: %s", ticker, e)
+            return None
+
+    def _sync_get_insider_trading(self, ticker: str) -> Optional[List[Dict[str, Any]]]:
+        self._ensure_obb()
+        if self._obb is None:
+            return None
+        try:
+            provider = self._config.get("OPENBB_EQUITY_PROVIDER", "fmp")
+            result = self._obb.equity.ownership.insider_trading(symbol=ticker, provider=provider)
+            if result is None or result.results is None:
+                return None
+            df = result.to_df()
+            if df is None or df.empty:
+                return None
+            trades = []
+            for _, row in df.head(50).iterrows():
+                row_dict = row.to_dict()
+                tx_date = row_dict.get("transaction_date") or row_dict.get("filing_date")
+                if hasattr(tx_date, "isoformat"):
+                    tx_date = tx_date.isoformat()
+                trades.append({
+                    "owner_name": row_dict.get("owner_name", ""),
+                    "owner_title": row_dict.get("owner_title", ""),
+                    "transaction_type": row_dict.get("transaction_type", ""),
+                    "shares": row_dict.get("securities_transacted"),
+                    "price": row_dict.get("price"),
+                    "value": row_dict.get("value"),
+                    "date": str(tx_date) if tx_date else "",
+                })
+            return trades
+        except Exception as e:
+            logger.warning("OpenBB insider trading fetch failed for %s: %s", ticker, e)
+            return None
+
+    def _sync_get_share_statistics(self, ticker: str) -> Optional[Dict[str, Any]]:
+        self._ensure_obb()
+        if self._obb is None:
+            return None
+        try:
+            provider = self._config.get("OPENBB_EQUITY_PROVIDER", "fmp")
+            result = self._obb.equity.ownership.share_statistics(symbol=ticker, provider=provider)
+            if result is None or result.results is None:
+                return None
+            df = result.to_df()
+            if df is None or df.empty:
+                return None
+            row = df.iloc[0].to_dict()
+            return {
+                "free_float": row.get("free_float"),
+                "float_shares": row.get("float_shares"),
+                "outstanding_shares": row.get("outstanding_shares"),
+                "data_source": "openbb",
+            }
+        except Exception as e:
+            logger.warning("OpenBB share statistics fetch failed for %s: %s", ticker, e)
+            return None
+
+    def _sync_get_management(self, ticker: str) -> Optional[List[Dict[str, Any]]]:
+        self._ensure_obb()
+        if self._obb is None:
+            return None
+        try:
+            provider = self._config.get("OPENBB_EQUITY_PROVIDER", "fmp")
+            result = self._obb.equity.fundamental.management(symbol=ticker, provider=provider)
+            if result is None or result.results is None:
+                return None
+            df = result.to_df()
+            if df is None or df.empty:
+                return None
+            executives = []
+            for _, row in df.iterrows():
+                row_dict = row.to_dict()
+                executives.append({
+                    "name": row_dict.get("name", ""),
+                    "title": row_dict.get("title", ""),
+                    "pay": row_dict.get("pay"),
+                    "gender": row_dict.get("gender", ""),
+                    "year_born": row_dict.get("year_born"),
+                })
+            return executives
+        except Exception as e:
+            logger.warning("OpenBB management fetch failed for %s: %s", ticker, e)
+            return None
+
+    def _sync_get_revenue_segments(self, ticker: str) -> Optional[Dict[str, Any]]:
+        self._ensure_obb()
+        if self._obb is None:
+            return None
+        try:
+            provider = self._config.get("OPENBB_EQUITY_PROVIDER", "fmp")
+            segments = {"data_source": "openbb"}
+
+            # Product segments
+            try:
+                result = self._obb.equity.fundamental.revenue_per_segment(
+                    symbol=ticker, provider=provider
+                )
+                if result and result.results:
+                    df = result.to_df()
+                    if df is not None and not df.empty:
+                        # Get most recent fiscal year
+                        latest_year = df["fiscal_year"].max()
+                        latest = df[df["fiscal_year"] == latest_year]
+                        product = {}
+                        for _, row in latest.iterrows():
+                            line = row.get("business_line", "Unknown")
+                            rev = row.get("revenue")
+                            if line and rev is not None:
+                                product[line] = rev
+                        segments["product"] = product
+            except Exception as e:
+                logger.debug("Revenue per segment failed for %s: %s", ticker, e)
+
+            # Geographic segments
+            try:
+                result = self._obb.equity.fundamental.revenue_per_geography(
+                    symbol=ticker, provider=provider
+                )
+                if result and result.results:
+                    df = result.to_df()
+                    if df is not None and not df.empty:
+                        latest_year = df["fiscal_year"].max()
+                        latest = df[df["fiscal_year"] == latest_year]
+                        geo = {}
+                        for _, row in latest.iterrows():
+                            region = row.get("region", "Unknown")
+                            rev = row.get("revenue")
+                            if region and rev is not None:
+                                geo[region] = rev
+                        segments["geography"] = geo
+            except Exception as e:
+                logger.debug("Revenue per geography failed for %s: %s", ticker, e)
+
+            return segments if ("product" in segments or "geography" in segments) else None
+        except Exception as e:
+            logger.warning("OpenBB revenue segments fetch failed for %s: %s", ticker, e)
+            return None
+
+    def _sync_get_peers(self, ticker: str) -> Optional[List[Dict[str, Any]]]:
+        self._ensure_obb()
+        if self._obb is None:
+            return None
+        try:
+            provider = self._config.get("OPENBB_EQUITY_PROVIDER", "fmp")
+            result = self._obb.equity.compare.peers(symbol=ticker, provider=provider)
+            if result is None or result.results is None:
+                return None
+            df = result.to_df()
+            if df is None or df.empty:
+                return None
+            peers = []
+            for _, row in df.iterrows():
+                row_dict = row.to_dict()
+                peers.append({
+                    "symbol": row_dict.get("symbol", ""),
+                    "name": row_dict.get("name", ""),
+                    "market_cap": row_dict.get("market_cap"),
+                })
+            return peers
+        except Exception as e:
+            logger.warning("OpenBB peers fetch failed for %s: %s", ticker, e)
             return None

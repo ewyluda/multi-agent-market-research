@@ -105,25 +105,55 @@ class FundamentalsAgent(BaseAgent):
         if data_provider is not None:
             self.logger.info(f"Fetching {self.ticker} fundamentals from OpenBB data provider (primary)")
 
-            # Fetch all OpenBB endpoints concurrently
-            obb_overview, obb_financials, obb_earnings, obb_transcript = await asyncio.gather(
+            # Fetch all OpenBB endpoints concurrently (including FMP Ultimate endpoints)
+            (obb_overview, obb_financials, obb_earnings, obb_transcripts,
+             obb_estimates, obb_ratios, obb_growth, obb_segments,
+             obb_insider, obb_share_stats, obb_peers, obb_dcf) = await asyncio.gather(
                 data_provider.get_company_overview(self.ticker),
                 data_provider.get_financials(self.ticker),
                 data_provider.get_earnings(self.ticker),
-                data_provider.get_earnings_transcript(self.ticker),
+                data_provider.get_earnings_transcripts(self.ticker, num_quarters=2),
+                data_provider.get_analyst_estimates(self.ticker),
+                data_provider.get_ratios_ttm(self.ticker),
+                data_provider.get_financial_growth(self.ticker),
+                data_provider.get_revenue_segments(self.ticker),
+                data_provider.get_insider_trading(self.ticker),
+                data_provider.get_share_statistics(self.ticker),
+                data_provider.get_peers(self.ticker),
+                data_provider.get_dcf_valuation(self.ticker),
                 return_exceptions=True,
             )
 
             # Handle exceptions from gather
-            for name, val in [("overview", obb_overview), ("financials", obb_financials),
-                              ("earnings", obb_earnings), ("transcript", obb_transcript)]:
+            fetch_names = [
+                ("overview", "obb_overview"), ("financials", "obb_financials"),
+                ("earnings", "obb_earnings"), ("transcripts", "obb_transcripts"),
+                ("estimates", "obb_estimates"), ("ratios", "obb_ratios"),
+                ("growth", "obb_growth"), ("segments", "obb_segments"),
+                ("insider", "obb_insider"), ("share_stats", "obb_share_stats"),
+                ("peers", "obb_peers"), ("dcf", "obb_dcf"),
+            ]
+            all_results = [obb_overview, obb_financials, obb_earnings, obb_transcripts,
+                           obb_estimates, obb_ratios, obb_growth, obb_segments,
+                           obb_insider, obb_share_stats, obb_peers, obb_dcf]
+            for (name, _), val in zip(fetch_names, all_results):
                 if isinstance(val, Exception):
                     self.logger.warning(f"OpenBB {name} fetch raised: {val}")
 
             obb_overview = None if isinstance(obb_overview, Exception) else obb_overview
             obb_financials = None if isinstance(obb_financials, Exception) else obb_financials
             obb_earnings = None if isinstance(obb_earnings, Exception) else obb_earnings
-            obb_transcript = None if isinstance(obb_transcript, Exception) else obb_transcript
+            obb_transcripts = [] if isinstance(obb_transcripts, Exception) else (obb_transcripts or [])
+            # Backward compat: extract first transcript
+            obb_transcript = obb_transcripts[0] if obb_transcripts else None
+            obb_estimates = None if isinstance(obb_estimates, Exception) else obb_estimates
+            obb_ratios = None if isinstance(obb_ratios, Exception) else obb_ratios
+            obb_growth = None if isinstance(obb_growth, Exception) else obb_growth
+            obb_segments = None if isinstance(obb_segments, Exception) else obb_segments
+            obb_insider = None if isinstance(obb_insider, Exception) else obb_insider
+            obb_share_stats = None if isinstance(obb_share_stats, Exception) else obb_share_stats
+            obb_peers = None if isinstance(obb_peers, Exception) else obb_peers
+            obb_dcf = None if isinstance(obb_dcf, Exception) else obb_dcf
 
             # We need at least the overview to use OpenBB as primary
             if obb_overview:
@@ -132,52 +162,67 @@ class FundamentalsAgent(BaseAgent):
                 result["source"] = "openbb"
 
                 # Map OpenBB keys to yfinance-compatible format expected by analyze()
+                # Use ratios TTM as primary source for valuation metrics, fall back to overview
+                r = obb_ratios or {}
+                g = obb_growth or {}
+                e = obb_estimates or {}
+
                 info = {
                     "longName": obb_overview.get("longName", ""),
                     "sector": obb_overview.get("sector", ""),
                     "industry": obb_overview.get("industry", ""),
                     "marketCap": obb_overview.get("marketCap"),
                     "enterpriseValue": obb_overview.get("enterpriseValue"),
-                    "trailingPE": obb_overview.get("PE") or obb_overview.get("trailingPE"),
+                    "trailingPE": r.get("price_to_earnings") or obb_overview.get("PE"),
                     "forwardPE": obb_overview.get("forwardPE"),
-                    "pegRatio": obb_overview.get("pegRatio"),
-                    "priceToBook": obb_overview.get("PB") or obb_overview.get("priceToBook"),
-                    "priceToSalesTrailing12Months": obb_overview.get("priceToSalesTrailing12Months"),
-                    "profitMargins": obb_overview.get("profitMargin") or obb_overview.get("profitMargins"),
-                    "operatingMargins": obb_overview.get("operatingMargin") or obb_overview.get("operatingMargins"),
+                    "pegRatio": r.get("price_earnings_to_growth") or obb_overview.get("pegRatio"),
+                    "priceToBook": r.get("price_to_book") or obb_overview.get("PB"),
+                    "priceToSalesTrailing12Months": r.get("price_to_sales") or obb_overview.get("priceToSalesTrailing12Months"),
+                    "profitMargins": r.get("net_profit_margin") or obb_overview.get("profitMargin"),
+                    "operatingMargins": r.get("operating_profit_margin") or obb_overview.get("operatingMargin"),
                     "returnOnAssets": obb_overview.get("returnOnAssets"),
                     "returnOnEquity": obb_overview.get("ROE") or obb_overview.get("returnOnEquity"),
-                    "dividendYield": obb_overview.get("dividendYield"),
+                    "dividendYield": r.get("dividend_yield") or obb_overview.get("dividendYield"),
                     "dividendRate": obb_overview.get("dividendRate"),
-                    "payoutRatio": obb_overview.get("payoutRatio"),
-                    "revenueGrowth": obb_overview.get("revenueGrowth"),
-                    "earningsGrowth": obb_overview.get("earningsGrowth"),
+                    "payoutRatio": r.get("payout_ratio") or obb_overview.get("payoutRatio"),
+                    "revenueGrowth": g.get("revenue_growth") or obb_overview.get("revenueGrowth"),
+                    "earningsGrowth": g.get("eps_growth") or obb_overview.get("earningsGrowth"),
                     "trailingEps": obb_overview.get("trailingEps"),
                     "forwardEps": obb_overview.get("forwardEps"),
-                    "targetHighPrice": obb_overview.get("targetHighPrice"),
-                    "targetLowPrice": obb_overview.get("targetLowPrice"),
-                    "targetMeanPrice": obb_overview.get("targetMeanPrice"),
-                    "targetMedianPrice": obb_overview.get("targetMedianPrice"),
+                    # Analyst consensus targets (FMP Ultimate)
+                    "targetHighPrice": e.get("target_high") or obb_overview.get("targetHighPrice"),
+                    "targetLowPrice": e.get("target_low") or obb_overview.get("targetLowPrice"),
+                    "targetMeanPrice": e.get("target_consensus") or obb_overview.get("targetMeanPrice"),
+                    "targetMedianPrice": e.get("target_median") or obb_overview.get("targetMedianPrice"),
                     "recommendationKey": obb_overview.get("recommendationKey"),
                     "numberOfAnalystOpinions": obb_overview.get("numberOfAnalystOpinions"),
                     "beta": obb_overview.get("beta"),
-                    "debtToEquity": obb_overview.get("debtToEquity"),
-                    "currentRatio": None,
-                    "quickRatio": None,
+                    "debtToEquity": r.get("debt_to_equity") or obb_overview.get("debtToEquity"),
+                    # Ratios TTM fills these gaps
+                    "currentRatio": r.get("current_ratio"),
+                    "quickRatio": r.get("quick_ratio"),
                     "freeCashflow": None,
                     "operatingCashflow": None,
+                    # Additional ratios from FMP Ultimate
+                    "priceToFreeCashFlow": r.get("price_to_free_cash_flow"),
+                    "enterpriseValueMultiple": r.get("enterprise_value_multiple"),
+                    "grossMargins": r.get("gross_profit_margin"),
+                    "ebitdaMargin": r.get("ebitda_margin"),
+                    "freeCashFlowPerShare": r.get("free_cash_flow_per_share"),
+                    "revenuePerShare": r.get("revenue_per_share"),
                 }
 
                 # Merge financial ratios from financials data if available
                 if obb_financials:
-                    # Extract balance sheet ratios from latest record
-                    balance_records = obb_financials.get("balance_sheet", [])
-                    if balance_records:
-                        latest_bs = balance_records[0]
-                        total_current_assets = latest_bs.get("total_current_assets")
-                        total_current_liabilities = latest_bs.get("total_current_liabilities")
-                        if total_current_assets and total_current_liabilities and total_current_liabilities != 0:
-                            info["currentRatio"] = total_current_assets / total_current_liabilities
+                    # Fallback: compute current ratio from balance sheet if ratios TTM didn't provide it
+                    if info["currentRatio"] is None:
+                        balance_records = obb_financials.get("balance_sheet", [])
+                        if balance_records:
+                            latest_bs = balance_records[0]
+                            total_current_assets = latest_bs.get("total_current_assets")
+                            total_current_liabilities = latest_bs.get("total_current_liabilities")
+                            if total_current_assets and total_current_liabilities and total_current_liabilities != 0:
+                                info["currentRatio"] = total_current_assets / total_current_liabilities
 
                     # Extract cash flow metrics from latest records (TTM from last 4 quarters)
                     cf_records = obb_financials.get("cash_flow", [])
@@ -261,10 +306,39 @@ class FundamentalsAgent(BaseAgent):
                 # Skip SEC EDGAR when OpenBB provides data
                 result["sec_data"] = None
 
-                # Store earnings call transcript if available
+                # Store earnings call transcripts (multi-quarter)
                 if obb_transcript:
-                    result["earnings_transcript"] = obb_transcript
+                    result["earnings_transcript"] = obb_transcript  # backward compat
                     self.logger.info(f"Earnings transcript retrieved for {self.ticker} (Q{obb_transcript.get('quarter')} {obb_transcript.get('year')})")
+                if len(obb_transcripts) > 1:
+                    result["prev_quarter_transcript"] = obb_transcripts[1]
+                    self.logger.info(f"Previous quarter transcript also retrieved for {self.ticker}")
+
+                # ── FMP Ultimate enrichment data ──
+
+                # Revenue segmentation (product + geographic)
+                if obb_segments:
+                    result["revenue_segments"] = obb_segments
+
+                # Financial growth rates
+                if obb_growth:
+                    result["financial_growth"] = obb_growth
+
+                # DCF valuation
+                if obb_dcf:
+                    result["dcf_valuation"] = obb_dcf
+
+                # Insider trading summary (most recent 10)
+                if obb_insider:
+                    result["insider_trading"] = obb_insider[:10]
+
+                # Share float statistics
+                if obb_share_stats:
+                    result["share_statistics"] = obb_share_stats
+
+                # Peer companies
+                if obb_peers:
+                    result["peers"] = obb_peers
 
                 # Fetch Tavily context asynchronously (don't block)
                 company_name = info.get("longName", "")
@@ -431,7 +505,7 @@ class FundamentalsAgent(BaseAgent):
             if len(revenue_history) >= 2:
                 analysis["revenue_trend"] = self._analyze_revenue_trend(revenue_history)
 
-        # Add earnings call transcript if available
+        # Add earnings call transcript with structured extraction
         earnings_transcript = raw_data.get("earnings_transcript")
         if earnings_transcript:
             analysis["earnings_transcript"] = {
@@ -440,11 +514,59 @@ class FundamentalsAgent(BaseAgent):
                 "date": earnings_transcript.get("date", ""),
                 "content": earnings_transcript.get("content", ""),
             }
+            # Extract structured metrics from transcript
+            analysis["transcript_metrics"] = self._extract_transcript_metrics(
+                earnings_transcript.get("content", "")
+            )
+
+        # Previous quarter transcript metrics
+        prev_transcript = raw_data.get("prev_quarter_transcript")
+        if prev_transcript:
+            analysis["prev_quarter_transcript_metrics"] = self._extract_transcript_metrics(
+                prev_transcript.get("content", "")
+            )
+            analysis["prev_quarter_transcript"] = {
+                "quarter": prev_transcript.get("quarter"),
+                "year": prev_transcript.get("year"),
+                "date": prev_transcript.get("date", ""),
+            }
 
         # Add Tavily context (recent developments between earnings)
         tavily_context = raw_data.get("tavily_context")
         if tavily_context:
             analysis["tavily_context"] = self._parse_tavily_context(tavily_context)
+
+        # ── FMP Ultimate enrichment ──
+
+        # Revenue segmentation
+        if raw_data.get("revenue_segments"):
+            analysis["revenue_segments"] = raw_data["revenue_segments"]
+
+        # Financial growth rates
+        if raw_data.get("financial_growth"):
+            analysis["financial_growth"] = raw_data["financial_growth"]
+
+        # DCF valuation
+        if raw_data.get("dcf_valuation"):
+            analysis["dcf_valuation"] = raw_data["dcf_valuation"]
+
+        # Insider trading activity
+        if raw_data.get("insider_trading"):
+            analysis["insider_trading"] = raw_data["insider_trading"]
+
+        # Share statistics
+        if raw_data.get("share_statistics"):
+            analysis["share_statistics"] = raw_data["share_statistics"]
+
+        # Peer companies
+        if raw_data.get("peers"):
+            analysis["peers"] = raw_data["peers"]
+
+        # Additional valuation/margin fields from ratios
+        analysis["price_to_free_cash_flow"] = info.get("priceToFreeCashFlow")
+        analysis["enterprise_value_multiple"] = info.get("enterpriseValueMultiple")
+        analysis["gross_margins"] = info.get("grossMargins")
+        analysis["ebitda_margin"] = info.get("ebitdaMargin")
 
         # Track data source
         analysis["data_source"] = raw_data.get("source", "unknown")
@@ -458,6 +580,14 @@ class FundamentalsAgent(BaseAgent):
         # Run LLM-powered equity research analysis
         equity_research = await self._run_equity_research_llm(analysis)
         if equity_research:
+            # ── Guardrails: cross-check LLM claims against input metrics ──
+            from ..llm_guardrails import validate_equity_research
+            equity_research, er_warnings = validate_equity_research(equity_research, analysis)
+            if er_warnings:
+                analysis["equity_research_warnings"] = er_warnings
+                for w in er_warnings:
+                    self.logger.warning(f"Equity research guardrail: {w}")
+
             analysis["equity_research_report"] = equity_research
             llm_summary = equity_research.get("executive_summary", "")
             if llm_summary:
@@ -822,10 +952,99 @@ class FundamentalsAgent(BaseAgent):
             "data_points": len(revenue_history),
         }
 
+    @staticmethod
+    def _extract_transcript_metrics(content: str) -> Dict[str, Any]:
+        """Extract structured guidance metrics from earnings call transcript text.
+
+        Uses regex patterns to find revenue guidance, EPS guidance, growth targets,
+        and capex outlook. These serve as factual anchors for LLM analysis.
+
+        Returns:
+            Dict with extracted metrics (empty sub-dicts if not found).
+        """
+        metrics: Dict[str, Any] = {}
+        if not content:
+            return metrics
+
+        text = content.lower()
+
+        # Revenue guidance: "revenue of $X billion", "$X to $Y billion in revenue"
+        # Pattern 1: "revenue ... $X billion" (non-greedy to capture first dollar amount)
+        rev_match = re.search(
+            r'(?:revenue|sales).{0,30}?\$(\d+(?:\.\d+)?)\s*(billion|million|b|m)'
+            r'(?:\s*(?:to|[-–])\s*\$(\d+(?:\.\d+)?)\s*(billion|million|b|m))?',
+            text, re.IGNORECASE,
+        )
+        # Pattern 2: "$X billion ... revenue" (dollar amount before the word revenue)
+        if not rev_match:
+            rev_match = re.search(
+                r'\$(\d+(?:\.\d+)?)\s*(billion|million|b|m)'
+                r'(?:\s*(?:to|[-–])\s*\$(\d+(?:\.\d+)?)\s*(billion|million|b|m))?'
+                r'.{0,40}?(?:revenue|sales)',
+                text, re.IGNORECASE,
+            )
+        if rev_match:
+            low = float(rev_match.group(1))
+            unit = rev_match.group(2).lower()
+            if unit in ("b", "billion"):
+                unit = "billion"
+            else:
+                unit = "million"
+            guidance = {"low": low, "unit": unit}
+            if rev_match.group(3):
+                guidance["high"] = float(rev_match.group(3))
+            metrics["revenue_guidance"] = guidance
+
+        # EPS guidance: "EPS of $X.XX", "earnings per share of $X.XX to $Y.YY"
+        eps_pattern = re.compile(
+            r'(?:eps|earnings per share)\s*(?:of|at|around|approximately|to be)?\s*'
+            r'\$(\d+\.\d+)(?:\s*(?:to|[-–])\s*\$(\d+\.\d+))?',
+            re.IGNORECASE,
+        )
+        eps_match = eps_pattern.search(text)
+        if eps_match:
+            guidance = {"low": float(eps_match.group(1))}
+            if eps_match.group(2):
+                guidance["high"] = float(eps_match.group(2))
+            metrics["eps_guidance"] = guidance
+
+        # Growth targets: "X% growth", "grew X%", "expect X% to Y% growth"
+        growth_pattern = re.compile(
+            r'(\d+(?:\.\d+)?)\s*%?\s*(?:to\s*(\d+(?:\.\d+)?)\s*%?\s*)?'
+            r'(?:growth|grew|increase|year.over.year)',
+            re.IGNORECASE,
+        )
+        growth_matches = growth_pattern.findall(text)
+        if growth_matches:
+            targets = []
+            for match in growth_matches[:5]:  # cap at 5
+                val = float(match[0])
+                if 0.5 <= val <= 100:  # filter noise (very small or >100% unlikely guidance)
+                    entry = {"value": val}
+                    if match[1]:
+                        entry["high"] = float(match[1])
+                    targets.append(entry)
+            if targets:
+                metrics["growth_targets"] = targets
+
+        # Capex outlook: "capital expenditure of $X billion", "capex of $X million"
+        capex_pattern = re.compile(
+            r'(?:capital expenditure|capex|cap\s*ex)\s*(?:of|at|around|approximately)?\s*'
+            r'\$(\d+(?:\.\d+)?)\s*(billion|million|b|m)',
+            re.IGNORECASE,
+        )
+        capex_match = capex_pattern.search(text)
+        if capex_match:
+            val = float(capex_match.group(1))
+            unit = capex_match.group(2).lower()
+            metrics["capex"] = {"value": val, "unit": "billion" if unit in ("b", "billion") else "million"}
+
+        return metrics
+
     def _parse_tavily_context(self, tavily_context: Dict[str, Any]) -> Dict[str, Any]:
         """
         Parse Tavily context into structured format for analysis.
-        
+
         Args:
             tavily_context: Raw context data from Tavily
             
@@ -1120,6 +1339,63 @@ class FundamentalsAgent(BaseAgent):
             sections.append(f"Dividend Rate: {_fmt(analysis.get('dividend_rate'))}")
             pr = analysis.get('payout_ratio')
             sections.append(f"Payout Ratio: {_fmt_pct(pr, 1)}")
+
+        # Revenue segment correlation (cross-reference with growth)
+        rev_segments = analysis.get('revenue_segments')
+        rev_growth = analysis.get('revenue_growth')
+        if rev_segments:
+            sections.append("\n--- REVENUE SEGMENT CORRELATION ---")
+            product = rev_segments.get('product', {})
+            if product:
+                total = sum(v for v in product.values() if isinstance(v, (int, float)))
+                sections.append("Product Segments (% of total):")
+                for seg_name, seg_rev in sorted(product.items(), key=lambda x: x[1] if isinstance(x[1], (int, float)) else 0, reverse=True):
+                    if isinstance(seg_rev, (int, float)) and total > 0:
+                        pct = seg_rev / total * 100
+                        sections.append(f"  {seg_name}: ${seg_rev/1e9:.1f}B ({pct:.1f}%)")
+            geo = rev_segments.get('geography', {})
+            if geo:
+                total = sum(v for v in geo.values() if isinstance(v, (int, float)))
+                sections.append("Geographic Segments (% of total):")
+                for reg_name, reg_rev in sorted(geo.items(), key=lambda x: x[1] if isinstance(x[1], (int, float)) else 0, reverse=True):
+                    if isinstance(reg_rev, (int, float)) and total > 0:
+                        pct = reg_rev / total * 100
+                        sections.append(f"  {reg_name}: ${reg_rev/1e9:.1f}B ({pct:.1f}%)")
+            if rev_growth:
+                sections.append(f"Overall Revenue Growth: {rev_growth}")
+
+        # Structured transcript metrics (extracted before LLM call)
+        t_metrics = analysis.get('transcript_metrics', {})
+        if t_metrics:
+            sections.append("\n--- STRUCTURED TRANSCRIPT METRICS (Regex-Extracted) ---")
+            if t_metrics.get('revenue_guidance'):
+                g = t_metrics['revenue_guidance']
+                high_str = f" to ${g['high']} {g['unit']}" if g.get('high') else ""
+                sections.append(f"Revenue Guidance: ${g['low']}{high_str} {g['unit']}")
+            if t_metrics.get('eps_guidance'):
+                g = t_metrics['eps_guidance']
+                high_str = f" to ${g['high']}" if g.get('high') else ""
+                sections.append(f"EPS Guidance: ${g['low']}{high_str}")
+            if t_metrics.get('growth_targets'):
+                targets = [f"{t['value']}%" for t in t_metrics['growth_targets'][:3]]
+                sections.append(f"Growth Targets Mentioned: {', '.join(targets)}")
+            if t_metrics.get('capex'):
+                c = t_metrics['capex']
+                sections.append(f"Capex Outlook: ${c['value']} {c['unit']}")
+
+        # Previous quarter comparison
+        prev_metrics = analysis.get('prev_quarter_transcript_metrics', {})
+        prev_info = analysis.get('prev_quarter_transcript', {})
+        if prev_metrics and prev_info:
+            sections.append(f"\n--- PREVIOUS QUARTER METRICS (Q{prev_info.get('quarter')} {prev_info.get('year')}) ---")
+            if prev_metrics.get('revenue_guidance'):
+                g = prev_metrics['revenue_guidance']
+                high_str = f" to ${g['high']} {g['unit']}" if g.get('high') else ""
+                sections.append(f"Prior Revenue Guidance: ${g['low']}{high_str} {g['unit']}")
+            if prev_metrics.get('eps_guidance'):
+                g = prev_metrics['eps_guidance']
+                high_str = f" to ${g['high']}" if g.get('high') else ""
+                sections.append(f"Prior EPS Guidance: ${g['low']}{high_str}")
 
         # Earnings call transcript
         transcript = analysis.get('earnings_transcript')

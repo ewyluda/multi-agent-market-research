@@ -126,6 +126,56 @@ class SolutionAgent(BaseAgent):
 
         return analysis
 
+    @staticmethod
+    def _format_transcript_metrics(current: dict, previous: dict) -> str:
+        """Format structured transcript metrics for the LLM prompt."""
+        if not current:
+            return "No structured transcript metrics available."
+        lines = []
+        if current.get("revenue_guidance"):
+            g = current["revenue_guidance"]
+            high = f" to ${g['high']} {g['unit']}" if g.get("high") else ""
+            lines.append(f"- Revenue Guidance: ${g['low']}{high} {g['unit']}")
+        if current.get("eps_guidance"):
+            g = current["eps_guidance"]
+            high = f" to ${g['high']}" if g.get("high") else ""
+            lines.append(f"- EPS Guidance: ${g['low']}{high}")
+        if current.get("growth_targets"):
+            targets = [f"{t['value']}%" for t in current["growth_targets"][:3]]
+            lines.append(f"- Growth Targets: {', '.join(targets)}")
+        if current.get("capex"):
+            c = current["capex"]
+            lines.append(f"- Capex Outlook: ${c['value']} {c['unit']}")
+        if not lines:
+            lines.append("- No specific guidance numbers extracted from transcript")
+        # Previous quarter comparison
+        if previous:
+            lines.append("vs. Prior Quarter:")
+            if previous.get("revenue_guidance"):
+                g = previous["revenue_guidance"]
+                high = f" to ${g['high']} {g['unit']}" if g.get("high") else ""
+                lines.append(f"  - Prior Revenue Guidance: ${g['low']}{high} {g['unit']}")
+            if previous.get("eps_guidance"):
+                g = previous["eps_guidance"]
+                high = f" to ${g['high']}" if g.get("high") else ""
+                lines.append(f"  - Prior EPS Guidance: ${g['low']}{high}")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _format_insider_trading(trades: list) -> str:
+        """Format insider trades for the LLM prompt."""
+        if not trades:
+            return "No recent insider trading data available."
+        lines = []
+        for t in trades[:5]:
+            name = t.get("owner_name", "Unknown")
+            tx_type = t.get("transaction_type", "")
+            shares = t.get("shares")
+            date = t.get("date", "")
+            shares_str = f"{shares:,.0f} shares" if shares else ""
+            lines.append(f"- {name}: {tx_type} {shares_str} ({date})")
+        return "\n".join(lines)
+
     def _build_prompt(
         self,
         news_data: Dict[str, Any],
@@ -246,6 +296,41 @@ class SolutionAgent(BaseAgent):
 - Leadership Changes: {[l.get('title', '') for l in (fundamentals_data.get('tavily_context') or {}).get('leadership_changes', [])[:2]]}
 - Risk Factors: {[r.get('title', '') for r in (fundamentals_data.get('tavily_context') or {}).get('risk_factors', [])[:2]]}
 
+## ANALYST CONSENSUS (FMP Ultimate)
+- Target High: ${fundamentals_data.get('target_high_price', 'N/A')}
+- Target Low: ${fundamentals_data.get('target_low_price', 'N/A')}
+- Target Mean: ${fundamentals_data.get('target_mean_price', 'N/A')}
+- Target Median: ${fundamentals_data.get('target_median_price', 'N/A')}
+
+## DCF VALUATION
+- DCF Fair Value: ${fundamentals_data.get('dcf_valuation', {}).get('dcf', 'N/A') if fundamentals_data.get('dcf_valuation') else 'N/A'}
+- Current Price: ${fundamentals_data.get('dcf_valuation', {}).get('stock_price', 'N/A') if fundamentals_data.get('dcf_valuation') else 'N/A'}
+
+## FINANCIAL GROWTH RATES
+- Revenue Growth: {fundamentals_data.get('financial_growth', {}).get('revenue_growth', 'N/A') if fundamentals_data.get('financial_growth') else 'N/A'}
+- EPS Growth: {fundamentals_data.get('financial_growth', {}).get('eps_growth', 'N/A') if fundamentals_data.get('financial_growth') else 'N/A'}
+- Operating CF Growth: {fundamentals_data.get('financial_growth', {}).get('operating_cf_growth', 'N/A') if fundamentals_data.get('financial_growth') else 'N/A'}
+- Free CF Growth: {fundamentals_data.get('financial_growth', {}).get('free_cf_growth', 'N/A') if fundamentals_data.get('financial_growth') else 'N/A'}
+
+## REVENUE SEGMENTATION
+- Product Segments: {fundamentals_data.get('revenue_segments', {}).get('product', 'N/A') if fundamentals_data.get('revenue_segments') else 'N/A'}
+- Geographic Segments: {fundamentals_data.get('revenue_segments', {}).get('geography', 'N/A') if fundamentals_data.get('revenue_segments') else 'N/A'}
+
+## INSIDER TRADING (Recent)
+{self._format_insider_trading(fundamentals_data.get('insider_trading', []))}
+
+## ADDITIONAL VALUATION METRICS
+- P/E Ratio (TTM): {fundamentals_data.get('pe_ratio', 'N/A')}
+- PEG Ratio: {fundamentals_data.get('peg_ratio', 'N/A')}
+- P/FCF: {fundamentals_data.get('price_to_free_cash_flow', 'N/A')}
+- EV/EBITDA: {fundamentals_data.get('enterprise_value_multiple', 'N/A')}
+- Gross Margin: {fundamentals_data.get('gross_margins', 'N/A')}
+- EBITDA Margin: {fundamentals_data.get('ebitda_margin', 'N/A')}
+- Peer Companies: {[p.get('symbol', '') for p in fundamentals_data.get('peers', [])] if fundamentals_data.get('peers') else 'N/A'}
+
+## EARNINGS CALL HIGHLIGHTS (Structured Extraction)
+{self._format_transcript_metrics(fundamentals_data.get('transcript_metrics', {}), fundamentals_data.get('prev_quarter_transcript_metrics', {}))}
+
 ## MARKET NARRATIVE (Tavily External Research)
 {self.tavily_narrative.get('narrative', 'No external market narrative available.') if self.tavily_narrative else 'No external market narrative available.'}
 
@@ -259,7 +344,8 @@ Using first-principles reasoning:
 6. Evaluate options flow signals (put/call ratios, unusual activity, max pain vs current price)
 7. Factor in macroeconomic environment (interest rates, yield curve, economic cycle)
 8. Analyze earnings trends (beat rate, EPS/revenue trajectory from SEC filings)
-9. Weigh concerning metrics and existential risks identified
+9. Cross-reference earnings call guidance with analyst consensus targets and DCF valuation
+10. Weigh concerning metrics and existential risks identified
 10. Determine risk/reward ratio
 11. Provide final recommendation
 
@@ -727,8 +813,30 @@ Respond in JSON format:
         if not isinstance(normalized.get("price_targets"), dict):
             normalized["price_targets"] = {}
 
+        # ── Guardrails: validate price targets ──
+        from ..llm_guardrails import validate_price_targets, validate_scenarios as guardrail_validate_scenarios
+        guardrail_warnings = []
+
+        current_price = self._to_float(market_data.get("current_price"))
+        if current_price and normalized["price_targets"]:
+            analyst_estimates = None
+            fundamentals = ((self.agent_results or {}).get("fundamentals") or {}).get("data") or {}
+            if fundamentals.get("target_high_price"):
+                analyst_estimates = {"target_high": fundamentals["target_high_price"]}
+            validated_targets, pt_warnings = validate_price_targets(
+                normalized["price_targets"], current_price, analyst_estimates
+            )
+            normalized["price_targets"] = validated_targets
+            guardrail_warnings.extend(pt_warnings)
+
         scenarios = self._normalize_scenarios(normalized)
+        # ── Guardrails: validate scenarios ──
+        scenarios, sc_warnings = guardrail_validate_scenarios(scenarios)
+        guardrail_warnings.extend(sc_warnings)
         normalized["scenarios"] = scenarios
+
+        if guardrail_warnings:
+            normalized["guardrail_warnings"] = guardrail_warnings
 
         scenario_summary = normalized.get("scenario_summary")
         if not isinstance(scenario_summary, str) or not scenario_summary.strip():

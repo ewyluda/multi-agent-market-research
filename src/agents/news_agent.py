@@ -134,7 +134,7 @@ class NewsAgent(BaseAgent):
         params = {
             "query": query,
             "max_results": str(max(max_results, 10)),
-            "tweet.fields": "created_at,public_metrics,author_id",
+            "tweet.fields": "created_at,public_metrics,author_id,context_annotations,conversation_id",
         }
         headers = {"Authorization": f"Bearer {bearer_token}"}
 
@@ -164,6 +164,7 @@ class NewsAgent(BaseAgent):
                         "text": tweet.get("text", ""),
                         "created_at": tweet.get("created_at", ""),
                         "author_id": tweet.get("author_id", ""),
+                        "conversation_id": tweet.get("conversation_id", ""),
                         "metrics": {
                             "likes": metrics.get("like_count", 0),
                             "retweets": metrics.get("retweet_count", 0),
@@ -175,6 +176,19 @@ class NewsAgent(BaseAgent):
 
             # Sort by engagement descending
             filtered.sort(key=lambda t: t["engagement"], reverse=True)
+
+            # Batch-resolve author metadata (username, verified, followers)
+            if filtered:
+                author_ids = list({t["author_id"] for t in filtered if t["author_id"]})
+                author_map = await self._lookup_twitter_authors(
+                    author_ids, bearer_token, session if (session and not session.closed) else None
+                )
+                for tweet in filtered:
+                    author = author_map.get(tweet["author_id"], {})
+                    tweet["author_username"] = author.get("username", "")
+                    tweet["author_name"] = author.get("name", "")
+                    tweet["author_verified"] = author.get("verified", False)
+                    tweet["author_followers"] = author.get("followers_count", 0)
 
             self.logger.info(
                 f"Twitter/X returned {len(tweets)} tweets for ${self.ticker}, "
@@ -224,6 +238,64 @@ class NewsAgent(BaseAgent):
 
             data = await resp.json()
             return data.get("data", [])
+
+    async def _lookup_twitter_authors(
+        self,
+        author_ids: List[str],
+        bearer_token: str,
+        session: Optional[aiohttp.ClientSession] = None,
+    ) -> Dict[str, Dict[str, Any]]:
+        """Batch-resolve Twitter author IDs to usernames and metadata.
+
+        Args:
+            author_ids: List of Twitter user IDs
+            bearer_token: Twitter API bearer token
+            session: Optional aiohttp session to reuse
+
+        Returns:
+            Dict mapping author_id to {username, name, verified, followers_count}
+        """
+        if not author_ids:
+            return {}
+
+        author_map = {}
+        headers = {"Authorization": f"Bearer {bearer_token}"}
+        # Twitter v2 /users endpoint accepts up to 100 IDs per request
+        for i in range(0, len(author_ids), 100):
+            batch = author_ids[i:i + 100]
+            url = f"{self.TWITTER_API_BASE_URL}/users"
+            params = {
+                "ids": ",".join(batch),
+                "user.fields": "username,name,verified,public_metrics,verified_type",
+            }
+            try:
+                async def _do_lookup(s):
+                    async with s.get(url, params=params, headers=headers,
+                                     timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                        if resp.status != 200:
+                            return []
+                        data = await resp.json()
+                        return data.get("data", [])
+
+                if session and not session.closed:
+                    users = await _do_lookup(session)
+                else:
+                    async with aiohttp.ClientSession() as fallback:
+                        users = await _do_lookup(fallback)
+
+                for user in users:
+                    uid = user.get("id", "")
+                    pub = user.get("public_metrics", {})
+                    author_map[uid] = {
+                        "username": user.get("username", ""),
+                        "name": user.get("name", ""),
+                        "verified": bool(user.get("verified") or user.get("verified_type")),
+                        "followers_count": pub.get("followers_count", 0),
+                    }
+            except Exception as e:
+                self.logger.debug(f"Twitter user lookup failed: {e}")
+
+        return author_map
 
     # ──────────────────────────────────────────────
     # Company Info Lookup
