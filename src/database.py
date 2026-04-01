@@ -583,6 +583,46 @@ class DatabaseManager:
                 ON council_results(analysis_id)
             """)
 
+            # Perception ledger — KPI snapshots per analysis
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS perception_snapshots (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ticker TEXT NOT NULL,
+                    analysis_id INTEGER REFERENCES analyses(id),
+                    captured_at TEXT NOT NULL,
+                    kpi_name TEXT NOT NULL,
+                    kpi_category TEXT NOT NULL,
+                    value REAL,
+                    value_text TEXT,
+                    source_agent TEXT NOT NULL,
+                    source_detail TEXT,
+                    confidence REAL
+                )
+            """)
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_perception_ticker_kpi ON perception_snapshots(ticker, kpi_name, captured_at)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_perception_analysis ON perception_snapshots(analysis_id)")
+
+            # Inflection events — detected KPI shifts
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS inflection_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ticker TEXT NOT NULL,
+                    detected_at TEXT NOT NULL,
+                    analysis_id INTEGER REFERENCES analyses(id),
+                    kpi_name TEXT NOT NULL,
+                    direction TEXT CHECK(direction IN ('positive', 'negative')),
+                    magnitude REAL,
+                    prior_value REAL,
+                    current_value REAL,
+                    pct_change REAL,
+                    source_agents TEXT,
+                    convergence_score REAL,
+                    summary TEXT
+                )
+            """)
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_inflection_ticker ON inflection_events(ticker, detected_at)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_inflection_convergence ON inflection_events(ticker, convergence_score)")
+
             # Ensure singleton portfolio profile exists and seed macro events.
             self._ensure_alert_rule_schema(cursor)
             self._ensure_portfolio_profile_row(cursor)
