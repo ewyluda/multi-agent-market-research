@@ -32,7 +32,8 @@ export const useAnalysis = () => {
     setCurrentTicker(ticker);
     setLoading(true);
     setError(null);
-    resetAnalysis();
+    // Don't call resetAnalysis() — keep old analysis visible during loading
+    // so the page doesn't snap to the welcome screen if SSE drops
     setProgress(0);
     setStage('starting');
 
@@ -57,7 +58,7 @@ export const useAnalysis = () => {
         onResult: (result) => {
           if (activeAnalysisRef.current !== ticker) return;
 
-          console.log('Analysis result:', result);
+          console.log('Analysis result received:', result?.success);
           if (result.success) {
             setAnalysis(result);
             setProgress(100);

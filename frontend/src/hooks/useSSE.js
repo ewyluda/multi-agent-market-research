@@ -59,6 +59,7 @@ export const useSSE = () => {
         if (onResult) onResult(data);
       } catch (err) {
         console.error('Failed to parse result event:', err);
+        if (onError) onError('Failed to parse analysis result');
       }
       eventSource.close();
       eventSourceRef.current = null;

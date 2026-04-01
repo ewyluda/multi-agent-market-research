@@ -1,35 +1,32 @@
 /**
- * Dashboard - Main application layout with sidebar navigation and tabbed content
- * Layout: Fixed 64px sidebar | Main content (flex-1) with ContentHeader + tabs + right sidebar
+ * Dashboard - Main application layout with sidebar navigation and scrollable narrative content.
+ * Layout: 220px sidebar | Main content (flex-1) with SearchBar + narrative sections
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { motion as Motion, AnimatePresence } from 'framer-motion';
 import { useAnalysis } from '../hooks/useAnalysis';
 import { useAnalysisContext } from '../context/AnalysisContext';
+import { getUnacknowledgedCount } from '../utils/api';
 import Sidebar from './Sidebar';
-import ContentHeader from './ContentHeader';
-import AnalysisTabs from './AnalysisTabs';
-import AgentPipelineBar from './AgentPipelineBar';
-import Recommendation from './Recommendation';
+import SearchBar from './SearchBar';
+import ThesisCard from './ThesisCard';
 import PriceChart from './PriceChart';
-import { OverviewMetrics, ResearchContent, ChangeSummaryPanel } from './Summary';
-import ScenarioPanel from './ScenarioPanel';
-import DiagnosticsPanel from './DiagnosticsPanel';
+import SectionNav from './SectionNav';
+import AnalysisSection from './AnalysisSection';
+import MetaFooter from './MetaFooter';
 import LeadershipPanel from './LeadershipPanel';
 import CouncilPanel from './CouncilPanel';
 import NewsFeed from './NewsFeed';
 import OptionsFlow from './OptionsFlow';
-import MacroSnapshot from './MacroSnapshot';
-import CalibrationCard from './CalibrationCard';
-import HistoryDashboard from './HistoryDashboard';
-import WatchlistPanel from './WatchlistPanel';
-import SchedulePanel from './SchedulePanel';
-import AlertPanel from './AlertPanel';
-import PortfolioPanel from './PortfolioPanel';
+import HistoryView from './HistoryView';
+import WatchlistView from './WatchlistView';
+import PortfolioView from './PortfolioView';
+import SchedulesView from './SchedulesView';
+import AlertsView from './AlertsView';
 import { PulseIcon, SparklesIcon, ChartBarIcon, LoadingSpinner } from './Icons';
-import { getUnacknowledgedCount } from '../utils/api';
 
+/* ─── View modes ─── */
 const VIEW_MODES = {
   ANALYSIS: 'analysis',
   HISTORY: 'history',
@@ -40,7 +37,6 @@ const VIEW_MODES = {
 };
 
 /* ─── framer-motion variants ─── */
-
 const containerVariants = {
   hidden: { opacity: 0 },
   visible: { opacity: 1, transition: { staggerChildren: 0.12, delayChildren: 0.15 } },
@@ -51,15 +47,137 @@ const fadeUp = {
   visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: [0.22, 1, 0.36, 1] } },
 };
 
+/* ─── Agent stance helpers ─── */
+function getAgentStance(agentKey, result) {
+  if (!result?.success || !result?.data) return 'neutral';
+  const d = result.data;
+
+  switch (agentKey) {
+    case 'fundamentals': {
+      const score = d.health_score ?? d.fundamental_health_score;
+      if (score > 60) return 'bullish';
+      if (score < 40) return 'bearish';
+      return 'neutral';
+    }
+    case 'technical': {
+      const sig = d.signals?.overall || d.overall_signal || '';
+      if (/bull/i.test(sig)) return 'bullish';
+      if (/bear/i.test(sig)) return 'bearish';
+      return 'neutral';
+    }
+    case 'sentiment': {
+      const s = d.overall_sentiment ?? d.sentiment_score;
+      if (s > 0.3) return 'bullish';
+      if (s < -0.3) return 'bearish';
+      return 'neutral';
+    }
+    case 'market': {
+      const trend = d.trend || d.market_trend || '';
+      if (/up|bull/i.test(trend)) return 'bullish';
+      if (/down|bear/i.test(trend)) return 'bearish';
+      return 'neutral';
+    }
+    case 'macro': {
+      const env = d.risk_environment || d.monetary_policy_stance || '';
+      if (/dovish/i.test(env)) return 'bullish';
+      if (/hawkish/i.test(env)) return 'bearish';
+      return 'neutral';
+    }
+    case 'options': {
+      const sig = d.overall_signal || '';
+      if (/bull/i.test(sig)) return 'bullish';
+      if (/bear/i.test(sig)) return 'bearish';
+      return 'neutral';
+    }
+    case 'news': {
+      const articles = d.articles || d.news_items || [];
+      if (articles.length === 0) return 'neutral';
+      const avg = articles.reduce((sum, a) => sum + (a.sentiment_score ?? a.sentiment ?? 0), 0) / articles.length;
+      if (avg > 0.15) return 'bullish';
+      if (avg < -0.15) return 'bearish';
+      return 'neutral';
+    }
+    default:
+      return 'neutral';
+  }
+}
+
+const STANCE_COLORS = { bullish: '#17c964', bearish: '#f31260', neutral: '#f5a524' };
+
+/* ─── Agent summary extractor ─── */
+function getAgentSummary(result) {
+  if (!result?.success || !result?.data) return null;
+  const d = result.data;
+  return d.analysis || d.summary || d.executive_summary || d.assessment || null;
+}
+
+/* ─── Agent metrics extractors ─── */
+function getAgentMetrics(agentKey, result) {
+  if (!result?.success || !result?.data) return [];
+  const d = result.data;
+
+  switch (agentKey) {
+    case 'fundamentals':
+      return [
+        d.pe_ratio != null && { label: 'P/E', value: Number(d.pe_ratio).toFixed(1) },
+        d.revenue_growth != null && { label: 'Rev Growth', value: `${(d.revenue_growth * 100).toFixed(1)}%` },
+        (d.profit_margin ?? d.net_margin) != null && { label: 'Margin', value: `${((d.profit_margin ?? d.net_margin) * 100).toFixed(1)}%` },
+        (d.health_score ?? d.fundamental_health_score) != null && { label: 'Health', value: `${d.health_score ?? d.fundamental_health_score}/100` },
+      ].filter(Boolean);
+    case 'technical':
+      return [
+        d.rsi != null && { label: 'RSI', value: Number(d.rsi).toFixed(1) },
+        d.macd_interpretation && { label: 'MACD', value: d.macd_interpretation },
+        d.signal_strength && { label: 'Strength', value: d.signal_strength },
+      ].filter(Boolean);
+    case 'sentiment':
+      return [
+        d.overall_sentiment != null && { label: 'Score', value: Number(d.overall_sentiment).toFixed(2) },
+      ].filter(Boolean);
+    case 'macro':
+      return [
+        d.fed_funds_rate != null && { label: 'Fed Rate', value: `${d.fed_funds_rate}%` },
+        d.cpi != null && { label: 'CPI', value: `${d.cpi}%` },
+        d.gdp_growth != null && { label: 'GDP', value: `${d.gdp_growth}%` },
+      ].filter(Boolean);
+    case 'options':
+      return [
+        d.put_call_ratio != null && { label: 'P/C Ratio', value: Number(d.put_call_ratio).toFixed(2) },
+        d.overall_signal && { label: 'Signal', value: d.overall_signal },
+        d.max_pain != null && { label: 'Max Pain', value: `$${d.max_pain}` },
+      ].filter(Boolean);
+    default:
+      return [];
+  }
+}
+
+/* ─── Section config ─── */
+const SECTION_ORDER = [
+  { key: 'fundamentals', name: 'Fundamentals', special: false },
+  { key: 'technical', name: 'Technical', special: false },
+  { key: 'sentiment', name: 'Sentiment', special: false },
+  { key: 'macro', name: 'Macro', special: false },
+  { key: 'news', name: 'News', special: 'news' },
+  { key: 'options', name: 'Options', special: 'options' },
+  { key: 'leadership', name: 'Leadership', special: 'leadership' },
+  { key: 'council', name: 'Council', special: 'council' },
+];
+
+/* ═══════════════════════════════════════════
+   Dashboard Component
+   ═══════════════════════════════════════════ */
+
 const Dashboard = () => {
   const [tickerInput, setTickerInput] = useState('');
   const [viewMode, setViewMode] = useState(VIEW_MODES.ANALYSIS);
-  const [activeTab, setActiveTab] = useState('overview');
   const [unacknowledgedCount, setUnacknowledgedCount] = useState(0);
+  const [recentAnalyses, setRecentAnalyses] = useState([]);
+  const [hasStartedAnalysis, setHasStartedAnalysis] = useState(false);
+
   const { runAnalysis, loading, error } = useAnalysis();
   const { analysis, progress, stage, currentTicker } = useAnalysisContext();
 
-  // Poll for unacknowledged alert count every 30 seconds
+  /* ─── Poll alert count every 30s ─── */
   useEffect(() => {
     const fetchCount = async () => {
       try {
@@ -74,386 +192,294 @@ const Dashboard = () => {
     return () => clearInterval(interval);
   }, []);
 
-  const handleAnalyze = async (e) => {
-    e.preventDefault();
+  /* ─── Track recent analyses (max 5, deduplicated) ─── */
+  useEffect(() => {
+    if (!analysis?.ticker) return;
+    const rec = analysis?.analysis?.signal_contract_v2?.recommendation
+      || analysis?.analysis?.recommendation
+      || null;
+    setRecentAnalyses((prev) => {
+      const filtered = prev.filter((r) => r.ticker !== analysis.ticker);
+      return [{ ticker: analysis.ticker, recommendation: rec }, ...filtered].slice(0, 5);
+    });
+  }, [analysis]);
+
+  /* ─── Handlers ─── */
+  const handleAnalyze = useCallback(async (e) => {
+    e?.preventDefault?.();
     if (!tickerInput.trim()) return;
-
     setViewMode(VIEW_MODES.ANALYSIS);
-    setActiveTab('overview');
-
+    setHasStartedAnalysis(true);
     try {
       await runAnalysis(tickerInput.trim().toUpperCase());
     } catch (err) {
       console.error('Analysis failed:', err);
     }
-  };
+  }, [tickerInput, runAnalysis]);
 
-  const handleQuickTicker = (ticker) => {
+  const handleQuickTicker = useCallback((ticker) => {
     setTickerInput(ticker);
     setViewMode(VIEW_MODES.ANALYSIS);
-    setActiveTab('overview');
+    setHasStartedAnalysis(true);
     runAnalysis(ticker).catch((err) => console.error('Analysis failed:', err));
-  };
+  }, [runAnalysis]);
 
-  const showAnalysisContent = analysis || loading;
+  const handleSelectFromHistory = useCallback((ticker) => {
+    setTickerInput(ticker);
+    setViewMode(VIEW_MODES.ANALYSIS);
+    setHasStartedAnalysis(true);
+    runAnalysis(ticker).catch((err) => console.error('Analysis failed:', err));
+  }, [runAnalysis]);
+
+  const handleSelectTicker = useCallback((ticker) => {
+    setTickerInput(ticker);
+    setViewMode(VIEW_MODES.ANALYSIS);
+    setHasStartedAnalysis(true);
+    runAnalysis(ticker).catch((err) => console.error('Analysis failed:', err));
+  }, [runAnalysis]);
+
+  /* ─── Derived ─── */
+  // Once an analysis has been started, never revert to the welcome screen.
+  // Show analysis content if we have data, are loading, have an error, or have ever started.
+  const showAnalysisContent = analysis || loading || error || hasStartedAnalysis;
+  const agentResults = analysis?.agent_results || {};
+
+  /* Add onSelect callbacks to recentAnalyses for Sidebar */
+  const recentWithCallbacks = recentAnalyses.map((r) => ({
+    ...r,
+    onSelect: () => handleQuickTicker(r.ticker),
+  }));
+
+  /* ─── Render special section children ─── */
+  function renderSpecialChildren(key) {
+    switch (key) {
+      case 'news':
+        return <NewsFeed analysis={analysis} />;
+      case 'options':
+        return <OptionsFlow analysis={analysis} />;
+      case 'leadership':
+        return <LeadershipPanel analysis={analysis} />;
+      case 'council':
+        return <CouncilPanel analysis={analysis} ticker={currentTicker} />;
+      default:
+        return null;
+    }
+  }
 
   return (
-    <div className="min-h-screen bg-dark-bg text-white flex">
-      {/* ═══════════════════════════════════════════
-          Left Sidebar Navigation
-          ═══════════════════════════════════════════ */}
+    <div className="flex min-h-screen" style={{ background: 'var(--bg-primary)' }}>
+      {/* ═══ Sidebar ═══ */}
       <Sidebar
         activeView={viewMode}
         onViewChange={setViewMode}
         unacknowledgedCount={unacknowledgedCount}
+        recentAnalyses={recentWithCallbacks}
       />
 
-      {/* ═══════════════════════════════════════════
-          Main Content Area (offset by sidebar width)
-          ═══════════════════════════════════════════ */}
-      <div className="flex-1" style={{ marginLeft: 'var(--sidebar-width, 64px)' }}>
+      {/* ═══ Main Content ═══ */}
+      <main className="flex-1 flex flex-col" style={{ marginLeft: 'var(--sidebar-width, 220px)' }}>
+        {/* Search bar — sticky top */}
+        <SearchBar
+          tickerInput={tickerInput}
+          setTickerInput={setTickerInput}
+          onAnalyze={handleAnalyze}
+          loading={loading}
+          analysis={analysis}
+          stage={stage}
+          progress={progress}
+        />
+
+        {/* Error banner */}
+        {error && (
+          <div className="px-6 pt-2">
+            <Motion.div
+              initial={{ opacity: 0, y: -8 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="p-3 bg-danger/10 border border-danger/30 rounded-lg text-danger-400 text-sm flex items-center space-x-2"
+            >
+              <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <circle cx="10" cy="10" r="7" />
+                <path d="M10 7v3M10 12.5v.5" />
+              </svg>
+              <span>{error}</span>
+            </Motion.div>
+          </div>
+        )}
+
         {/* ─── Non-analysis views ─── */}
         {viewMode === VIEW_MODES.HISTORY && (
-          <div className="p-6">
-            <HistoryDashboard
-              onBack={() => setViewMode(VIEW_MODES.ANALYSIS)}
-              initialTicker={currentTicker || null}
-            />
-          </div>
+          <HistoryView onSelectAnalysis={handleSelectFromHistory} />
         )}
-
         {viewMode === VIEW_MODES.WATCHLIST && (
-          <div className="p-6">
-            <WatchlistPanel
-              onBack={() => setViewMode(VIEW_MODES.ANALYSIS)}
-            />
-          </div>
+          <WatchlistView onSelectTicker={handleSelectTicker} />
         )}
-
-        {viewMode === VIEW_MODES.SCHEDULES && (
-          <div className="p-6">
-            <SchedulePanel
-              onBack={() => setViewMode(VIEW_MODES.ANALYSIS)}
-            />
-          </div>
-        )}
-
         {viewMode === VIEW_MODES.PORTFOLIO && (
-          <div className="p-6">
-            <PortfolioPanel
-              onBack={() => setViewMode(VIEW_MODES.ANALYSIS)}
-            />
-          </div>
+          <PortfolioView onSelectTicker={handleSelectTicker} />
         )}
-
-        {viewMode === VIEW_MODES.ALERTS && (
-          <div className="p-6">
-            <AlertPanel
-              onBack={() => setViewMode(VIEW_MODES.ANALYSIS)}
-            />
-          </div>
-        )}
+        {viewMode === VIEW_MODES.SCHEDULES && <SchedulesView />}
+        {viewMode === VIEW_MODES.ALERTS && <AlertsView />}
 
         {/* ─── Analysis View ─── */}
         {viewMode === VIEW_MODES.ANALYSIS && (
-          <div className="flex flex-col h-screen">
-            {/* Content Header — sticky at top */}
-            <div className="sticky top-0 z-30 bg-dark-bg/80 backdrop-blur-xl border-b border-white/5">
-              <ContentHeader
-                tickerInput={tickerInput}
-                setTickerInput={setTickerInput}
-                onAnalyze={handleAnalyze}
-                loading={loading}
-                analysis={analysis}
-                progress={progress}
-                stage={stage}
-              />
+          <>
+            {/* Welcome state */}
+            {!showAnalysisContent && (
+              <Motion.div
+                key="welcome-screen"
+                initial="hidden"
+                animate="visible"
+                exit={{ opacity: 0 }}
+                variants={containerVariants}
+                className="flex flex-col items-center justify-center min-h-[calc(100vh-80px)] px-6 relative"
+              >
+                {/* Dot grid background */}
+                <div
+                  className="absolute inset-0 opacity-[0.03] pointer-events-none"
+                  style={{
+                    backgroundImage: 'radial-gradient(circle, rgba(255,255,255,0.8) 1px, transparent 1px)',
+                    backgroundSize: '24px 24px',
+                  }}
+                />
 
-              {/* Agent Pipeline Bar — visible during/after analysis */}
-              {showAnalysisContent && (
-                <div className="px-6 pb-3">
-                  <AgentPipelineBar />
-                </div>
-              )}
+                <Motion.div variants={fadeUp} className="flex justify-center relative z-10">
+                  <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-primary/20 to-primary-300/20 border border-primary/20 flex items-center justify-center">
+                    <PulseIcon className="w-10 h-10 text-primary-400" />
+                  </div>
+                </Motion.div>
 
-              {/* Error Display */}
-              {error && (
-                <div className="px-6 pb-3">
-                  <Motion.div
-                    initial={{ opacity: 0, y: -8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="p-3 bg-danger/10 border border-danger/30 rounded-lg text-danger-400 text-sm flex items-center space-x-2"
+                <Motion.h2
+                  variants={fadeUp}
+                  className="text-4xl sm:text-5xl font-bold mt-6 mb-3 tracking-tight bg-gradient-to-r from-white via-white to-gray-400 bg-clip-text text-transparent relative z-10"
+                >
+                  AI Trading Analyst
+                </Motion.h2>
+
+                <Motion.p variants={fadeUp} className="text-gray-400 text-lg max-w-md mx-auto text-center relative z-10">
+                  Multi-agent research platform
+                </Motion.p>
+
+                {/* Hero search */}
+                <Motion.form
+                  variants={fadeUp}
+                  onSubmit={handleAnalyze}
+                  className="mt-8 flex items-center gap-3 relative z-10"
+                >
+                  <input
+                    type="text"
+                    value={tickerInput}
+                    onChange={(e) => setTickerInput(e.target.value.toUpperCase())}
+                    placeholder="Enter ticker symbol"
+                    className="w-[320px] sm:w-[400px] px-5 py-4 bg-dark-inset border border-dark-border rounded-xl text-base font-mono uppercase text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-accent-blue/40 focus:border-accent-blue/50 focus:shadow-[0_0_20px_rgba(0,111,238,0.2)] transition-all"
+                    maxLength={5}
+                    disabled={loading}
+                    autoFocus
+                  />
+                  <button
+                    type="submit"
+                    disabled={loading || !tickerInput.trim()}
+                    className="px-6 py-4 bg-gradient-to-r from-primary-600 to-primary hover:from-primary hover:to-primary-400 disabled:from-zinc-700 disabled:to-zinc-700 disabled:cursor-not-allowed rounded-xl font-medium text-base transition-all flex items-center gap-2 whitespace-nowrap"
                   >
-                    <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
-                      <circle cx="10" cy="10" r="7" />
-                      <path d="M10 7v3M10 12.5v.5" />
-                    </svg>
-                    <span>{error}</span>
-                  </Motion.div>
-                </div>
-              )}
-            </div>
+                    {loading ? (
+                      <>
+                        <LoadingSpinner size={16} />
+                        <span>Analyzing</span>
+                      </>
+                    ) : (
+                      <span>Analyze</span>
+                    )}
+                  </button>
+                </Motion.form>
 
-            {/* ─── Content below header ─── */}
-            <div className="flex-1 overflow-y-auto">
-              <AnimatePresence mode="wait">
-                {showAnalysisContent ? (
-                  /* ─────── Analysis Content with Tabs ─────── */
-                  <Motion.div
-                    key="analysis-content"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: 0.3 }}
-                    className="flex h-full"
-                  >
-                    {/* Left: Tabbed content area */}
-                    <div className="flex-1 min-w-0">
-                      {/* Tab bar */}
-                      <div className="sticky top-0 z-20 bg-dark-bg/80 backdrop-blur-xl px-6 pt-3 pb-1">
-                        <AnalysisTabs
-                          activeTab={activeTab}
-                          onTabChange={setActiveTab}
-                        />
-                      </div>
+                {/* Quick tickers */}
+                <Motion.div variants={fadeUp} className="mt-5 flex items-center justify-center flex-wrap gap-2 relative z-10">
+                  <span className="text-xs text-gray-500 mr-1">Quick start:</span>
+                  {['AAPL', 'NVDA', 'TSLA', 'MSFT', 'AMZN', 'GOOGL'].map((ticker) => (
+                    <button
+                      key={ticker}
+                      onClick={() => handleQuickTicker(ticker)}
+                      className="px-5 py-2 text-xs font-mono font-medium text-accent-blue bg-accent-blue/10 border border-accent-blue/20 rounded-full hover:bg-accent-blue/20 hover:border-accent-blue/40 transition-all"
+                    >
+                      {ticker}
+                    </button>
+                  ))}
+                </Motion.div>
 
-                      {/* Tab content */}
-                      <div className="p-6">
-                        <AnimatePresence mode="wait">
-                          {/* Overview Tab */}
-                          {activeTab === 'overview' && (
-                            <Motion.div
-                              key="tab-overview"
-                              initial={{ opacity: 0, y: 8 }}
-                              animate={{ opacity: 1, y: 0 }}
-                              exit={{ opacity: 0, y: -8 }}
-                              transition={{ duration: 0.2 }}
-                              className="space-y-6"
-                            >
-                              <PriceChart analysis={analysis} />
-                              <OverviewMetrics analysis={analysis} />
-                            </Motion.div>
-                          )}
-
-                          {/* Risk Tab */}
-                          {activeTab === 'risk' && (
-                            <Motion.div
-                              key="tab-risk"
-                              initial={{ opacity: 0, y: 8 }}
-                              animate={{ opacity: 1, y: 0 }}
-                              exit={{ opacity: 0, y: -8 }}
-                              transition={{ duration: 0.2 }}
-                              className="space-y-6"
-                            >
-                              <ScenarioPanel analysis={analysis} />
-                              <ChangeSummaryPanel
-                                analysis={analysis}
-                                showFallbackWhenEmpty
-                              />
-                            </Motion.div>
-                          )}
-
-                          {/* Diagnostics Tab */}
-                          {activeTab === 'diagnostics' && (
-                            <Motion.div
-                              key="tab-diagnostics"
-                              initial={{ opacity: 0, y: 8 }}
-                              animate={{ opacity: 1, y: 0 }}
-                              exit={{ opacity: 0, y: -8 }}
-                              transition={{ duration: 0.2 }}
-                              className="space-y-6"
-                            >
-                              <DiagnosticsPanel analysis={analysis} />
-                            </Motion.div>
-                          )}
-
-                          {/* Opportunities Tab */}
-                          {activeTab === 'opportunities' && (
-                            <Motion.div
-                              key="tab-opportunities"
-                              initial={{ opacity: 0, y: 8 }}
-                              animate={{ opacity: 1, y: 0 }}
-                              exit={{ opacity: 0, y: -8 }}
-                              transition={{ duration: 0.2 }}
-                              className="space-y-6"
-                            >
-                              <ResearchContent analysis={analysis} />
-                              <NewsFeed analysis={analysis} />
-                              <OptionsFlow analysis={analysis} />
-                            </Motion.div>
-                          )}
-
-                          {/* Leadership Tab */}
-                          {activeTab === 'leadership' && (
-                            <Motion.div
-                              key="tab-leadership"
-                              initial={{ opacity: 0, y: 8 }}
-                              animate={{ opacity: 1, y: 0 }}
-                              exit={{ opacity: 0, y: -8 }}
-                              transition={{ duration: 0.2 }}
-                              className="space-y-6"
-                            >
-                              <LeadershipPanel analysis={analysis} />
-                            </Motion.div>
-                          )}
-
-                          {/* Council Tab */}
-                          {activeTab === 'council' && (
-                            <Motion.div
-                              key="tab-council"
-                              initial={{ opacity: 0, y: 8 }}
-                              animate={{ opacity: 1, y: 0 }}
-                              exit={{ opacity: 0, y: -8 }}
-                              transition={{ duration: 0.2 }}
-                              className="space-y-6"
-                            >
-                              <CouncilPanel analysis={analysis} ticker={currentTicker} />
-                            </Motion.div>
-                          )}
-                        </AnimatePresence>
-                      </div>
+                {/* Feature cards */}
+                <Motion.div
+                  variants={containerVariants}
+                  className="mt-12 grid grid-cols-1 sm:grid-cols-3 gap-5 max-w-2xl mx-auto relative z-10"
+                >
+                  <Motion.div variants={fadeUp} className="glass-card-elevated rounded-xl p-5 text-left border-t-2 border-t-accent-blue">
+                    <div className="w-9 h-9 rounded-lg bg-accent-blue/15 flex items-center justify-center mb-3">
+                      <ChartBarIcon className="w-5 h-5 text-accent-blue" />
                     </div>
-
-                    {/* Right sidebar — Recommendation + Macro */}
-                    <Motion.div
-                      initial={{ opacity: 0, x: 12 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ duration: 0.4, ease: 'easeOut' }}
-                      className="hidden lg:block w-[340px] shrink-0 border-l border-white/5 p-5 space-y-5 overflow-y-auto"
-                    >
-                      <Recommendation analysis={analysis} />
-                      <CalibrationCard />
-                      <MacroSnapshot analysis={analysis} />
-                    </Motion.div>
+                    <div className="font-semibold text-sm mb-1">8 Specialized Agents</div>
+                    <div className="text-xs text-gray-400 leading-relaxed">Market, Fundamentals, News, Technical, Macro, Options, Leadership, Sentiment</div>
                   </Motion.div>
-                ) : (
-                  /* ─────── Welcome Screen ─────── */
-                  <Motion.div
-                    key="welcome-screen"
-                    initial="hidden"
-                    animate="visible"
-                    exit={{ opacity: 0 }}
-                    variants={containerVariants}
-                    className="flex flex-col items-center justify-center min-h-[calc(100vh-80px)] px-6 relative"
-                  >
-                    {/* Subtle dot grid background */}
-                    <div
-                      className="absolute inset-0 opacity-[0.03] pointer-events-none"
-                      style={{
-                        backgroundImage: 'radial-gradient(circle, rgba(255,255,255,0.8) 1px, transparent 1px)',
-                        backgroundSize: '24px 24px',
-                      }}
-                    />
 
-                    {/* Animated Chart Icon */}
-                    <Motion.div variants={fadeUp} className="flex justify-center relative z-10">
-                      <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-primary/20 to-primary-300/20 border border-primary/20 flex items-center justify-center">
-                        <PulseIcon className="w-10 h-10 text-primary-400" />
-                      </div>
-                    </Motion.div>
-
-                    <Motion.h2
-                      variants={fadeUp}
-                      className="text-4xl sm:text-5xl font-bold mt-6 mb-3 tracking-tight bg-gradient-to-r from-white via-white to-gray-400 bg-clip-text text-transparent relative z-10"
-                    >
-                      AI Trading Analyst
-                    </Motion.h2>
-
-                    <Motion.p variants={fadeUp} className="text-gray-400 text-lg max-w-md mx-auto text-center relative z-10">
-                      Multi-agent research platform
-                    </Motion.p>
-
-                    {/* Hero search input */}
-                    <Motion.form
-                      variants={fadeUp}
-                      onSubmit={handleAnalyze}
-                      className="mt-8 flex items-center gap-3 relative z-10"
-                    >
-                      <input
-                        type="text"
-                        value={tickerInput}
-                        onChange={(e) => setTickerInput(e.target.value.toUpperCase())}
-                        placeholder="Enter ticker symbol"
-                        className="w-[320px] sm:w-[400px] px-5 py-4 bg-dark-inset border border-dark-border rounded-xl text-base font-mono uppercase text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-accent-blue/40 focus:border-accent-blue/50 focus:shadow-[0_0_20px_rgba(0,111,238,0.2)] transition-all"
-                        maxLength={5}
-                        disabled={loading}
-                        autoFocus
-                      />
-                      <button
-                        type="submit"
-                        disabled={loading || !tickerInput.trim()}
-                        className="px-6 py-4 bg-gradient-to-r from-primary-600 to-primary hover:from-primary hover:to-primary-400 disabled:from-zinc-700 disabled:to-zinc-700 disabled:cursor-not-allowed rounded-xl font-medium text-base transition-all flex items-center gap-2 whitespace-nowrap"
-                      >
-                        {loading ? (
-                          <>
-                            <LoadingSpinner size={16} />
-                            <span>Analyzing</span>
-                          </>
-                        ) : (
-                          <span>Analyze</span>
-                        )}
-                      </button>
-                    </Motion.form>
-
-                    {/* Quick Start Tickers */}
-                    <Motion.div variants={fadeUp} className="mt-5 flex items-center justify-center flex-wrap gap-2 relative z-10">
-                      <span className="text-xs text-gray-500 mr-1">Quick start:</span>
-                      {['AAPL', 'NVDA', 'TSLA', 'MSFT', 'AMZN', 'GOOGL'].map((ticker) => (
-                        <button
-                          key={ticker}
-                          onClick={() => handleQuickTicker(ticker)}
-                          className="px-5 py-2 text-xs font-mono font-medium text-accent-blue bg-accent-blue/10 border border-accent-blue/20 rounded-full hover:bg-accent-blue/20 hover:border-accent-blue/40 transition-all"
-                        >
-                          {ticker}
-                        </button>
-                      ))}
-                    </Motion.div>
-
-                    {/* Feature Cards */}
-                    <Motion.div
-                      variants={containerVariants}
-                      className="mt-12 grid grid-cols-1 sm:grid-cols-3 gap-5 max-w-2xl mx-auto relative z-10"
-                    >
-                      <Motion.div
-                        variants={fadeUp}
-                        className="glass-card-elevated rounded-xl p-5 text-left border-t-2 border-t-accent-blue"
-                      >
-                        <div className="w-9 h-9 rounded-lg bg-accent-blue/15 flex items-center justify-center mb-3">
-                          <ChartBarIcon className="w-5 h-5 text-accent-blue" />
-                        </div>
-                        <div className="font-semibold text-sm mb-1">8 Specialized Agents</div>
-                        <div className="text-xs text-gray-400 leading-relaxed">Market, Fundamentals, News, Technical, Macro, Options, Leadership, Sentiment</div>
-                      </Motion.div>
-
-                      <Motion.div
-                        variants={fadeUp}
-                        className="glass-card-elevated rounded-xl p-5 text-left border-t-2 border-t-accent-green"
-                      >
-                        <div className="w-9 h-9 rounded-lg bg-accent-green/15 flex items-center justify-center mb-3">
-                          <PulseIcon className="w-5 h-5 text-accent-green" />
-                        </div>
-                        <div className="font-semibold text-sm mb-1">Real-time Analysis</div>
-                        <div className="text-xs text-gray-400 leading-relaxed">Live updates as agents complete their work</div>
-                      </Motion.div>
-
-                      <Motion.div
-                        variants={fadeUp}
-                        className="glass-card-elevated rounded-xl p-5 text-left border-t-2 border-t-accent-purple"
-                      >
-                        <div className="w-9 h-9 rounded-lg bg-accent-purple/15 flex items-center justify-center mb-3">
-                          <SparklesIcon className="w-5 h-5 text-accent-purple" />
-                        </div>
-                        <div className="font-semibold text-sm mb-1">PM Workflow</div>
-                        <div className="text-xs text-gray-400 leading-relaxed">Action, risk, and evidence surfaced in one view</div>
-                      </Motion.div>
-                    </Motion.div>
+                  <Motion.div variants={fadeUp} className="glass-card-elevated rounded-xl p-5 text-left border-t-2 border-t-accent-green">
+                    <div className="w-9 h-9 rounded-lg bg-accent-green/15 flex items-center justify-center mb-3">
+                      <PulseIcon className="w-5 h-5 text-accent-green" />
+                    </div>
+                    <div className="font-semibold text-sm mb-1">Real-time Analysis</div>
+                    <div className="text-xs text-gray-400 leading-relaxed">Live updates as agents complete their work</div>
                   </Motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-          </div>
+
+                  <Motion.div variants={fadeUp} className="glass-card-elevated rounded-xl p-5 text-left border-t-2 border-t-accent-purple">
+                    <div className="w-9 h-9 rounded-lg bg-accent-purple/15 flex items-center justify-center mb-3">
+                      <SparklesIcon className="w-5 h-5 text-accent-purple" />
+                    </div>
+                    <div className="font-semibold text-sm mb-1">PM Workflow</div>
+                    <div className="text-xs text-gray-400 leading-relaxed">Action, risk, and evidence surfaced in one view</div>
+                  </Motion.div>
+                </Motion.div>
+              </Motion.div>
+            )}
+
+            {/* Analysis content — narrative scroll */}
+            {showAnalysisContent && (
+              <>
+                <ThesisCard analysis={analysis} />
+
+                <div className="mx-6 mt-4">
+                  <PriceChart analysis={analysis} />
+                </div>
+
+                <SectionNav />
+
+                {/* Narrative agent sections */}
+                <div className="px-6 pt-4 pb-8 flex flex-col gap-3">
+                  {SECTION_ORDER.map(({ key, name, special }) => {
+                    const result = agentResults[key];
+                    const stance = getAgentStance(key, result);
+                    const summary = getAgentSummary(result);
+                    const metrics = getAgentMetrics(key, result);
+
+                    return (
+                      <AnalysisSection
+                        key={key}
+                        id={`section-${key}`}
+                        name={name}
+                        stance={stance}
+                        stanceColor={STANCE_COLORS[stance]}
+                        summary={summary}
+                        metrics={metrics}
+                        fullContent={result?.data?.analysis || result?.data?.full_analysis || null}
+                        dataSource={result?.data?.data_source || result?.data_source || null}
+                        duration={result?.duration_seconds}
+                      >
+                        {special ? renderSpecialChildren(special) : null}
+                      </AnalysisSection>
+                    );
+                  })}
+                </div>
+
+                <MetaFooter analysis={analysis} />
+              </>
+            )}
+          </>
         )}
-      </div>
+      </main>
     </div>
   );
 };

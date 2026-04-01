@@ -2,16 +2,37 @@
  * PriceChart - Lightweight Charts candlestick/volume chart with technical indicator metric cards
  */
 
-import React, { useRef, useEffect, useMemo } from 'react';
+import React, { useRef, useEffect, useMemo, useState, useCallback } from 'react';
 import {
   createChart,
   ColorType,
   CrosshairMode,
   CandlestickSeries,
   HistogramSeries,
+  LineSeries,
 } from 'lightweight-charts';
 
 const EMPTY_ARRAY = [];
+
+const SMA_CONFIG = [
+  { period: 9, color: '#ef4444', label: 'SMA 9', defaultVisible: false },
+  { period: 20, color: '#f59e0b', label: 'SMA 20', defaultVisible: false },
+  { period: 50, color: '#22c55e', label: 'SMA 50', defaultVisible: true },
+  { period: 100, color: '#3b82f6', label: 'SMA 100', defaultVisible: false },
+  { period: 200, color: '#a855f7', label: 'SMA 200', defaultVisible: true },
+];
+
+function calculateSMA(data, period) {
+  const result = [];
+  for (let i = period - 1; i < data.length; i++) {
+    let sum = 0;
+    for (let j = i - period + 1; j <= i; j++) {
+      sum += data[j].close;
+    }
+    result.push({ time: data[i].time, value: sum / period });
+  }
+  return result;
+}
 
 /* ──────────────────────────────────────────────
    SVG micro-components for metric cards
@@ -125,6 +146,27 @@ const SignalBar = ({ strength, overall }) => {
 const PriceChart = ({ analysis }) => {
   const chartContainerRef = useRef(null);
   const chartInstanceRef = useRef(null);
+  const smaSeriesRef = useRef({});
+  // Ref mirror of smaVisibility so the chart useEffect can read initial values
+  // without adding smaVisibility to its dependency array (which would recreate
+  // the chart on every toggle instead of using applyOptions).
+  const smaVisibilityRef = useRef(
+    Object.fromEntries(SMA_CONFIG.map((s) => [s.period, s.defaultVisible]))
+  );
+
+  const [smaVisibility, setSmaVisibility] = useState(() => ({ ...smaVisibilityRef.current }));
+
+  const toggleSMA = useCallback((period) => {
+    setSmaVisibility((prev) => {
+      const next = { ...prev, [period]: !prev[period] };
+      smaVisibilityRef.current = next;
+      const series = smaSeriesRef.current[period];
+      if (series) {
+        series.applyOptions({ visible: next[period] });
+      }
+      return next;
+    });
+  }, []);
 
   // ── Data extraction ──
   const marketData = analysis?.agent_results?.market?.data || {};
@@ -228,6 +270,27 @@ const PriceChart = ({ analysis }) => {
         });
       candleSeries.setData(candleData);
 
+      // Reset SMA series refs for this chart instance
+      smaSeriesRef.current = {};
+      SMA_CONFIG.forEach(({ period, color }) => {
+        const lineOptions = {
+          color,
+          lineWidth: 1,
+          priceLineVisible: false,
+          lastValueVisible: false,
+          crosshairMarkerVisible: false,
+          visible: smaVisibilityRef.current[period],
+        };
+        const lineSeries = typeof chart.addSeries === 'function'
+          ? chart.addSeries(LineSeries, lineOptions)
+          : chart.addLineSeries(lineOptions);
+        const smaData = calculateSMA(candleData, period);
+        if (smaData.length > 0) {
+          lineSeries.setData(smaData);
+        }
+        smaSeriesRef.current[period] = lineSeries;
+      });
+
       const volumeSeries = typeof chart.addSeries === 'function'
         ? chart.addSeries(HistogramSeries, {
           priceFormat: { type: 'volume' },
@@ -305,7 +368,7 @@ const PriceChart = ({ analysis }) => {
       {hasChartData ? (
         <div
           ref={chartContainerRef}
-          className="w-full rounded-lg overflow-hidden border border-dark-border mb-5"
+          className="w-full rounded-lg overflow-hidden border border-dark-border"
           style={{ height: 400 }}
         />
       ) : (
@@ -328,6 +391,23 @@ const PriceChart = ({ analysis }) => {
             <p className="text-sm text-gray-500">Chart data unavailable</p>
             <p className="text-[10px] text-gray-600 mt-1">Price history not returned by data agents</p>
           </div>
+        </div>
+      )}
+
+      {/* ── SMA legend ── */}
+      {hasChartData && (
+        <div className="flex gap-3.5 mt-2.5 pt-2.5 mb-5" style={{ borderTop: '1px solid rgba(255,255,255,0.04)' }}>
+          {SMA_CONFIG.map(({ period, color, label }) => (
+            <button
+              key={period}
+              onClick={() => toggleSMA(period)}
+              className="flex items-center gap-1.5 text-[0.65rem] border-none bg-transparent cursor-pointer transition-opacity"
+              style={{ color: smaVisibility[period] ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.2)', opacity: smaVisibility[period] ? 1 : 0.5 }}
+            >
+              <div className="rounded-sm" style={{ width: 8, height: 2, background: color }} />
+              {label}
+            </button>
+          ))}
         </div>
       )}
 

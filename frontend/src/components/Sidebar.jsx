@@ -1,109 +1,104 @@
-/**
- * Sidebar - Fixed left navigation with icon tooltips and active state indicators.
- * 64px wide, full viewport height, z-40.
- * Uses framer-motion for staggered entrance animation.
- *
- * Props:
- *   activeView         - current VIEW_MODE string
- *   onViewChange       - (viewKey) => void
- *   unacknowledgedCount - number of unread alert notifications
- */
+import { motion } from 'framer-motion';
+import { PulseIcon, HistoryIcon, ChartBarIcon, BuildingIcon, ClockIcon, BellIcon } from './Icons';
 
-import React from 'react';
-import { motion as Motion } from 'framer-motion';
-import {
-  PulseIcon,
-  HistoryIcon,
-  ChartBarIcon,
-  BuildingIcon,
-  ClockIcon,
-  BellIcon,
-} from './Icons';
-
-/* ─── Navigation items ─── */
-const NAV_ITEMS = [
-  { key: 'analysis',  label: 'Analysis',  Icon: PulseIcon   },
-  { key: 'history',   label: 'History',   Icon: HistoryIcon  },
-  { key: 'watchlist',  label: 'Watchlist',  Icon: ChartBarIcon },
-  { key: 'portfolio', label: 'Portfolio', Icon: BuildingIcon },
-  { key: 'schedules', label: 'Schedules', Icon: ClockIcon    },
-  { key: 'alerts',    label: 'Alerts',    Icon: BellIcon     },
+const NAV_SECTIONS = [
+  {
+    label: 'Analysis',
+    items: [
+      { key: 'analysis', label: 'Analysis', Icon: PulseIcon },
+      { key: 'history', label: 'History', Icon: HistoryIcon },
+    ],
+  },
+  {
+    label: 'Portfolio',
+    items: [
+      { key: 'watchlist', label: 'Watchlist', Icon: ChartBarIcon },
+      { key: 'portfolio', label: 'Holdings', Icon: BuildingIcon },
+      { key: 'schedules', label: 'Schedules', Icon: ClockIcon },
+      { key: 'alerts', label: 'Alerts', Icon: BellIcon },
+    ],
+  },
 ];
 
-/* ─── framer-motion variants ─── */
-const listVariants = {
-  hidden: {},
-  visible: {
-    transition: { staggerChildren: 0.06, delayChildren: 0.2 },
-  },
+const STANCE_COLORS = {
+  BUY: 'text-[#17c964]',
+  SELL: 'text-[#f31260]',
+  HOLD: 'text-[#f5a524]',
 };
 
-const itemVariants = {
-  hidden: { opacity: 0, x: -8 },
-  visible: { opacity: 1, x: 0, transition: { duration: 0.3, ease: [0.22, 1, 0.36, 1] } },
-};
-
-const Sidebar = ({ activeView, onViewChange, unacknowledgedCount = 0 }) => {
+export default function Sidebar({ activeView, onViewChange, unacknowledgedCount = 0, recentAnalyses = [] }) {
   return (
-    <nav
-      className="fixed top-0 left-0 h-screen flex flex-col items-center z-40"
+    <aside className="fixed left-0 top-0 bottom-0 z-50 flex flex-col border-r"
       style={{
-        width: 'var(--sidebar-width, 64px)',
-        backgroundColor: 'var(--bg-sidebar)',
-        borderRight: '1px solid rgba(255,255,255,0.04)',
+        width: 'var(--sidebar-width, 220px)',
+        background: 'rgba(255,255,255,0.02)',
+        borderColor: 'rgba(255,255,255,0.06)',
       }}
     >
-      {/* ─── Brand icon ─── */}
-      <div className="flex items-center justify-center pt-5 pb-4">
-        <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-primary to-primary-300 flex items-center justify-center shadow-[0_0_16px_rgba(0,111,238,0.25)]">
-          <PulseIcon className="w-5 h-5 text-white" />
-        </div>
+      {/* Logo */}
+      <div className="flex items-center gap-2 px-5 pt-4 pb-6">
+        <div className="w-2 h-2 rounded-full bg-[#006fee]" />
+        <span className="text-[0.95rem] font-bold text-white/90 tracking-tight">Market Research</span>
       </div>
 
-      {/* ─── Separator ─── */}
-      <div className="w-7 h-px bg-white/[0.06] mb-4" />
-
-      {/* ─── Nav items ─── */}
-      <Motion.ul
-        className="flex flex-col items-center gap-3 list-none p-0 m-0"
-        variants={listVariants}
-        initial="hidden"
-        animate="visible"
-      >
-        {NAV_ITEMS.map(({ key, label, Icon: iconComponent }) => {
-          const isActive = activeView === key;
-          const isAlerts = key === 'alerts';
-          const iconNode = React.createElement(iconComponent, { className: 'w-[19px] h-[19px] relative z-10' });
-
-          return (
-            <Motion.li key={key} variants={itemVariants}>
+      {/* Nav sections */}
+      {NAV_SECTIONS.map((section) => (
+        <div key={section.label} className="px-3 mb-5">
+          <div className="px-2 pb-2 text-[0.6rem] uppercase tracking-[0.12em] font-semibold text-white/25">
+            {section.label}
+          </div>
+          {section.items.map((item) => {
+            const isActive = activeView === item.key;
+            return (
               <button
-                onClick={() => onViewChange(key)}
-                className={`sidebar-nav-item group ${isActive ? 'active' : ''}`}
-                aria-label={label}
-                aria-current={isActive ? 'page' : undefined}
+                key={item.key}
+                onClick={() => onViewChange(item.key)}
+                className={`flex items-center gap-2.5 w-full px-3 py-2 rounded-lg text-[0.82rem] transition-colors relative ${
+                  isActive
+                    ? 'bg-[rgba(0,111,238,0.1)] text-[#006fee] font-medium'
+                    : 'text-white/50 hover:bg-white/[0.04] hover:text-white/70'
+                }`}
               >
-                {/* Icon */}
-                {iconNode}
-
-                {/* Alert badge */}
-                {isAlerts && unacknowledgedCount > 0 && (
-                  <span className="absolute -top-1 -right-1 flex items-center justify-center min-w-[16px] h-4 px-1 text-[9px] font-bold text-white bg-danger rounded-full shadow-[0_0_8px_rgba(243,18,96,0.4)] z-20">
-                    {unacknowledgedCount > 99 ? '99+' : unacknowledgedCount}
+                <item.Icon className="w-[18px] h-[18px]" style={{ opacity: isActive ? 1 : 0.5 }} />
+                {item.label}
+                {item.key === 'alerts' && unacknowledgedCount > 0 && (
+                  <span className="ml-auto text-[0.6rem] font-semibold bg-[#f31260] text-white px-1.5 py-0.5 rounded-full min-w-[18px] text-center">
+                    {unacknowledgedCount}
                   </span>
                 )}
-
-                {/* Tooltip */}
-                <span className="pointer-events-none absolute left-full ml-3 px-2.5 py-1 rounded-md text-[11px] font-medium text-white bg-content2 border border-white/[0.08] shadow-lg opacity-0 scale-95 group-hover:opacity-100 group-hover:scale-100 transition-all duration-150 whitespace-nowrap z-50">
-                  {label}
-                </span>
               </button>
-            </Motion.li>
-          );
-        })}
-      </Motion.ul>
-    </nav>
-  );
-};
+            );
+          })}
+        </div>
+      ))}
 
-export default Sidebar;
+      {/* Divider */}
+      <div className="mx-5 h-px bg-white/5" />
+
+      {/* Recent analyses */}
+      <div className="px-3 mt-auto pb-4">
+        <div className="px-2 pb-2 text-[0.6rem] uppercase tracking-[0.12em] font-semibold text-white/25">
+          Recent
+        </div>
+        {recentAnalyses.slice(0, 5).map((item) => (
+          <button
+            key={item.ticker}
+            onClick={() => {
+              onViewChange('analysis');
+              item.onSelect?.();
+            }}
+            className="flex items-center justify-between w-full px-3 py-1.5 rounded-md text-white/40 hover:bg-white/[0.03] hover:text-white/60 transition-colors"
+          >
+            <span className="text-[0.75rem] font-semibold tabular-nums">{item.ticker}</span>
+            <span className={`text-[0.65rem] font-medium ${STANCE_COLORS[item.recommendation] || 'text-white/40'}`}>
+              {item.recommendation}
+            </span>
+          </button>
+        ))}
+        {recentAnalyses.length === 0 && (
+          <div className="px-3 py-2 text-[0.7rem] text-white/20">No recent analyses</div>
+        )}
+      </div>
+    </aside>
+  );
+}
