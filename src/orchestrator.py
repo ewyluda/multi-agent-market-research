@@ -28,6 +28,7 @@ from .validation_rules import validate as run_validation_rules
 from .thesis_health import evaluate_thesis_health
 from .perception_ledger import extract_kpi_snapshots
 from .repositories.perception_repo import PerceptionRepository
+from .inflection_detector import InflectionDetector
 
 
 class Orchestrator:
@@ -344,7 +345,8 @@ class Orchestrator:
                 except Exception as _db_exc:
                     self.logger.warning(f"Failed to save validation result: {_db_exc}")
 
-            # Capture perception snapshots for inflection tracking
+            # Capture perception snapshots + detect inflections
+            inflection_summary = None
             if analysis_id:
                 try:
                     data_quality = (final_analysis.get("diagnostics") or {}).get("data_quality", {})
@@ -354,8 +356,27 @@ class Orchestrator:
                         perception_repo = PerceptionRepository(self.db_manager)
                         perception_repo.insert_snapshots(ticker, analysis_id, snapshots)
                         self.logger.info(f"Captured {len(snapshots)} perception snapshots for {ticker}")
+
+                        # Detect inflections against prior snapshots
+                        prior = perception_repo.get_prior_snapshots(ticker, analysis_id)
+                        if prior:
+                            detector = InflectionDetector()
+                            inflections = detector.detect(prior, snapshots)
+                            inflection_summary = detector.build_summary(inflections)
+
+                            if inflections:
+                                perception_repo.insert_inflection_events(
+                                    ticker, analysis_id, inflections,
+                                )
+                                for inf in inflections:
+                                    inf["convergence_score"] = inflection_summary["convergence_score"]
+                                    inf["source_agents"] = [inf["source_agent"]]
+                                self.logger.info(
+                                    f"Detected {len(inflections)} inflections for {ticker} "
+                                    f"(convergence={inflection_summary['convergence_score']:.2f})"
+                                )
                 except Exception as e:
-                    self.logger.warning(f"Perception snapshot capture failed: {e}")
+                    self.logger.warning(f"Perception/inflection processing failed: {e}")
 
             # Persist thesis health snapshot
             if analysis_id and thesis_health_report is not None:
@@ -410,6 +431,7 @@ class Orchestrator:
                 "analysis": final_analysis,
                 "agent_results": agent_results,
                 "alerts_triggered": alerts_triggered,
+                "inflection_summary": inflection_summary,
                 "duration_seconds": time.time() - start_time,
             }
             if db_write_warning:
