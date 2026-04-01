@@ -139,3 +139,18 @@ class TestPerceptionRepository:
         ts = repo.get_timeseries("AAPL", kpis=["forward_pe"])
         assert len(ts) == 1
         assert ts[0]["kpi_name"] == "forward_pe"
+
+
+class TestWatchlistSchedule:
+    def test_watchlist_has_schedule_column(self, db_manager):
+        wl = db_manager.create_watchlist("test_wl")
+        with db_manager.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("UPDATE watchlists SET auto_analyze_schedule = ? WHERE id = ?", ("twice_daily", wl["id"]))
+        result = db_manager.get_watchlist(wl["id"])
+        assert result["auto_analyze_schedule"] == "twice_daily"
+
+    def test_watchlist_schedule_defaults_to_null(self, db_manager):
+        wl = db_manager.create_watchlist("test_wl2")
+        result = db_manager.get_watchlist(wl["id"])
+        assert result.get("auto_analyze_schedule") is None

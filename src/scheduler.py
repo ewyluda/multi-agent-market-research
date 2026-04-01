@@ -20,6 +20,12 @@ except Exception:  # pragma: no cover - fallback for older runtimes
 
 logger = logging.getLogger(__name__)
 
+INFLECTION_SCHEDULES = {
+    "daily_am":    {"hour": 9, "minute": 0},
+    "daily_pm":    {"hour": 16, "minute": 0},
+    "twice_daily": [{"hour": 9, "minute": 0}, {"hour": 16, "minute": 0}],
+}
+
 
 class AnalysisScheduler:
     """Manages background scheduled analyses using APScheduler."""
@@ -60,6 +66,7 @@ class AnalysisScheduler:
         self.scheduler.start()
         self._running = True
         logger.info(f"Scheduler started with {len(schedules)} schedules loaded")
+        self.sync_inflection_schedules()
 
     async def stop(self):
         """Shut down the scheduler."""
@@ -796,6 +803,104 @@ class AnalysisScheduler:
                     horizon_days=horizon,
                     bins=bin_rows,
                 )
+
+    def sync_inflection_schedules(self):
+        """Register or remove cron jobs based on watchlist auto_analyze_schedule settings."""
+        try:
+            watchlists = self.db_manager.get_watchlists()
+        except Exception as exc:
+            logger.warning("sync_inflection_schedules: could not load watchlists: %s", exc)
+            return
+
+        for wl in watchlists:
+            wl_id = wl["id"]
+            schedule_key = wl.get("auto_analyze_schedule")
+            config = INFLECTION_SCHEDULES.get(schedule_key) if schedule_key else None
+
+            if config is None:
+                # Remove any existing jobs for this watchlist
+                for suffix in ("", "_am", "_pm"):
+                    job_id = f"inflection_scan_{wl_id}{suffix}"
+                    if self.scheduler.get_job(job_id):
+                        self.scheduler.remove_job(job_id)
+                        logger.info("Removed inflection job %s", job_id)
+            elif isinstance(config, list):
+                # twice_daily: two cron jobs with _am / _pm suffix
+                suffixes = ["_am", "_pm"]
+                for idx, cron_kwargs in enumerate(config):
+                    job_id = f"inflection_scan_{wl_id}{suffixes[idx]}"
+                    if self.scheduler.get_job(job_id):
+                        self.scheduler.remove_job(job_id)
+                    self.scheduler.add_job(
+                        self._run_inflection_scan,
+                        "cron",
+                        hour=cron_kwargs["hour"],
+                        minute=cron_kwargs["minute"],
+                        id=job_id,
+                        args=[wl_id],
+                        replace_existing=True,
+                    )
+                    logger.info(
+                        "Registered inflection job %s at %02d:%02d",
+                        job_id, cron_kwargs["hour"], cron_kwargs["minute"],
+                    )
+            else:
+                # single cron (daily_am or daily_pm)
+                job_id = f"inflection_scan_{wl_id}"
+                if self.scheduler.get_job(job_id):
+                    self.scheduler.remove_job(job_id)
+                self.scheduler.add_job(
+                    self._run_inflection_scan,
+                    "cron",
+                    hour=config["hour"],
+                    minute=config["minute"],
+                    id=job_id,
+                    args=[wl_id],
+                    replace_existing=True,
+                )
+                logger.info(
+                    "Registered inflection job %s at %02d:%02d",
+                    job_id, config["hour"], config["minute"],
+                )
+
+    async def _run_inflection_scan(self, watchlist_id: int):
+        """Run analyses for all tickers in a watchlist with bounded concurrency."""
+        from .orchestrator import Orchestrator  # Lazy import to avoid circular
+
+        try:
+            watchlist = self.db_manager.get_watchlist(watchlist_id)
+        except Exception as exc:
+            logger.warning("_run_inflection_scan: could not load watchlist %s: %s", watchlist_id, exc)
+            return
+
+        if not watchlist:
+            logger.warning("_run_inflection_scan: watchlist %s not found", watchlist_id)
+            return
+
+        tickers = [t["ticker"] for t in watchlist.get("tickers", [])]
+        if not tickers:
+            return
+
+        logger.info(
+            "Running inflection scan for watchlist %s (%d tickers)",
+            watchlist_id, len(tickers),
+        )
+
+        semaphore = asyncio.Semaphore(4)
+
+        async def _analyze_one(ticker: str):
+            async with semaphore:
+                try:
+                    orch = Orchestrator(
+                        config=self._build_orchestrator_config_for_schedule(),
+                        db_manager=self.db_manager,
+                        data_provider=self.data_provider,
+                    )
+                    await orch.analyze_ticker(ticker)
+                except Exception as exc:
+                    logger.error("Inflection scan failed for %s: %s", ticker, exc)
+
+        await asyncio.gather(*[_analyze_one(t) for t in tickers])
 
     def add_schedule(self, schedule: Dict[str, Any]):
         """Add a new schedule job (call after DB insert)."""

@@ -452,6 +452,12 @@ class DatabaseManager:
             self._ensure_column(cursor, "calibration_snapshots", "mean_drawdown_pct", "REAL")
             self._ensure_column(cursor, "calibration_snapshots", "utility_mean", "REAL")
 
+            # Migration: add auto_analyze_schedule to watchlists
+            try:
+                cursor.execute("ALTER TABLE watchlists ADD COLUMN auto_analyze_schedule TEXT")
+            except sqlite3.OperationalError:
+                pass  # Column already exists
+
             # Create indexes for performance
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_analyses_ticker_timestamp
