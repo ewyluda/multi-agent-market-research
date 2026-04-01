@@ -473,7 +473,7 @@ const WatchlistView = ({ onSelectTicker }) => {
                   display: 'grid',
                   gridTemplateColumns: 'repeat(3, 1fr)',
                   gap: 12,
-                }}}
+                }}
                   className="xl:grid-cols-4"
                 >
                   {allTickers.map(({ ticker }) => (
