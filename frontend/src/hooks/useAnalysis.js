@@ -32,7 +32,8 @@ export const useAnalysis = () => {
     setCurrentTicker(ticker);
     setLoading(true);
     setError(null);
-    resetAnalysis();
+    // Don't call resetAnalysis() — keep old analysis visible during loading
+    // so the page doesn't snap to the welcome screen if SSE drops
     setProgress(0);
     setStage('starting');
 

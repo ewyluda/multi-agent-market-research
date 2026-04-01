@@ -81,8 +81,10 @@ export const useSSE = () => {
         eventSourceRef.current = null;
         return;
       } else {
-        // Connection error (server down, network issue)
-        if (onError) onError('Connection to server lost');
+        // Connection error — EventSource auto-reconnects by default.
+        // Don't close; let it retry. This handles tab-backgrounding gracefully.
+        console.warn('SSE connection interrupted, waiting for auto-reconnect...');
+        return;
       }
 
       eventSource.close();

@@ -39,7 +39,7 @@ function AgentDots({ analysis, loading, stage }) {
   );
 }
 
-export default function SearchBar({ tickerInput, setTickerInput, onAnalyze, loading, analysis, stage }) {
+export default function SearchBar({ tickerInput, setTickerInput, onAnalyze, loading, analysis, stage, progress = 0 }) {
   const handleSubmit = (e) => {
     e.preventDefault();
     if (tickerInput.trim() && !loading) {
@@ -83,6 +83,19 @@ export default function SearchBar({ tickerInput, setTickerInput, onAnalyze, load
         </button>
       </form>
       <AgentDots analysis={analysis} loading={loading} stage={stage} />
+
+      {/* Progress bar */}
+      {loading && (
+        <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-white/5">
+          <div
+            className="h-full transition-all duration-500 ease-out"
+            style={{
+              width: `${progress}%`,
+              background: 'linear-gradient(90deg, #006fee, #17c964)',
+            }}
+          />
+        </div>
+      )}
     </div>
   );
 }

@@ -205,7 +205,7 @@ const Dashboard = () => {
 
   /* ─── Handlers ─── */
   const handleAnalyze = useCallback(async (e) => {
-    e.preventDefault();
+    e?.preventDefault?.();
     if (!tickerInput.trim()) return;
     setViewMode(VIEW_MODES.ANALYSIS);
     try {
@@ -279,6 +279,7 @@ const Dashboard = () => {
           loading={loading}
           analysis={analysis}
           stage={stage}
+          progress={progress}
         />
 
         {/* Error banner */}
