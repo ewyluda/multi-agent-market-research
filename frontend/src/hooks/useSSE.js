@@ -81,9 +81,13 @@ export const useSSE = () => {
         eventSourceRef.current = null;
         return;
       } else {
-        // Connection error — EventSource auto-reconnects by default.
-        // Don't close; let it retry. This handles tab-backgrounding gracefully.
-        console.warn('SSE connection interrupted, waiting for auto-reconnect...');
+        // Connection error (tab backgrounded, network hiccup).
+        // Close the EventSource to prevent auto-reconnect (which would start
+        // a duplicate analysis on the backend). The loading state stays true
+        // so the UI doesn't revert to welcome — onClose is NOT called.
+        console.warn('SSE connection interrupted');
+        eventSource.close();
+        eventSourceRef.current = null;
         return;
       }
 

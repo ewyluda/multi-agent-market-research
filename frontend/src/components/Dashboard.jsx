@@ -172,6 +172,7 @@ const Dashboard = () => {
   const [viewMode, setViewMode] = useState(VIEW_MODES.ANALYSIS);
   const [unacknowledgedCount, setUnacknowledgedCount] = useState(0);
   const [recentAnalyses, setRecentAnalyses] = useState([]);
+  const [hasStartedAnalysis, setHasStartedAnalysis] = useState(false);
 
   const { runAnalysis, loading, error } = useAnalysis();
   const { analysis, progress, stage, currentTicker } = useAnalysisContext();
@@ -208,6 +209,7 @@ const Dashboard = () => {
     e?.preventDefault?.();
     if (!tickerInput.trim()) return;
     setViewMode(VIEW_MODES.ANALYSIS);
+    setHasStartedAnalysis(true);
     try {
       await runAnalysis(tickerInput.trim().toUpperCase());
     } catch (err) {
@@ -218,23 +220,28 @@ const Dashboard = () => {
   const handleQuickTicker = useCallback((ticker) => {
     setTickerInput(ticker);
     setViewMode(VIEW_MODES.ANALYSIS);
+    setHasStartedAnalysis(true);
     runAnalysis(ticker).catch((err) => console.error('Analysis failed:', err));
   }, [runAnalysis]);
 
   const handleSelectFromHistory = useCallback((ticker) => {
     setTickerInput(ticker);
     setViewMode(VIEW_MODES.ANALYSIS);
+    setHasStartedAnalysis(true);
     runAnalysis(ticker).catch((err) => console.error('Analysis failed:', err));
   }, [runAnalysis]);
 
   const handleSelectTicker = useCallback((ticker) => {
     setTickerInput(ticker);
     setViewMode(VIEW_MODES.ANALYSIS);
+    setHasStartedAnalysis(true);
     runAnalysis(ticker).catch((err) => console.error('Analysis failed:', err));
   }, [runAnalysis]);
 
   /* ─── Derived ─── */
-  const showAnalysisContent = analysis || loading;
+  // Once an analysis has been started, never revert to the welcome screen.
+  // Show analysis content if we have data, are loading, have an error, or have ever started.
+  const showAnalysisContent = analysis || loading || error || hasStartedAnalysis;
   const agentResults = analysis?.agent_results || {};
 
   /* Add onSelect callbacks to recentAnalyses for Sidebar */
