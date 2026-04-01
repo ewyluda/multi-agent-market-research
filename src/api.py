@@ -6,12 +6,26 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from typing import Optional, Dict, Any
 import json
+import math
 import logging
 import io
 import csv
 import re
 from datetime import datetime, timezone
 import asyncio
+
+
+def _sanitize_for_json(obj):
+    """Recursively replace NaN/Infinity floats with None so json.dumps produces valid JSON."""
+    if isinstance(obj, float):
+        if math.isnan(obj) or math.isinf(obj):
+            return None
+        return obj
+    if isinstance(obj, dict):
+        return {k: _sanitize_for_json(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_sanitize_for_json(v) for v in obj]
+    return obj
 
 from .models import (
     AnalysisRequest,
@@ -210,7 +224,7 @@ async def batch_analyze_tickers(body: BatchAnalysisRequest):
                 payload = {"success": False, "error": str(e), "ticker": "UNKNOWN"}
 
             event_type = "result" if payload.get("success") else "error"
-            yield f"event: {event_type}\ndata: {json.dumps(payload, default=str)}\n\n"
+            yield f"event: {event_type}\ndata: {json.dumps(_sanitize_for_json(payload), default=str)}\n\n"
 
         yield f"event: done\ndata: {json.dumps({'message': 'Batch complete', 'ticker_count': len(tickers), 'completed': completed}, default=str)}\n\n"
 
@@ -778,9 +792,9 @@ async def analyze_watchlist(
                 payload = {"success": False, "error": str(e), "ticker": "UNKNOWN"}
 
             if payload.get("success"):
-                yield f"event: result\ndata: {json.dumps(payload, default=str)}\n\n"
+                yield f"event: result\ndata: {json.dumps(_sanitize_for_json(payload), default=str)}\n\n"
             else:
-                yield f"event: error\ndata: {json.dumps(payload, default=str)}\n\n"
+                yield f"event: error\ndata: {json.dumps(_sanitize_for_json(payload), default=str)}\n\n"
 
         opportunities = []
         if Config.WATCHLIST_RANKING_ENABLED:
@@ -1402,7 +1416,7 @@ async def analyze_ticker_stream(
         try:
             while True:
                 event_type, data = await queue.get()
-                yield f"event: {event_type}\ndata: {json.dumps(data, default=str)}\n\n"
+                yield f"event: {event_type}\ndata: {json.dumps(_sanitize_for_json(data), default=str)}\n\n"
                 if event_type in ("result", "error"):
                     break
         except asyncio.CancelledError:

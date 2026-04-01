@@ -59,6 +59,7 @@ export const useSSE = () => {
         if (onResult) onResult(data);
       } catch (err) {
         console.error('Failed to parse result event:', err);
+        if (onError) onError('Failed to parse analysis result');
       }
       eventSource.close();
       eventSourceRef.current = null;
@@ -81,14 +82,8 @@ export const useSSE = () => {
         eventSourceRef.current = null;
         return;
       } else {
-        // Connection error (tab backgrounded, network hiccup).
-        // Close the EventSource to prevent auto-reconnect (which would start
-        // a duplicate analysis on the backend). The loading state stays true
-        // so the UI doesn't revert to welcome — onClose is NOT called.
-        console.warn('SSE connection interrupted');
-        eventSource.close();
-        eventSourceRef.current = null;
-        return;
+        // Connection error (server down, network issue)
+        if (onError) onError('Connection to server lost');
       }
 
       eventSource.close();

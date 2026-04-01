@@ -58,7 +58,7 @@ export const useAnalysis = () => {
         onResult: (result) => {
           if (activeAnalysisRef.current !== ticker) return;
 
-          console.log('Analysis result:', result);
+          console.log('Analysis result received:', result?.success);
           if (result.success) {
             setAnalysis(result);
             setProgress(100);
