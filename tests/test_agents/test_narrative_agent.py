@@ -2,7 +2,9 @@
 
 import pytest
 from pydantic import ValidationError
+from unittest.mock import AsyncMock, MagicMock, patch
 from src.models import QuarterlyInflection, YearSection, NarrativeChapter, NarrativeOutput
+from src.agents.narrative_agent import NarrativeAgent
 
 
 class TestNarrativeModels:
@@ -96,3 +98,166 @@ class TestNarrativeModels:
                 key_inflection_points=[], current_chapter="x",
                 years_covered=0, data_completeness=1.5, data_sources_used=[],
             )
+
+
+# ── Test Helpers ────────────────────────────────────────────────────────────
+
+
+def _make_mock_financials(num_years=3):
+    """Build mock financials with income_statement records for multiple years."""
+    income = []
+    for i in range(num_years):
+        year = 2025 - i
+        income.append({
+            "period_ending": f"{year}-12-31",
+            "fiscal_year": year,
+            "revenue": (383 - i * 20) * 1e9,
+            "gross_profit": (176 - i * 8) * 1e9,
+            "operating_income": (115 - i * 5) * 1e9,
+            "net_income": (97 - i * 4) * 1e9,
+            "research_and_development": (27 + i * 1) * 1e9,
+        })
+    return {
+        "income_statement": income,
+        "balance_sheet": [{"period_ending": f"{2025-i}-12-31", "total_assets": 350e9} for i in range(num_years)],
+        "cash_flow": [{"period_ending": f"{2025-i}-12-31", "free_cash_flow": 90e9} for i in range(num_years)],
+        "data_source": "openbb",
+    }
+
+
+def _make_mock_transcripts(num_quarters=4):
+    """Build mock transcript list."""
+    transcripts = []
+    for i in range(num_quarters):
+        q = 4 - (i % 4)
+        y = 2025 - (i // 4)
+        transcripts.append({
+            "quarter": q,
+            "year": y,
+            "date": f"{y}-{q*3:02d}-15",
+            "content": f"Q{q} {y} earnings call transcript content. Management discussed growth and strategy.",
+            "data_source": "fmp",
+        })
+    return transcripts
+
+
+def _make_agent_results():
+    """Build mock agent_results for latest analysis context."""
+    return {
+        "fundamentals": {
+            "success": True,
+            "data": {
+                "company_name": "Apple Inc.",
+                "sector": "Technology",
+                "revenue": 383e9,
+                "revenue_growth": 0.08,
+                "gross_margin": 0.46,
+                "business_description": "Designs consumer electronics and software.",
+            },
+        },
+    }
+
+
+class TestNarrativeDataFetching:
+    """Tests for fetch_data() hybrid data sourcing."""
+
+    @pytest.mark.asyncio
+    async def test_fetch_data_calls_data_provider(self):
+        agent = NarrativeAgent("AAPL", {"llm_config": {}, "NARRATIVE_YEARS": 3}, _make_agent_results())
+        mock_dp = MagicMock()
+        mock_dp.get_financials = AsyncMock(return_value=_make_mock_financials())
+        mock_dp.get_earnings_transcripts = AsyncMock(return_value=_make_mock_transcripts())
+        agent._data_provider = mock_dp
+
+        result = await agent.fetch_data()
+
+        mock_dp.get_financials.assert_called_once_with("AAPL")
+        mock_dp.get_earnings_transcripts.assert_called_once_with("AAPL", num_quarters=12)
+        assert "financials" in result
+        assert "transcripts" in result
+        assert "agent_results" in result
+
+    @pytest.mark.asyncio
+    async def test_fetch_data_default_years(self):
+        agent = NarrativeAgent("AAPL", {"llm_config": {}}, _make_agent_results())
+        mock_dp = MagicMock()
+        mock_dp.get_financials = AsyncMock(return_value=_make_mock_financials())
+        mock_dp.get_earnings_transcripts = AsyncMock(return_value=_make_mock_transcripts())
+        agent._data_provider = mock_dp
+
+        await agent.fetch_data()
+
+        # Default NARRATIVE_YEARS=3, so 3*4=12 quarters
+        mock_dp.get_earnings_transcripts.assert_called_once_with("AAPL", num_quarters=12)
+
+
+class TestNarrativeYearExtraction:
+    """Tests for extracting years from financial data."""
+
+    def test_extract_years_from_financials(self):
+        agent = NarrativeAgent("AAPL", {"llm_config": {}}, _make_agent_results())
+        financials = _make_mock_financials(num_years=3)
+        years = agent._extract_available_years(financials)
+        assert years == [2023, 2024, 2025]
+
+    def test_extract_years_empty_financials(self):
+        agent = NarrativeAgent("AAPL", {"llm_config": {}}, _make_agent_results())
+        years = agent._extract_available_years(None)
+        assert years == []
+
+    def test_extract_years_empty_income(self):
+        agent = NarrativeAgent("AAPL", {"llm_config": {}}, _make_agent_results())
+        years = agent._extract_available_years({"income_statement": []})
+        assert years == []
+
+
+class TestNarrativeCompleteness:
+    """Tests for data completeness scoring."""
+
+    def test_full_completeness(self):
+        agent = NarrativeAgent("AAPL", {"llm_config": {}, "NARRATIVE_YEARS": 3}, _make_agent_results())
+        score = agent._compute_data_completeness(
+            financials=_make_mock_financials(3),
+            transcripts=_make_mock_transcripts(12),
+            num_years_requested=3,
+        )
+        assert score == pytest.approx(1.0, abs=0.01)
+
+    def test_partial_financials(self):
+        agent = NarrativeAgent("AAPL", {"llm_config": {}, "NARRATIVE_YEARS": 3}, _make_agent_results())
+        score = agent._compute_data_completeness(
+            financials=_make_mock_financials(1),
+            transcripts=_make_mock_transcripts(12),
+            num_years_requested=3,
+        )
+        # 1/3 * 0.60 + 1.0 * 0.30 + 0.10 = 0.20 + 0.30 + 0.10 = 0.60
+        assert score == pytest.approx(0.60, abs=0.02)
+
+    def test_no_transcripts(self):
+        agent = NarrativeAgent("AAPL", {"llm_config": {}, "NARRATIVE_YEARS": 3}, _make_agent_results())
+        score = agent._compute_data_completeness(
+            financials=_make_mock_financials(3),
+            transcripts=[],
+            num_years_requested=3,
+        )
+        # 1.0 * 0.60 + 0 + 0.10 = 0.70
+        assert score == pytest.approx(0.70, abs=0.01)
+
+    def test_no_fundamentals_context(self):
+        agent = NarrativeAgent("AAPL", {"llm_config": {}, "NARRATIVE_YEARS": 3}, {})
+        score = agent._compute_data_completeness(
+            financials=_make_mock_financials(3),
+            transcripts=_make_mock_transcripts(12),
+            num_years_requested=3,
+        )
+        # 1.0 * 0.60 + 1.0 * 0.30 + 0 = 0.90
+        assert score == pytest.approx(0.90, abs=0.01)
+
+    def test_no_data_at_all(self):
+        agent = NarrativeAgent("AAPL", {"llm_config": {}, "NARRATIVE_YEARS": 3}, {})
+        score = agent._compute_data_completeness(
+            financials=None,
+            transcripts=[],
+            num_years_requested=3,
+        )
+        assert score == pytest.approx(0.0, abs=0.01)
