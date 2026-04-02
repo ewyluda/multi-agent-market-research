@@ -51,6 +51,10 @@ All data agents use `OpenBBDataProvider` (`src/data_provider.py`) injected via `
 | `src/council_synthesis.py` | Council consensus aggregation |
 | `src/scheduler.py` | APScheduler background jobs |
 | `src/alert_engine.py` | Alert rule evaluation |
+| `src/perception_ledger.py` | KPI extractor — declarative agent→KPI mapping |
+| `src/inflection_detector.py` | Inflection detection + convergence scoring |
+| `src/repositories/perception_repo.py` | Perception snapshot + inflection event CRUD |
+| `src/routers/inflection.py` | `/api/inflections/*` endpoints |
 
 ## Quick Reference
 
@@ -88,6 +92,8 @@ Key config: `LLM_PROVIDER` (anthropic/openai/xai), `AGENT_TIMEOUT` (30s), `PARAL
 
 **Council**: `POST/GET /api/analyze/{ticker}/council`, `POST/GET/DELETE /api/thesis/{ticker}`
 
+**Inflections**: `GET /api/inflections/{ticker}`, `GET /api/inflections/{ticker}/timeseries`, `GET /api/watchlists/{id}/inflections`, `PUT /api/watchlists/{id}/schedule`
+
 **Other**: `GET /api/calibration/summary`, `GET /api/rollout/phase7/status`, `GET /api/macro-events`, `GET /health`
 
 ## Key Patterns
@@ -120,7 +126,20 @@ Key config: `LLM_PROVIDER` (anthropic/openai/xai), `AGENT_TIMEOUT` (30s), `PARAL
 2. Resolves agents from `AGENT_REGISTRY` (auto-resolves dependencies)
 3. Runs data agents in parallel via `asyncio.gather(return_exceptions=True)`
 4. Runs sentiment agent (depends on news + market + twitter_posts)
-5. Solution agent synthesizes → DB save → alert evaluation → cleanup
+5. Solution agent synthesizes → DB save → perception snapshot + inflection detection → alert evaluation → cleanup
+
+### Perception Ledger Flow
+After DB save, the orchestrator:
+1. Calls `extract_kpi_snapshots(agent_results)` — declarative extraction of ~30 KPIs
+2. Writes to `perception_snapshots` via `PerceptionRepository`
+3. Runs `InflectionDetector.detect(prior, current)` — category-specific thresholds
+4. Computes convergence score and persists `inflection_events`
+5. Attaches `inflection_summary` to the analysis response
+
+### Adding a New KPI to the Perception Ledger
+1. Find the agent's `analyze()` return dict to identify the exact key path
+2. Add one entry to `KPI_EXTRACTORS` in `src/perception_ledger.py`
+3. The extractor runs automatically on every analysis — no other changes needed
 
 ### Council Agent Loading
 - `db_manager.get_analysis_with_agents(analysis_id)` loads agent context (returns `agent_results` dict keyed by `agent_type`)
@@ -131,17 +150,17 @@ Key config: `LLM_PROVIDER` (anthropic/openai/xai), `AGENT_TIMEOUT` (30s), `PARAL
 
 React + Vite + Tailwind CSS v4. Hero UI dark theme (zinc-based).
 
-**Layout**: 64px sidebar + main content (tabbed) + 280px right sidebar. 6 tabs: Overview/Risks/Opportunities/Leadership/Diagnostics/Council. 6 nav views: analysis/history/watchlist/portfolio/schedules/alerts.
+**Layout**: 64px sidebar + main content (tabbed) + 280px right sidebar. 6 tabs: Overview/Risks/Opportunities/Leadership/Diagnostics/Council. 7 nav views: analysis/history/watchlist/inflections/portfolio/schedules/alerts.
 
 **Theme colors**: Primary `#006fee`, Success `#17c964`, Danger `#f31260`, Warning `#f5a524`, Background `#000000`, Surfaces zinc scale.
 
-**Key components**: `Dashboard.jsx` (root), `Summary.jsx` (exports 5 sub-components), `Recommendation.jsx` (SVG gauge), `PriceChart.jsx` (lightweight-charts), `CouncilPanel.jsx` (investor council).
+**Key components**: `Dashboard.jsx` (root), `Summary.jsx` (exports 5 sub-components), `Recommendation.jsx` (SVG gauge), `PriceChart.jsx` (lightweight-charts), `CouncilPanel.jsx` (investor council), `InflectionView.jsx` (inflection dashboard with heatmap/chart/feed).
 
 Glass cards use `glass-card` / `glass-card-elevated` CSS classes.
 
 ## Database
 
-SQLite `market_research.db` — 21 tables including `analyses`, `agent_results`, `watchlists`, `schedules`, `alert_rules`, `portfolio_holdings`, `thesis_cards`, `council_results`, `validation_results`, `thesis_health_snapshots`, `council_synthesis`.
+SQLite `market_research.db` — 23 tables including `analyses`, `agent_results`, `watchlists`, `schedules`, `alert_rules`, `portfolio_holdings`, `thesis_cards`, `council_results`, `validation_results`, `thesis_health_snapshots`, `council_synthesis`, `perception_snapshots`, `inflection_events`.
 
 `analyses` table has `signal_contract_v2` (TEXT/JSON) column added via migration at startup.
 
