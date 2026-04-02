@@ -604,3 +604,85 @@ def validate_narrative_output(
             )
 
     return validated, warnings
+
+
+# ─── Risk Diff Output ─────────────────────────────────────────────────────
+
+
+VALID_CHANGE_TYPES = {"new", "removed", "escalated", "de-escalated", "reworded"}
+VALID_SEVERITIES = {"high", "medium", "low"}
+
+
+def validate_risk_diff_output(
+    risk_diff: Dict[str, Any],
+) -> Tuple[Dict[str, Any], List[str]]:
+    """Validate risk diff agent output.
+
+    Checks:
+        1. Risk score bounds — clamp risk_score to [0, 100].
+        2. Risk score delta bounds — clamp risk_score_delta to [-50, +50].
+        3. Change type validation — verify all change_type values are valid.
+        4. Severity validation — verify all severity values are valid.
+        5. Diff consistency — if has_diff=False, warn if diff fields are non-empty.
+
+    Returns:
+        (validated_risk_diff, warnings)
+    """
+    warnings: List[str] = []
+    validated = dict(risk_diff)
+
+    # 1. Risk score bounds
+    risk_score = _safe_float(validated.get("risk_score", 0))
+    if risk_score is not None:
+        if risk_score < 0 or risk_score > 100:
+            warnings.append(
+                f"risk_score {risk_score} out of bounds [0, 100], clamped to {_clamp(risk_score, 0, 100)}"
+            )
+            risk_score = _clamp(risk_score, 0, 100)
+        validated["risk_score"] = risk_score
+
+    # 2. Risk score delta bounds
+    delta = _safe_float(validated.get("risk_score_delta", 0))
+    if delta is not None:
+        if delta < -50 or delta > 50:
+            warnings.append(
+                f"risk_score_delta {delta} out of bounds [-50, +50], clamped to {_clamp(delta, -50, 50)}"
+            )
+            delta = _clamp(delta, -50, 50)
+        validated["risk_score_delta"] = delta
+
+    # 3. Change type validation
+    for list_key in ("new_risks", "removed_risks", "changed_risks"):
+        for item in validated.get(list_key, []):
+            ct = item.get("change_type", "")
+            if ct and ct not in VALID_CHANGE_TYPES:
+                warnings.append(
+                    f"Invalid change_type '{ct}' in {list_key}. "
+                    f"Expected one of: {sorted(VALID_CHANGE_TYPES)}"
+                )
+
+    # 4. Severity validation
+    for list_key in ("new_risks", "removed_risks", "changed_risks", "current_risk_inventory"):
+        for item in validated.get(list_key, []):
+            sev = item.get("severity", "")
+            if sev and sev not in VALID_SEVERITIES:
+                warnings.append(
+                    f"Invalid severity '{sev}' in {list_key}. "
+                    f"Expected one of: {sorted(VALID_SEVERITIES)}"
+                )
+
+    # 5. Diff consistency
+    has_diff = validated.get("has_diff", False)
+    if not has_diff:
+        has_diff_data = (
+            len(validated.get("new_risks", [])) > 0
+            or len(validated.get("removed_risks", [])) > 0
+            or len(validated.get("changed_risks", [])) > 0
+        )
+        if has_diff_data:
+            warnings.append(
+                "has_diff is False but diff fields (new_risks, removed_risks, changed_risks) "
+                "are non-empty. This is inconsistent."
+            )
+
+    return validated, warnings

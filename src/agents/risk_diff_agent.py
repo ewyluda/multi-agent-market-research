@@ -182,7 +182,12 @@ class RiskDiffAgent(BaseAgent):
             diff_result["data_completeness"] = completeness
             diff_result["data_sources_used"] = sources
 
-            return diff_result
+            # Guardrails
+            from ..llm_guardrails import validate_risk_diff_output
+            validated, guardrail_warnings = validate_risk_diff_output(diff_result)
+            if guardrail_warnings:
+                validated["guardrail_warnings"] = guardrail_warnings
+            return validated
 
         except Exception as e:
             self.logger.warning(f"RiskDiff Pass 2 failed for {self.ticker}: {e}, using Pass 1 fallback")

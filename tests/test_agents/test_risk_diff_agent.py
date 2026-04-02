@@ -492,3 +492,115 @@ class TestRiskDiffCompleteness:
         agent = RiskDiffAgent("AAPL", {"llm_config": {}}, {})
         score = agent._compute_data_completeness([])
         assert score == pytest.approx(0.0, abs=0.01)
+
+
+from src.llm_guardrails import validate_risk_diff_output
+
+
+def _make_valid_risk_diff():
+    """Build a valid risk diff output dict."""
+    return {
+        "new_risks": [
+            {
+                "risk_topic": "AI Regulation",
+                "change_type": "new",
+                "severity": "medium",
+                "current_text_excerpt": "New AI regulations may...",
+                "prior_text_excerpt": "",
+                "analysis": "Newly disclosed risk.",
+            }
+        ],
+        "removed_risks": [],
+        "changed_risks": [
+            {
+                "risk_topic": "Supply Chain",
+                "change_type": "escalated",
+                "severity": "high",
+                "current_text_excerpt": "Material adverse effect...",
+                "prior_text_excerpt": "Could impact...",
+                "analysis": "Language escalated.",
+            }
+        ],
+        "risk_score": 65.0,
+        "risk_score_delta": 5.0,
+        "top_emerging_threats": ["AI regulation", "Supply chain escalation"],
+        "summary": "Risk profile moderately elevated.",
+        "current_risk_inventory": [
+            {"topic": "AI Regulation", "severity": "medium", "summary": "x", "text_excerpt": "x"},
+            {"topic": "Supply Chain", "severity": "high", "summary": "x", "text_excerpt": "x"},
+        ],
+        "filings_compared": [
+            {"type": "10-K", "date": "2025-02-15", "accession_number": "x"},
+            {"type": "10-K", "date": "2024-02-15", "accession_number": "y"},
+        ],
+        "has_diff": True,
+        "extraction_methods": ["pattern", "pattern"],
+        "data_completeness": 0.85,
+        "data_sources_used": ["fmp_filings", "edgar_html"],
+    }
+
+
+class TestRiskDiffGuardrails:
+    """Tests for validate_risk_diff_output() in llm_guardrails.py."""
+
+    def test_valid_output_passes(self):
+        output = _make_valid_risk_diff()
+        validated, warnings = validate_risk_diff_output(output)
+        assert validated["risk_score"] == 65.0
+        assert isinstance(warnings, list)
+
+    def test_risk_score_clamped_high(self):
+        output = _make_valid_risk_diff()
+        output["risk_score"] = 150.0
+        validated, warnings = validate_risk_diff_output(output)
+        assert validated["risk_score"] == 100.0
+        assert any("risk_score" in w.lower() for w in warnings)
+
+    def test_risk_score_clamped_low(self):
+        output = _make_valid_risk_diff()
+        output["risk_score"] = -10.0
+        validated, warnings = validate_risk_diff_output(output)
+        assert validated["risk_score"] == 0.0
+        assert any("risk_score" in w.lower() for w in warnings)
+
+    def test_risk_score_delta_clamped(self):
+        output = _make_valid_risk_diff()
+        output["risk_score_delta"] = 80.0
+        validated, warnings = validate_risk_diff_output(output)
+        assert validated["risk_score_delta"] == 50.0
+        assert any("delta" in w.lower() for w in warnings)
+
+    def test_invalid_change_type_flagged(self):
+        output = _make_valid_risk_diff()
+        output["new_risks"][0]["change_type"] = "invented_type"
+        validated, warnings = validate_risk_diff_output(output)
+        assert any("change_type" in w.lower() for w in warnings)
+
+    def test_invalid_severity_flagged(self):
+        output = _make_valid_risk_diff()
+        output["changed_risks"][0]["severity"] = "critical"
+        validated, warnings = validate_risk_diff_output(output)
+        assert any("severity" in w.lower() for w in warnings)
+
+    def test_no_diff_but_has_risks_flagged(self):
+        output = _make_valid_risk_diff()
+        output["has_diff"] = False
+        # Should warn because has_diff=False but diff fields are non-empty
+        validated, warnings = validate_risk_diff_output(output)
+        assert any("has_diff" in w.lower() or "consistency" in w.lower() for w in warnings)
+
+    def test_no_diff_clean(self):
+        output = _make_valid_risk_diff()
+        output["has_diff"] = False
+        output["new_risks"] = []
+        output["removed_risks"] = []
+        output["changed_risks"] = []
+        validated, warnings = validate_risk_diff_output(output)
+        # Should not warn about diff consistency
+        assert not any("has_diff" in w.lower() for w in warnings)
+
+    def test_data_completeness_preserved(self):
+        output = _make_valid_risk_diff()
+        output["data_completeness"] = 0.85
+        validated, warnings = validate_risk_diff_output(output)
+        assert validated["data_completeness"] == 0.85
