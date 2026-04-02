@@ -1,6 +1,12 @@
 import { motion } from 'framer-motion';
 import { PulseIcon, HistoryIcon, ChartBarIcon, BuildingIcon, ClockIcon, BellIcon } from './Icons';
 
+const ActivityIcon = () => (
+  <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+    <path fillRule="evenodd" d="M2 10a.75.75 0 01.75-.75h2.793l1.874-3.748a.75.75 0 011.341.008L11.25 11.5l1.293-2.586a.75.75 0 011.326-.012L15.5 11.25h2.75a.75.75 0 010 1.5h-3.25a.75.75 0 01-.67-.415L13.25 10.5l-1.293 2.586a.75.75 0 01-1.326.012L8.14 7.109 6.83 9.724A.75.75 0 016.17 10.25H2.75A.75.75 0 012 10z" clipRule="evenodd" />
+  </svg>
+);
+
 const NAV_SECTIONS = [
   {
     label: 'Analysis',
@@ -13,6 +19,7 @@ const NAV_SECTIONS = [
     label: 'Portfolio',
     items: [
       { key: 'watchlist', label: 'Watchlist', Icon: ChartBarIcon },
+      { key: 'inflections', label: 'Inflections', Icon: ActivityIcon },
       { key: 'portfolio', label: 'Holdings', Icon: BuildingIcon },
       { key: 'schedules', label: 'Schedules', Icon: ClockIcon },
       { key: 'alerts', label: 'Alerts', Icon: BellIcon },

@@ -63,6 +63,7 @@ export default function ThesisCard({ analysis }) {
   const targetHigh = scenarios.bull?.price_target || signal.price_target_high;
   const targetRange = targetLow && targetHigh ? `$${Math.round(targetLow)} – $${Math.round(targetHigh)}` : null;
 
+  const inflectionSummary = payload.inflection_summary || null;
   const thesis = payload.executive_summary || payload.synthesis || payload.summary || '';
   const signals = payload.key_factors || payload.key_findings || [];
   const topSignals = (Array.isArray(signals) ? signals : []).slice(0, 3);
@@ -88,6 +89,16 @@ export default function ThesisCard({ analysis }) {
         <div className="text-[2.4rem] font-extrabold leading-none mb-1.5" style={{ color: colors.text }}>
           {recommendation}
         </div>
+        {inflectionSummary && inflectionSummary.inflection_count > 0 && (
+          <div className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[0.6rem] font-mono mb-1.5 ${
+            inflectionSummary.direction === 'positive'
+              ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+              : 'bg-red-500/10 text-red-400 border border-red-500/20'
+          }`}>
+            <span>{inflectionSummary.direction === 'positive' ? '\u25B2' : '\u25BC'}</span>
+            <span>{inflectionSummary.convergence_score?.toFixed(2)}</span>
+          </div>
+        )}
         {targetRange && <div className="text-[0.85rem] text-white/45 mb-3.5">{targetRange}</div>}
         <div className="flex gap-[3px] mb-1">
           {AGENT_HEATMAP.map(({ key }) => (

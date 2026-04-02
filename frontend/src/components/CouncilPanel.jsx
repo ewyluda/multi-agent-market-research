@@ -613,8 +613,8 @@ const SynthesisCard = ({ synthesis, thesisHealth }) => {
 const statusDot = { stable: '#17c964', drifting: '#f5a524', breached: '#f31260' };
 
 const HealthIndicatorStrip = ({ thesisHealth }) => {
-  if (!thesisHealth?.indicators?.length) return null;
   const [expanded, setExpanded] = React.useState(null);
+  if (!thesisHealth?.indicators?.length) return null;
   const indicators = thesisHealth.indicators;
 
   return (

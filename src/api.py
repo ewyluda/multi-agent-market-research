@@ -50,6 +50,8 @@ from .database import DatabaseManager
 from .data_provider import OpenBBDataProvider
 from .rollout_metrics import compute_phase7_rollout_status
 from .portfolio_engine import PortfolioEngine
+from .routers.inflection import router as inflection_router
+from .repositories.perception_repo import PerceptionRepository
 
 # Configure logging
 logging.basicConfig(
@@ -93,6 +95,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(inflection_router)
 
 # Initialize database
 db_manager = DatabaseManager(Config.DATABASE_PATH)
@@ -840,6 +844,31 @@ async def get_watchlist_opportunities(
         min_ev=min_ev,
     )
     return {"watchlist_id": watchlist_id, "opportunities": opportunities, "total_count": len(opportunities)}
+
+
+@app.get("/api/watchlists/{watchlist_id}/inflections")
+async def get_watchlist_inflections(watchlist_id: int):
+    wl = db_manager.get_watchlist(watchlist_id)
+    if not wl:
+        raise HTTPException(status_code=404, detail="Watchlist not found")
+    tickers = [t["ticker"] for t in wl.get("tickers", [])]
+    repo = PerceptionRepository(db_manager)
+    return repo.get_watchlist_inflections(tickers)
+
+
+@app.put("/api/watchlists/{watchlist_id}/schedule")
+async def set_watchlist_schedule(watchlist_id: int, body: dict):
+    schedule = body.get("schedule")
+    valid = {None, "daily_am", "daily_pm", "twice_daily"}
+    if schedule not in valid:
+        raise HTTPException(status_code=400, detail=f"Invalid schedule. Must be one of: {valid}")
+    wl = db_manager.get_watchlist(watchlist_id)
+    if not wl:
+        raise HTTPException(status_code=404, detail="Watchlist not found")
+    with db_manager.get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("UPDATE watchlists SET auto_analyze_schedule = ? WHERE id = ?", (schedule, watchlist_id))
+    return {"status": "ok", "schedule": schedule}
 
 
 # ─── Schedule Endpoints ─────────────────────────────────────────────

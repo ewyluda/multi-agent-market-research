@@ -403,5 +403,29 @@ export const deleteThesisCardAPI = async (ticker) => {
   return response.data;
 };
 
+// ─── Inflection Tracking ─────────────────────────────────────────────────────
+
+export async function getInflectionHistory(ticker, limit = 50) {
+  const response = await api.get(`/api/inflections/${ticker}?limit=${limit}`);
+  return response.data;
+}
+
+export async function getInflectionTimeseries(ticker, kpis = null, limit = 200) {
+  const params = new URLSearchParams({ limit });
+  if (kpis && kpis.length > 0) params.set('kpis', kpis.join(','));
+  const response = await api.get(`/api/inflections/${ticker}/timeseries?${params}`);
+  return response.data;
+}
+
+export async function getWatchlistInflections(watchlistId) {
+  const response = await api.get(`/api/watchlists/${watchlistId}/inflections`);
+  return response.data;
+}
+
+export async function setWatchlistSchedule(watchlistId, schedule) {
+  const response = await api.put(`/api/watchlists/${watchlistId}/schedule`, { schedule });
+  return response.data;
+}
+
 export { API_BASE_URL };
 export default api;

@@ -280,3 +280,89 @@ class TestThesisHealthChangeAlert:
         rule = {"rule_type": "thesis_health_change", "threshold": None}
         result = engine._evaluate_rule(rule, current, previous=None)
         assert result is None
+
+
+class TestInflectionDetectedAlert:
+    """Tests for the inflection_detected alert rule type."""
+
+    def _insert_analysis(self, db_manager, ticker="AAPL", recommendation="HOLD"):
+        """Helper to insert a test analysis."""
+        return db_manager.insert_analysis(
+            ticker=ticker,
+            recommendation=recommendation,
+            confidence_score=0.7,
+            overall_sentiment_score=0.5,
+            solution_agent_reasoning="Test reasoning.",
+            duration_seconds=10.0,
+        )
+
+    def test_inflection_detected_triggers_on_high_convergence(self, db_manager):
+        """inflection_detected alert fires when convergence exceeds threshold."""
+        from src.repositories.perception_repo import PerceptionRepository
+
+        aid1 = self._insert_analysis(db_manager, recommendation="HOLD")
+        aid2 = self._insert_analysis(db_manager, recommendation="HOLD")
+
+        repo = PerceptionRepository(db_manager)
+        repo.insert_snapshots("AAPL", aid1, [
+            {"kpi_name": "revenue_growth", "kpi_category": "growth", "value": 0.10,
+             "source_agent": "fundamentals", "confidence": 0.9},
+        ])
+        repo.insert_snapshots("AAPL", aid2, [
+            {"kpi_name": "revenue_growth", "kpi_category": "growth", "value": 0.22,
+             "source_agent": "fundamentals", "confidence": 0.9},
+        ])
+
+        repo.insert_inflection_events("AAPL", aid2, [{
+            "kpi_name": "revenue_growth",
+            "direction": "positive",
+            "magnitude": 0.5,
+            "prior_value": 0.10,
+            "current_value": 0.22,
+            "pct_change": 120.0,
+            "source_agents": ["fundamentals"],
+            "convergence_score": 0.8,
+            "summary": "Revenue growth +120%",
+        }])
+
+        db_manager.create_alert_rule("AAPL", "inflection_detected", threshold=0.7)
+        engine = AlertEngine(db_manager)
+        triggered = engine.evaluate_alerts("AAPL", aid2)
+
+        assert len(triggered) == 1
+        assert "inflection" in triggered[0]["message"].lower()
+
+    def test_inflection_detected_no_trigger_below_threshold(self, db_manager):
+        """inflection_detected alert does not fire when convergence is below threshold."""
+        from src.repositories.perception_repo import PerceptionRepository
+
+        aid1 = self._insert_analysis(db_manager, recommendation="HOLD")
+        aid2 = self._insert_analysis(db_manager, recommendation="HOLD")
+
+        repo = PerceptionRepository(db_manager)
+        repo.insert_snapshots("AAPL", aid1, [
+            {"kpi_name": "revenue_growth", "kpi_category": "growth", "value": 0.10,
+             "source_agent": "fundamentals", "confidence": 0.9},
+        ])
+        repo.insert_snapshots("AAPL", aid2, [
+            {"kpi_name": "revenue_growth", "kpi_category": "growth", "value": 0.12,
+             "source_agent": "fundamentals", "confidence": 0.9},
+        ])
+
+        repo.insert_inflection_events("AAPL", aid2, [{
+            "kpi_name": "revenue_growth",
+            "direction": "positive",
+            "magnitude": 0.2,
+            "prior_value": 0.10,
+            "current_value": 0.12,
+            "pct_change": 20.0,
+            "source_agents": ["fundamentals"],
+            "convergence_score": 0.3,
+            "summary": "Small change",
+        }])
+
+        db_manager.create_alert_rule("AAPL", "inflection_detected", threshold=0.7)
+        engine = AlertEngine(db_manager)
+        triggered = engine.evaluate_alerts("AAPL", aid2)
+
+        assert len(triggered) == 0

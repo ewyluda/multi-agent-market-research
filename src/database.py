@@ -310,7 +310,8 @@ class DatabaseManager:
                         'data_quality_below',
                         'calibration_drop',
                         'spot_check',
-                        'thesis_health_change'
+                        'thesis_health_change',
+                        'inflection_detected'
                     )),
                     threshold REAL,
                     enabled BOOLEAN DEFAULT 1,
@@ -451,6 +452,12 @@ class DatabaseManager:
             self._ensure_column(cursor, "calibration_snapshots", "mean_drawdown_pct", "REAL")
             self._ensure_column(cursor, "calibration_snapshots", "utility_mean", "REAL")
 
+            # Migration: add auto_analyze_schedule to watchlists
+            try:
+                cursor.execute("ALTER TABLE watchlists ADD COLUMN auto_analyze_schedule TEXT")
+            except sqlite3.OperationalError:
+                pass  # Column already exists
+
             # Create indexes for performance
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_analyses_ticker_timestamp
@@ -583,6 +590,46 @@ class DatabaseManager:
                 ON council_results(analysis_id)
             """)
 
+            # Perception ledger — KPI snapshots per analysis
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS perception_snapshots (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ticker TEXT NOT NULL,
+                    analysis_id INTEGER REFERENCES analyses(id),
+                    captured_at TEXT NOT NULL,
+                    kpi_name TEXT NOT NULL,
+                    kpi_category TEXT NOT NULL,
+                    value REAL,
+                    value_text TEXT,
+                    source_agent TEXT NOT NULL,
+                    source_detail TEXT,
+                    confidence REAL
+                )
+            """)
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_perception_ticker_kpi ON perception_snapshots(ticker, kpi_name, captured_at)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_perception_analysis ON perception_snapshots(analysis_id)")
+
+            # Inflection events — detected KPI shifts
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS inflection_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ticker TEXT NOT NULL,
+                    detected_at TEXT NOT NULL,
+                    analysis_id INTEGER REFERENCES analyses(id),
+                    kpi_name TEXT NOT NULL,
+                    direction TEXT CHECK(direction IN ('positive', 'negative')),
+                    magnitude REAL,
+                    prior_value REAL,
+                    current_value REAL,
+                    pct_change REAL,
+                    source_agents TEXT,
+                    convergence_score REAL,
+                    summary TEXT
+                )
+            """)
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_inflection_ticker ON inflection_events(ticker, detected_at)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_inflection_convergence ON inflection_events(ticker, convergence_score)")
+
             # Ensure singleton portfolio profile exists and seed macro events.
             self._ensure_alert_rule_schema(cursor)
             self._ensure_portfolio_profile_row(cursor)
@@ -607,7 +654,7 @@ class DatabaseManager:
         )
         row = cursor.fetchone()
         create_sql = str((row or [None])[0] or "").lower()
-        if "ev_above" in create_sql and "regime_change" in create_sql and "calibration_drop" in create_sql and "thesis_health_change" in create_sql:
+        if "ev_above" in create_sql and "regime_change" in create_sql and "calibration_drop" in create_sql and "thesis_health_change" in create_sql and "inflection_detected" in create_sql:
             return
 
         cursor.execute("ALTER TABLE alert_rules RENAME TO alert_rules_old")
@@ -628,7 +675,8 @@ class DatabaseManager:
                     'data_quality_below',
                     'calibration_drop',
                     'spot_check',
-                    'thesis_health_change'
+                    'thesis_health_change',
+                    'inflection_detected'
                 )),
                 threshold REAL,
                 enabled BOOLEAN DEFAULT 1,

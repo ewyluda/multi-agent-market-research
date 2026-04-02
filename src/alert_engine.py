@@ -104,6 +104,8 @@ class AlertEngine:
             return self._check_spot_check(current)
         elif rule_type == "thesis_health_change":
             return self._check_thesis_health_change(current, previous)
+        elif rule_type == "inflection_detected":
+            return self._check_inflection_detected(current, threshold)
 
         return None
 
@@ -422,6 +424,46 @@ class AlertEngine:
             "message": message,
             "previous_value": prev,
             "current_value": overall,
+        }
+
+    def _check_inflection_detected(
+        self,
+        current: Dict[str, Any],
+        threshold: Optional[float],
+    ) -> Optional[Dict[str, Any]]:
+        """Check if recent inflection events exceed convergence threshold."""
+        from .repositories.perception_repo import PerceptionRepository
+
+        analysis_id = current.get("id")
+        ticker = current.get("ticker")
+        if not analysis_id or not ticker:
+            return None
+
+        repo = PerceptionRepository(self.db_manager)
+        events = repo.get_inflection_history(ticker, limit=10)
+
+        # Find events for this analysis
+        current_events = [e for e in events if e.get("analysis_id") == analysis_id]
+        if not current_events:
+            return None
+
+        # Get max convergence score for this analysis
+        max_convergence = max(
+            (e.get("convergence_score") or 0.0) for e in current_events
+        )
+
+        if threshold is not None and max_convergence < threshold:
+            return None
+
+        directions = {e.get("direction") for e in current_events}
+        direction = "positive" if "positive" in directions else "negative"
+        count = len(current_events)
+
+        return {
+            "message": f"Inflection detected for {ticker}: {count} KPI shifts, "
+                       f"convergence={max_convergence:.2f}, direction={direction}",
+            "previous_value": None,
+            "current_value": str(max_convergence),
         }
 
     def _extract_change_summary(self, analysis: Dict[str, Any]) -> Optional[Dict[str, Any]]:

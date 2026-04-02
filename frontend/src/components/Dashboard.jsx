@@ -3,7 +3,7 @@
  * Layout: 220px sidebar | Main content (flex-1) with SearchBar + narrative sections
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion as Motion, AnimatePresence } from 'framer-motion';
 import { useAnalysis } from '../hooks/useAnalysis';
 import { useAnalysisContext } from '../context/AnalysisContext';
@@ -24,6 +24,7 @@ import WatchlistView from './WatchlistView';
 import PortfolioView from './PortfolioView';
 import SchedulesView from './SchedulesView';
 import AlertsView from './AlertsView';
+import InflectionView from './InflectionView';
 import { PulseIcon, SparklesIcon, ChartBarIcon, LoadingSpinner } from './Icons';
 
 /* ─── View modes ─── */
@@ -31,6 +32,7 @@ const VIEW_MODES = {
   ANALYSIS: 'analysis',
   HISTORY: 'history',
   WATCHLIST: 'watchlist',
+  INFLECTIONS: 'inflections',
   PORTFOLIO: 'portfolio',
   SCHEDULES: 'schedules',
   ALERTS: 'alerts',
@@ -172,6 +174,7 @@ const Dashboard = () => {
   const [viewMode, setViewMode] = useState(VIEW_MODES.ANALYSIS);
   const [unacknowledgedCount, setUnacknowledgedCount] = useState(0);
   const [recentAnalyses, setRecentAnalyses] = useState([]);
+  const recentAnalysesRef = useRef([]);
   const [hasStartedAnalysis, setHasStartedAnalysis] = useState(false);
 
   const { runAnalysis, loading, error } = useAnalysis();
@@ -198,11 +201,12 @@ const Dashboard = () => {
     const rec = analysis?.analysis?.signal_contract_v2?.recommendation
       || analysis?.analysis?.recommendation
       || null;
-    setRecentAnalyses((prev) => {
-      const filtered = prev.filter((r) => r.ticker !== analysis.ticker);
-      return [{ ticker: analysis.ticker, recommendation: rec }, ...filtered].slice(0, 5);
-    });
-  }, [analysis]);
+    const entry = { ticker: analysis.ticker, recommendation: rec };
+    const filtered = recentAnalysesRef.current.filter((r) => r.ticker !== analysis.ticker);
+    const updated = [entry, ...filtered].slice(0, 5);
+    recentAnalysesRef.current = updated;
+    setRecentAnalyses(updated);
+  }, [analysis?.ticker]);
 
   /* ─── Handlers ─── */
   const handleAnalyze = useCallback(async (e) => {
@@ -310,6 +314,7 @@ const Dashboard = () => {
         {viewMode === VIEW_MODES.HISTORY && (
           <HistoryView onSelectAnalysis={handleSelectFromHistory} />
         )}
+        {viewMode === VIEW_MODES.INFLECTIONS && <InflectionView />}
         {viewMode === VIEW_MODES.WATCHLIST && (
           <WatchlistView onSelectTicker={handleSelectTicker} />
         )}

@@ -15,7 +15,48 @@ The latest architecture adds a quant/PM-oriented interface:
 
 By default, long-form chain-of-thought is not persisted or shown (`COT_PERSISTENCE_ENABLED=false`).
 
-## Leadership Evaluation Agent (New)
+## Perception Ledger & Inflection Tracker
+
+Tracks how the market's perception of a company's fundamentals is shifting over time — across earnings guidance, analyst estimates, sentiment, technicals, and macro conditions — and flags when multiple sources converge on the same directional shift.
+
+### How It Works
+Every analysis run captures ~30 KPI snapshots into an append-only **perception ledger**. An **inflection detector** compares current vs prior snapshots, scoring each change against category-specific thresholds and computing a **convergence score** measuring cross-source agreement.
+
+### KPIs Tracked
+| Category | KPIs |
+|----------|------|
+| Valuation | forward_pe, price_to_sales, return_on_equity, debt_to_equity |
+| Margins | profit_margins, operating_margins |
+| Growth | revenue_growth, earnings_growth |
+| Guidance | revenue_guidance, eps_guidance, capex_outlook (from earnings transcripts) |
+| Analyst | analyst_target_median/high/low, analyst_count |
+| Sentiment | overall_sentiment |
+| Technical | rsi, macd_signal |
+| Macro | fed_funds_rate, cpi_yoy, gdp_growth, yield_spread |
+| Options | put_call_ratio, max_pain |
+
+### Convergence Scoring
+```
+convergence_score = agents_agreeing_on_direction / total_agents_with_inflections
+```
+Multiple KPIs from the same agent count as one agent — prevents the fundamentals agent from dominating the score.
+
+### Inflection Dashboard
+A dedicated "Inflections" view provides:
+- **Ticker Heatmap** — Watchlist tickers ranked by convergence score
+- **KPI Time-Series Chart** — Historical KPI trajectories with inflection points
+- **Inflection Feed** — Chronological event feed across all tracked tickers
+
+### Scheduled Tracking
+Watchlists can be configured for automatic re-analysis:
+- **Morning** (9 AM ET weekdays)
+- **Evening** (4 PM ET weekdays)
+- **Twice Daily** (both)
+
+### Alert Integration
+New `inflection_detected` alert rule type fires when convergence score exceeds a configurable threshold.
+
+## Leadership Evaluation Agent
 The platform now includes a **Leadership Agent** that evaluates company leadership quality using the **Four Capitals Framework** (Athena Alliance / McKinsey):
 
 1. **Individual Capital** — Self-reflection, vision clarity, cognitive focus, diverse experiences
@@ -188,6 +229,12 @@ docker compose -f docker-compose.dev.yml up --build
 - `/api/watchlists*` CRUD + ticker membership
 - `POST /api/watchlists/{watchlist_id}/analyze` (event stream, optional `?agents=` filter)
 - `GET /api/watchlists/{watchlist_id}/opportunities?limit=&min_quality=&min_ev=`
+- `GET /api/watchlists/{watchlist_id}/inflections` — radar view: recent inflections across all tickers
+- `PUT /api/watchlists/{watchlist_id}/schedule` — set auto-analyze schedule
+
+### Inflections
+- `GET /api/inflections/{ticker}` — inflection event history
+- `GET /api/inflections/{ticker}/timeseries?kpis=&limit=` — KPI snapshots for charting
 
 ### Schedules
 - `/api/schedules*` CRUD + run history
@@ -213,6 +260,7 @@ docker compose -f docker-compose.dev.yml up --build
 - `/api/alerts*` CRUD + notifications + acknowledge + unacknowledged count
 - v2 rule types (feature-gated):
   - `ev_above`, `ev_below`, `regime_change`, `data_quality_below`, `calibration_drop`
+- `inflection_detected` — fires when convergence score exceeds threshold
 
 ### Health
 - `GET /health`
@@ -359,6 +407,8 @@ SQLite database file: `market_research.db`
 - `analysis_outcomes`
 - `calibration_snapshots`
 - `confidence_reliability_bins`
+- `perception_snapshots` — KPI values per analysis run
+- `inflection_events` — detected KPI shifts with convergence scoring
 
 ### Quant PM schema highlights
 - `analyses`: `analysis_schema_version`, `signal_contract_v2`, `ev_score_7d`, `confidence_calibrated`, `data_quality_score`, `regime_label`, `rationale_summary`
@@ -381,6 +431,12 @@ multi-agent-market-research/
 │   ├── backfill_signal_contract.py
 │   ├── scheduler.py
 │   ├── alert_engine.py
+│   ├── perception_ledger.py
+│   ├── inflection_detector.py
+│   ├── repositories/
+│   │   └── perception_repo.py
+│   ├── routers/
+│   │   └── inflection.py
 │   ├── database.py
 │   ├── models.py
 │   ├── config.py
@@ -402,6 +458,10 @@ multi-agent-market-research/
 │   │   ├── WatchlistPanel.jsx
 │   │   ├── HistoryDashboard.jsx
 │   │   ├── AlertPanel.jsx
+│   │   ├── InflectionView.jsx
+│   │   ├── InflectionHeatmap.jsx
+│   │   ├── InflectionChart.jsx
+│   │   ├── InflectionFeed.jsx
 │   │   └── PortfolioPanel.jsx
 │   ├── hooks/
 │   ├── context/
@@ -435,7 +495,7 @@ source venv/bin/activate
 pytest
 ```
 
-Current backend suite status in this branch: `325 passed` (unit) + `79 passed` (data quality/integration).
+Current backend suite: `361 passed` (unit + integration).
 
 Frontend quality checks:
 ```bash
@@ -445,6 +505,8 @@ npm run build
 ```
 
 ## Documentation
+- Perception Ledger design spec: `docs/superpowers/specs/2026-04-01-perception-ledger-inflection-tracker-design.md`
+- Perception Ledger implementation plan: `docs/superpowers/plans/2026-04-01-perception-ledger-inflection-tracker.md`
 - Quant PM implementation details: `docs/plans/2026-02-16-quant-pm-upgrade-implementation-plan.md`
 - Prior roadmap context: `docs/plans/2026-02-15-actionable-insights-roadmap.md`
 - Latest backfill audit report: `docs/reports/signal-contract-backfill-report.md`
