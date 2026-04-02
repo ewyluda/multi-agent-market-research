@@ -364,3 +364,131 @@ class TestGetSecFilingSection:
             )
 
         assert result is None
+
+
+from src.agents.risk_diff_agent import RiskDiffAgent
+
+
+def _make_agent_results():
+    """Build mock agent_results for context."""
+    return {
+        "fundamentals": {
+            "success": True,
+            "data": {
+                "company_name": "Apple Inc.",
+                "sector": "Technology",
+                "revenue": 383e9,
+            },
+        },
+    }
+
+
+def _make_mock_filing_metadata(count=2):
+    """Build mock filing metadata list."""
+    filings = []
+    for i in range(count):
+        year = 2025 - i
+        filings.append({
+            "filing_type": "10-K",
+            "filing_date": f"{year}-02-15",
+            "filing_url": f"https://www.sec.gov/Archives/edgar/data/320193/{year}/filing.htm",
+            "accession_number": f"0000320193-{year}-000001",
+        })
+    return filings
+
+
+def _make_mock_filing_section(text=None):
+    """Build mock filing section result."""
+    section_text = text or (
+        "Item 1A. Risk Factors\n\n"
+        "Supply Chain Risks. We rely on a limited number of suppliers for key components. "
+        "A disruption in supply could have a material adverse effect on our results.\n\n"
+        "Regulatory Risks. Changes in laws and regulations could impact our operations. "
+        "We are subject to various government regulations.\n\n"
+        "Competition. We face intense competition in all our product categories."
+    )
+    return {
+        "section_text": section_text,
+        "extraction_method": "pattern",
+        "char_count": len(section_text),
+    }
+
+
+class TestRiskDiffDataFetching:
+    """Tests for RiskDiffAgent fetch_data()."""
+
+    @pytest.mark.asyncio
+    async def test_fetch_data_calls_data_provider(self):
+        agent = RiskDiffAgent("AAPL", {"llm_config": {}}, _make_agent_results())
+        mock_dp = MagicMock()
+        mock_dp.get_sec_filing_metadata = AsyncMock(
+            side_effect=[_make_mock_filing_metadata(2), []]
+        )
+        mock_dp.get_sec_filing_section = AsyncMock(return_value=_make_mock_filing_section())
+        agent._data_provider = mock_dp
+
+        result = await agent.fetch_data()
+
+        assert mock_dp.get_sec_filing_metadata.call_count >= 1
+        assert "filings" in result
+        assert len(result["filings"]) == 2
+
+    @pytest.mark.asyncio
+    async def test_fetch_data_no_data_provider(self):
+        agent = RiskDiffAgent("AAPL", {"llm_config": {}}, _make_agent_results())
+        result = await agent.fetch_data()
+        assert result["filings"] == []
+
+    @pytest.mark.asyncio
+    async def test_fetch_data_no_filings_found(self):
+        agent = RiskDiffAgent("AAPL", {"llm_config": {}}, _make_agent_results())
+        mock_dp = MagicMock()
+        mock_dp.get_sec_filing_metadata = AsyncMock(return_value=[])
+        agent._data_provider = mock_dp
+
+        result = await agent.fetch_data()
+        assert result["filings"] == []
+
+
+class TestRiskDiffCompleteness:
+    """Tests for data completeness scoring."""
+
+    def test_full_completeness(self):
+        agent = RiskDiffAgent("AAPL", {"llm_config": {}}, _make_agent_results())
+        filings = [
+            {"filing_type": "10-K", "risk_text": "text", "filing_date": "2025-02-15"},
+            {"filing_type": "10-K", "risk_text": "text", "filing_date": "2024-02-15"},
+            {"filing_type": "10-Q", "risk_text": "text", "filing_date": "2025-05-15"},
+        ]
+        score = agent._compute_data_completeness(filings)
+        assert score == pytest.approx(1.0, abs=0.01)
+
+    def test_two_10k_no_10q(self):
+        agent = RiskDiffAgent("AAPL", {"llm_config": {}}, _make_agent_results())
+        filings = [
+            {"filing_type": "10-K", "risk_text": "text", "filing_date": "2025-02-15"},
+            {"filing_type": "10-K", "risk_text": "text", "filing_date": "2024-02-15"},
+        ]
+        score = agent._compute_data_completeness(filings)
+        # 0.40 + 0.30 + 0.15 (fundamentals context) = 0.85
+        assert score == pytest.approx(0.85, abs=0.02)
+
+    def test_single_10k_only(self):
+        agent = RiskDiffAgent("AAPL", {"llm_config": {}}, _make_agent_results())
+        filings = [
+            {"filing_type": "10-K", "risk_text": "text", "filing_date": "2025-02-15"},
+        ]
+        score = agent._compute_data_completeness(filings)
+        # 0.40 + 0.15 = 0.55
+        assert score == pytest.approx(0.55, abs=0.02)
+
+    def test_no_filings(self):
+        agent = RiskDiffAgent("AAPL", {"llm_config": {}}, _make_agent_results())
+        score = agent._compute_data_completeness([])
+        # Only fundamentals context = 0.15
+        assert score == pytest.approx(0.15, abs=0.02)
+
+    def test_no_context(self):
+        agent = RiskDiffAgent("AAPL", {"llm_config": {}}, {})
+        score = agent._compute_data_completeness([])
+        assert score == pytest.approx(0.0, abs=0.01)
