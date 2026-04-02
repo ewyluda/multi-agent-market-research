@@ -1130,3 +1130,122 @@ class TestTagExtractorIntegration:
         tag_names = [t["tag"] for t in saved_tags]
         assert "AI Leader" in tag_names
         assert "High Margin" in tag_names
+
+
+class TestRiskDiffIntegration:
+    """Tests for risk diff agent integration in synthesis phase."""
+
+    def test_risk_diff_in_registry(self, test_config):
+        orch = Orchestrator(config=test_config)
+        assert "risk_diff" in orch.AGENT_REGISTRY
+
+    def test_risk_diff_not_in_default_agents(self, test_config):
+        orch = Orchestrator(config=test_config)
+        assert "risk_diff" not in orch.DEFAULT_AGENTS
+
+    @pytest.mark.asyncio
+    async def test_risk_diff_runs_parallel_in_synthesis(self, test_config, tmp_path):
+        db_path = str(tmp_path / "test.db")
+        db_manager = DatabaseManager(db_path)
+        orch = Orchestrator(config=test_config, db_manager=db_manager)
+
+        mock_risk_diff_data = {
+            "new_risks": [],
+            "removed_risks": [],
+            "changed_risks": [],
+            "risk_score": 50.0,
+            "risk_score_delta": 0.0,
+            "top_emerging_threats": [],
+            "summary": "Test risk diff.",
+            "current_risk_inventory": [],
+            "filings_compared": [],
+            "has_diff": False,
+            "extraction_methods": [],
+            "data_completeness": 0.0,
+            "data_sources_used": [],
+        }
+
+        with (
+            patch("src.orchestrator.NewsAgent") as MockNews,
+            patch("src.orchestrator.MarketAgent") as MockMarket,
+            patch("src.orchestrator.FundamentalsAgent") as MockFund,
+            patch("src.orchestrator.TechnicalAgent") as MockTech,
+            patch("src.orchestrator.MacroAgent") as MockMacro,
+            patch("src.orchestrator.OptionsAgent") as MockOptions,
+            patch("src.orchestrator.EarningsAgent") as MockEarnings,
+            patch("src.orchestrator.LeadershipAgent") as MockLeadership,
+            patch("src.orchestrator.SentimentAgent") as MockSent,
+            patch("src.orchestrator.SolutionAgent") as MockSolution,
+            patch("src.orchestrator.ThesisAgent") as MockThesis,
+            patch("src.orchestrator.EarningsReviewAgent") as MockReview,
+            patch("src.orchestrator.NarrativeAgent") as MockNarrative,
+            patch("src.orchestrator.TagExtractorAgent") as MockTagExtractor,
+            patch("src.orchestrator.RiskDiffAgent") as MockRiskDiff,
+        ):
+            for mock_cls, name in [
+                (MockNews, "news"), (MockMarket, "market"),
+                (MockFund, "fundamentals"), (MockTech, "technical"),
+                (MockMacro, "macro"), (MockOptions, "options"),
+                (MockEarnings, "earnings"), (MockLeadership, "leadership"),
+            ]:
+                mock_cls.return_value.execute = AsyncMock(return_value=_make_agent_result(name))
+
+            MockSent.return_value.set_context_data = MagicMock()
+            MockSent.return_value.execute = AsyncMock(return_value=_make_agent_result("sentiment"))
+            MockSolution.return_value.execute = AsyncMock(return_value=_make_solution_result())
+            MockThesis.return_value.execute = AsyncMock(return_value={"success": True, "data": {"thesis_summary": "Test."}})
+            MockReview.return_value.execute = AsyncMock(return_value={"success": True, "data": {"executive_summary": "Test."}})
+            MockNarrative.return_value.execute = AsyncMock(return_value={"success": True, "data": {"company_arc": "Test."}})
+            MockTagExtractor.return_value.execute = AsyncMock(return_value={"success": True, "data": {"tags": []}})
+            MockRiskDiff.return_value.execute = AsyncMock(return_value={"success": True, "data": mock_risk_diff_data})
+
+            result = await orch.analyze_ticker("AAPL")
+
+        assert result["success"] is True
+        assert "risk_diff" in result["analysis"]
+        assert result["analysis"]["risk_diff"]["summary"] == "Test risk diff."
+
+    @pytest.mark.asyncio
+    async def test_risk_diff_failure_is_nonblocking(self, test_config, tmp_path):
+        db_path = str(tmp_path / "test.db")
+        db_manager = DatabaseManager(db_path)
+        orch = Orchestrator(config=test_config, db_manager=db_manager)
+
+        with (
+            patch("src.orchestrator.NewsAgent") as MockNews,
+            patch("src.orchestrator.MarketAgent") as MockMarket,
+            patch("src.orchestrator.FundamentalsAgent") as MockFund,
+            patch("src.orchestrator.TechnicalAgent") as MockTech,
+            patch("src.orchestrator.MacroAgent") as MockMacro,
+            patch("src.orchestrator.OptionsAgent") as MockOptions,
+            patch("src.orchestrator.EarningsAgent") as MockEarnings,
+            patch("src.orchestrator.LeadershipAgent") as MockLeadership,
+            patch("src.orchestrator.SentimentAgent") as MockSent,
+            patch("src.orchestrator.SolutionAgent") as MockSolution,
+            patch("src.orchestrator.ThesisAgent") as MockThesis,
+            patch("src.orchestrator.EarningsReviewAgent") as MockReview,
+            patch("src.orchestrator.NarrativeAgent") as MockNarrative,
+            patch("src.orchestrator.TagExtractorAgent") as MockTagExtractor,
+            patch("src.orchestrator.RiskDiffAgent") as MockRiskDiff,
+        ):
+            for mock_cls, name in [
+                (MockNews, "news"), (MockMarket, "market"),
+                (MockFund, "fundamentals"), (MockTech, "technical"),
+                (MockMacro, "macro"), (MockOptions, "options"),
+                (MockEarnings, "earnings"), (MockLeadership, "leadership"),
+            ]:
+                mock_cls.return_value.execute = AsyncMock(return_value=_make_agent_result(name))
+
+            MockSent.return_value.set_context_data = MagicMock()
+            MockSent.return_value.execute = AsyncMock(return_value=_make_agent_result("sentiment"))
+            MockSolution.return_value.execute = AsyncMock(return_value=_make_solution_result())
+            MockThesis.return_value.execute = AsyncMock(return_value={"success": True, "data": {"thesis_summary": "Test."}})
+            MockReview.return_value.execute = AsyncMock(return_value={"success": True, "data": {"executive_summary": "Test."}})
+            MockNarrative.return_value.execute = AsyncMock(return_value={"success": True, "data": {"company_arc": "Test."}})
+            MockTagExtractor.return_value.execute = AsyncMock(return_value={"success": True, "data": {"tags": []}})
+            MockRiskDiff.return_value.execute = AsyncMock(side_effect=Exception("EDGAR exploded"))
+
+            result = await orch.analyze_ticker("AAPL")
+
+        assert result["success"] is True
+        assert result["analysis"].get("risk_diff") is None

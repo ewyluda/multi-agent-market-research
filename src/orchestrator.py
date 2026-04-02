@@ -23,6 +23,7 @@ from .agents.thesis_agent import ThesisAgent
 from .agents.earnings_review_agent import EarningsReviewAgent
 from .agents.narrative_agent import NarrativeAgent
 from .agents.tag_extractor_agent import TagExtractorAgent
+from .agents.risk_diff_agent import RiskDiffAgent
 from .agents.solution_agent import SolutionAgent
 from .agents.council_validator_agent import CouncilValidatorAgent
 from .database import DatabaseManager
@@ -53,6 +54,7 @@ class Orchestrator:
         "earnings_review": {"class": EarningsReviewAgent, "requires": []},
         "narrative": {"class": NarrativeAgent, "requires": []},
         "tag_extractor": {"class": TagExtractorAgent, "requires": []},
+        "risk_diff": {"class": RiskDiffAgent, "requires": []},
         "sentiment": {"class": SentimentAgent, "requires": ["news"]},
     }
 
@@ -227,12 +229,13 @@ class Orchestrator:
             # Phase 2: Run solution agent with aggregated results
             await self._notify_progress("synthesizing", ticker, 80)
 
-            final_analysis, thesis_result, earnings_review_result, narrative_result, tag_result = await asyncio.gather(
+            final_analysis, thesis_result, earnings_review_result, narrative_result, tag_result, risk_diff_result = await asyncio.gather(
                 self._run_solution_agent(ticker, agent_results),
                 self._run_thesis_agent(ticker, agent_results),
                 self._run_earnings_review_agent(ticker, agent_results),
                 self._run_narrative_agent(ticker, agent_results),
                 self._run_tag_extractor_agent(ticker, agent_results),
+                self._run_risk_diff_agent(ticker, agent_results),
             )
             if thesis_result:
                 final_analysis["thesis"] = thesis_result
@@ -240,6 +243,8 @@ class Orchestrator:
                 final_analysis["earnings_review"] = earnings_review_result
             if narrative_result:
                 final_analysis["narrative"] = narrative_result
+            if risk_diff_result:
+                final_analysis["risk_diff"] = risk_diff_result
             previous_analysis = self.db_manager.get_latest_analysis(ticker)
             final_analysis["signal_snapshot"] = self._build_signal_snapshot(final_analysis, agent_results)
             diagnostics = self._build_diagnostics(agent_results)
@@ -774,6 +779,32 @@ class Orchestrator:
             return None
         except Exception as e:
             self.logger.warning(f"Tag extractor error for {ticker}: {e}")
+            return None
+
+    async def _run_risk_diff_agent(
+        self,
+        ticker: str,
+        agent_results: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        """Run risk diff agent for SEC filing risk factor changes (non-blocking)."""
+        try:
+            risk_diff_agent = RiskDiffAgent(ticker, self.config, agent_results)
+            self._inject_shared_resources(risk_diff_agent)
+            timeout = self.config.get("AGENT_TIMEOUT", 30)
+            result = await asyncio.wait_for(
+                risk_diff_agent.execute(),
+                timeout=timeout,
+            )
+            if result.get("success"):
+                return result.get("data")
+            else:
+                self.logger.warning(f"Risk diff agent failed for {ticker}: {result.get('error')}")
+                return None
+        except asyncio.TimeoutError:
+            self.logger.warning(f"Risk diff agent timed out for {ticker}")
+            return None
+        except Exception as e:
+            self.logger.warning(f"Risk diff agent error for {ticker}: {e}")
             return None
 
     def _save_to_database(
