@@ -385,3 +385,47 @@ class EarningsReviewOutput(BaseModel):
     data_completeness: float = Field(..., ge=0.0, le=1.0, description="0.0-1.0 data quality score")
     data_sources_used: List[str] = Field(default=[], description="Which agents contributed data")
     error: Optional[str] = None
+
+
+# ── Narrative Agent models ────────────────────────────────────────────────────
+
+
+class QuarterlyInflection(BaseModel):
+    """A quarter that represented a material inflection point."""
+    quarter: str = Field(..., description="Quarter label, e.g. Q2'25")
+    headline: str = Field(..., description="One-line summary of why this quarter mattered")
+    details: str = Field(..., description="2-3 sentence explanation")
+    impact: str = Field(..., description="positive, negative, or pivotal")
+
+
+class YearSection(BaseModel):
+    """Chronological section for one fiscal year."""
+    year: int = Field(..., description="Fiscal year")
+    headline: str = Field(..., description="One-line summary of the year")
+    revenue_trajectory: str = Field(..., description="Revenue story for this year")
+    margin_story: str = Field(..., description="Margin expansion/compression narrative")
+    strategic_moves: List[str] = Field(default=[], description="M&A, divestitures, pivots, reorgs")
+    management_commentary: str = Field(..., description="Key themes from earnings calls")
+    capital_allocation: str = Field(..., description="Buybacks, dividends, capex, debt")
+    quarterly_inflections: List[QuarterlyInflection] = Field(default=[], description="0-2 inflection quarters")
+
+
+class NarrativeChapter(BaseModel):
+    """A thematic narrative thread spanning multiple years."""
+    title: str = Field(..., description="Chapter title, e.g. 'The Services Transition'")
+    years_covered: str = Field(..., description="Year range, e.g. '2023-2025'")
+    narrative: str = Field(..., description="3-5 sentence thematic narrative")
+    evidence: List[str] = Field(default=[], description="Supporting data points")
+
+
+class NarrativeOutput(BaseModel):
+    """Complete multi-year financial narrative output."""
+    company_arc: str = Field(..., description="3-5 sentence overarching story")
+    year_sections: List[YearSection] = Field(default=[], description="Chronological year sections")
+    narrative_chapters: List[NarrativeChapter] = Field(default=[], description="2-4 thematic threads")
+    key_inflection_points: List[str] = Field(default=[], description="Top 3-5 trajectory-changing moments")
+    current_chapter: str = Field(..., description="Where the company is now in its story")
+    years_covered: int = Field(..., description="How many years of data were available")
+    data_completeness: float = Field(..., ge=0.0, le=1.0, description="0.0-1.0 data quality score")
+    data_sources_used: List[str] = Field(default=[], description="Which data sources contributed")
+    error: Optional[str] = None
