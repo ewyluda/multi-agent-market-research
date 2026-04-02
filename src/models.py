@@ -446,3 +446,47 @@ class TagExtractorOutput(BaseModel):
     tags: List[CompanyTag] = Field(default=[], description="Extracted tags")
     tags_count: int = Field(default=0, description="Number of tags extracted")
     data_sources_used: List[str] = Field(default=[], description="Which agents contributed context")
+
+
+# ── Risk Diff Agent models ───────────────────────────────────────────────────
+
+
+class RiskTopic(BaseModel):
+    """A single risk topic from a SEC filing risk factors section."""
+    topic: str = Field(..., description="Risk topic name, e.g. 'Supply Chain Concentration'")
+    severity: str = Field(..., description="Severity: high, medium, or low")
+    summary: str = Field(..., description="2-3 sentence description of the risk")
+    text_excerpt: str = Field(default="", description="Brief excerpt from the filing text")
+
+
+class RiskChange(BaseModel):
+    """A detected change in risk between two filing periods."""
+    risk_topic: str = Field(..., description="Risk topic name")
+    change_type: str = Field(..., description="Change type: new, removed, escalated, de-escalated, reworded")
+    severity: str = Field(..., description="Severity: high, medium, or low")
+    current_text_excerpt: str = Field(default="", description="Excerpt from current filing")
+    prior_text_excerpt: str = Field(default="", description="Excerpt from prior filing (empty if new)")
+    analysis: str = Field(..., description="Why this change matters for investors")
+
+
+class RiskDiffOutput(BaseModel):
+    """Complete risk diff output — risk inventory + period-over-period changes."""
+    # Diff results (empty if only 1 filing available)
+    new_risks: List[RiskChange] = Field(default=[], description="Risks not present in prior filing")
+    removed_risks: List[RiskChange] = Field(default=[], description="Risks removed since prior filing")
+    changed_risks: List[RiskChange] = Field(default=[], description="Risks that changed severity or language")
+    risk_score: float = Field(default=50.0, description="Composite risk score 0-100")
+    risk_score_delta: float = Field(default=0.0, description="Change from prior period")
+    top_emerging_threats: List[str] = Field(default=[], description="3-5 most actionable new/escalated risks")
+    summary: str = Field(default="", description="2-3 sentence risk landscape summary")
+
+    # Risk inventory (always populated from latest filing)
+    current_risk_inventory: List[RiskTopic] = Field(default=[], description="Risk topics from latest filing")
+
+    # Metadata
+    filings_compared: List[Dict[str, Any]] = Field(default=[], description="Filing metadata per filing used")
+    has_diff: bool = Field(default=False, description="True if 2+ filings were compared")
+    extraction_methods: List[str] = Field(default=[], description="'pattern' or 'llm_fallback' per filing")
+    data_completeness: float = Field(default=0.0, ge=0.0, le=1.0, description="0.0-1.0 data quality score")
+    data_sources_used: List[str] = Field(default=[], description="Data sources that contributed")
+    error: Optional[str] = None
