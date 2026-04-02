@@ -111,6 +111,8 @@ def test_config():
         "PARALLEL_AGENTS": True,
         "MACRO_AGENT_ENABLED": True,
         "OPTIONS_AGENT_ENABLED": True,
+        "EARNINGS_AGENT_ENABLED": True,
+        "EARNINGS_TRANSCRIPT_QUARTERS": 4,
         "CATALYST_SCHEDULER_ENABLED": True,
         "CATALYST_SOURCE": "earnings",
         "CATALYST_PRE_DAYS": 1,

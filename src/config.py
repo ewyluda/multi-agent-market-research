@@ -36,6 +36,8 @@ class Config:
     FUNDAMENTALS_LLM_ENABLED = os.getenv("FUNDAMENTALS_LLM_ENABLED", "true").lower() == "true"
     MACRO_AGENT_ENABLED = os.getenv("MACRO_AGENT_ENABLED", "true").lower() == "true"
     OPTIONS_AGENT_ENABLED = os.getenv("OPTIONS_AGENT_ENABLED", "true").lower() == "true"
+    EARNINGS_AGENT_ENABLED = os.getenv("EARNINGS_AGENT_ENABLED", "true").lower() == "true"
+    EARNINGS_TRANSCRIPT_QUARTERS = int(os.getenv("EARNINGS_TRANSCRIPT_QUARTERS", "4"))
     SCHEDULER_ENABLED = os.getenv("SCHEDULER_ENABLED", "true").lower() == "true"
     SCHEDULER_MIN_INTERVAL = int(os.getenv("SCHEDULER_MIN_INTERVAL", "30"))
     CATALYST_SCHEDULER_ENABLED = os.getenv("CATALYST_SCHEDULER_ENABLED", "true").lower() == "true"
