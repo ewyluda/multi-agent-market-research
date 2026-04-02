@@ -902,3 +902,109 @@ class TestEarningsReviewIntegration:
 
         assert result["success"] is True
         assert result["analysis"].get("earnings_review") is None
+
+
+class TestNarrativeIntegration:
+    """Tests for narrative agent integration in synthesis phase."""
+
+    def test_narrative_in_registry(self, test_config):
+        orch = Orchestrator(config=test_config)
+        assert "narrative" in orch.AGENT_REGISTRY
+
+    def test_narrative_not_in_default_agents(self, test_config):
+        orch = Orchestrator(config=test_config)
+        assert "narrative" not in orch.DEFAULT_AGENTS
+
+    @pytest.mark.asyncio
+    async def test_narrative_runs_parallel_in_synthesis(self, test_config, tmp_path):
+        db_path = str(tmp_path / "test.db")
+        db_manager = DatabaseManager(db_path)
+        orch = Orchestrator(config=test_config, db_manager=db_manager)
+
+        mock_narrative_data = {
+            "company_arc": "Test narrative arc.",
+            "year_sections": [],
+            "narrative_chapters": [],
+            "key_inflection_points": [],
+            "current_chapter": "Now.",
+            "years_covered": 3,
+            "data_completeness": 0.8,
+            "data_sources_used": ["financials"],
+        }
+
+        with (
+            patch("src.orchestrator.NewsAgent") as MockNews,
+            patch("src.orchestrator.MarketAgent") as MockMarket,
+            patch("src.orchestrator.FundamentalsAgent") as MockFund,
+            patch("src.orchestrator.TechnicalAgent") as MockTech,
+            patch("src.orchestrator.MacroAgent") as MockMacro,
+            patch("src.orchestrator.OptionsAgent") as MockOptions,
+            patch("src.orchestrator.EarningsAgent") as MockEarnings,
+            patch("src.orchestrator.LeadershipAgent") as MockLeadership,
+            patch("src.orchestrator.SentimentAgent") as MockSent,
+            patch("src.orchestrator.SolutionAgent") as MockSolution,
+            patch("src.orchestrator.ThesisAgent") as MockThesis,
+            patch("src.orchestrator.EarningsReviewAgent") as MockReview,
+            patch("src.orchestrator.NarrativeAgent") as MockNarrative,
+        ):
+            for mock_cls, name in [
+                (MockNews, "news"), (MockMarket, "market"),
+                (MockFund, "fundamentals"), (MockTech, "technical"),
+                (MockMacro, "macro"), (MockOptions, "options"),
+                (MockEarnings, "earnings"), (MockLeadership, "leadership"),
+            ]:
+                mock_cls.return_value.execute = AsyncMock(return_value=_make_agent_result(name))
+
+            MockSent.return_value.set_context_data = MagicMock()
+            MockSent.return_value.execute = AsyncMock(return_value=_make_agent_result("sentiment"))
+            MockSolution.return_value.execute = AsyncMock(return_value=_make_solution_result())
+            MockThesis.return_value.execute = AsyncMock(return_value={"success": True, "data": {"thesis_summary": "Test."}})
+            MockReview.return_value.execute = AsyncMock(return_value={"success": True, "data": {"executive_summary": "Test."}})
+            MockNarrative.return_value.execute = AsyncMock(return_value={"success": True, "data": mock_narrative_data})
+
+            result = await orch.analyze_ticker("AAPL")
+
+        assert result["success"] is True
+        assert "narrative" in result["analysis"]
+        assert result["analysis"]["narrative"]["company_arc"] == "Test narrative arc."
+
+    @pytest.mark.asyncio
+    async def test_narrative_failure_is_nonblocking(self, test_config, tmp_path):
+        db_path = str(tmp_path / "test.db")
+        db_manager = DatabaseManager(db_path)
+        orch = Orchestrator(config=test_config, db_manager=db_manager)
+
+        with (
+            patch("src.orchestrator.NewsAgent") as MockNews,
+            patch("src.orchestrator.MarketAgent") as MockMarket,
+            patch("src.orchestrator.FundamentalsAgent") as MockFund,
+            patch("src.orchestrator.TechnicalAgent") as MockTech,
+            patch("src.orchestrator.MacroAgent") as MockMacro,
+            patch("src.orchestrator.OptionsAgent") as MockOptions,
+            patch("src.orchestrator.EarningsAgent") as MockEarnings,
+            patch("src.orchestrator.LeadershipAgent") as MockLeadership,
+            patch("src.orchestrator.SentimentAgent") as MockSent,
+            patch("src.orchestrator.SolutionAgent") as MockSolution,
+            patch("src.orchestrator.ThesisAgent") as MockThesis,
+            patch("src.orchestrator.EarningsReviewAgent") as MockReview,
+            patch("src.orchestrator.NarrativeAgent") as MockNarrative,
+        ):
+            for mock_cls, name in [
+                (MockNews, "news"), (MockMarket, "market"),
+                (MockFund, "fundamentals"), (MockTech, "technical"),
+                (MockMacro, "macro"), (MockOptions, "options"),
+                (MockEarnings, "earnings"), (MockLeadership, "leadership"),
+            ]:
+                mock_cls.return_value.execute = AsyncMock(return_value=_make_agent_result(name))
+
+            MockSent.return_value.set_context_data = MagicMock()
+            MockSent.return_value.execute = AsyncMock(return_value=_make_agent_result("sentiment"))
+            MockSolution.return_value.execute = AsyncMock(return_value=_make_solution_result())
+            MockThesis.return_value.execute = AsyncMock(return_value={"success": True, "data": {"thesis_summary": "Test."}})
+            MockReview.return_value.execute = AsyncMock(return_value={"success": True, "data": {"executive_summary": "Test."}})
+            MockNarrative.return_value.execute = AsyncMock(side_effect=Exception("LLM exploded"))
+
+            result = await orch.analyze_ticker("AAPL")
+
+        assert result["success"] is True
+        assert result["analysis"].get("narrative") is None

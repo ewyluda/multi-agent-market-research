@@ -21,6 +21,7 @@ from .agents.leadership_agent import LeadershipAgent
 from .agents.earnings_agent import EarningsAgent
 from .agents.thesis_agent import ThesisAgent
 from .agents.earnings_review_agent import EarningsReviewAgent
+from .agents.narrative_agent import NarrativeAgent
 from .agents.solution_agent import SolutionAgent
 from .agents.council_validator_agent import CouncilValidatorAgent
 from .database import DatabaseManager
@@ -49,6 +50,7 @@ class Orchestrator:
         "earnings": {"class": EarningsAgent, "requires": []},
         "thesis": {"class": ThesisAgent, "requires": []},
         "earnings_review": {"class": EarningsReviewAgent, "requires": []},
+        "narrative": {"class": NarrativeAgent, "requires": []},
         "sentiment": {"class": SentimentAgent, "requires": ["news"]},
     }
 
@@ -223,15 +225,18 @@ class Orchestrator:
             # Phase 2: Run solution agent with aggregated results
             await self._notify_progress("synthesizing", ticker, 80)
 
-            final_analysis, thesis_result, earnings_review_result = await asyncio.gather(
+            final_analysis, thesis_result, earnings_review_result, narrative_result = await asyncio.gather(
                 self._run_solution_agent(ticker, agent_results),
                 self._run_thesis_agent(ticker, agent_results),
                 self._run_earnings_review_agent(ticker, agent_results),
+                self._run_narrative_agent(ticker, agent_results),
             )
             if thesis_result:
                 final_analysis["thesis"] = thesis_result
             if earnings_review_result:
                 final_analysis["earnings_review"] = earnings_review_result
+            if narrative_result:
+                final_analysis["narrative"] = narrative_result
             previous_analysis = self.db_manager.get_latest_analysis(ticker)
             final_analysis["signal_snapshot"] = self._build_signal_snapshot(final_analysis, agent_results)
             diagnostics = self._build_diagnostics(agent_results)
@@ -704,6 +709,32 @@ class Orchestrator:
             return None
         except Exception as e:
             self.logger.warning(f"Earnings review agent error for {ticker}: {e}")
+            return None
+
+    async def _run_narrative_agent(
+        self,
+        ticker: str,
+        agent_results: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        """Run narrative agent for multi-year financial story (non-blocking)."""
+        try:
+            narrative_agent = NarrativeAgent(ticker, self.config, agent_results)
+            self._inject_shared_resources(narrative_agent)
+            timeout = self.config.get("AGENT_TIMEOUT", 30)
+            result = await asyncio.wait_for(
+                narrative_agent.execute(),
+                timeout=timeout,
+            )
+            if result.get("success"):
+                return result.get("data")
+            else:
+                self.logger.warning(f"Narrative agent failed for {ticker}: {result.get('error')}")
+                return None
+        except asyncio.TimeoutError:
+            self.logger.warning(f"Narrative agent timed out for {ticker}")
+            return None
+        except Exception as e:
+            self.logger.warning(f"Narrative agent error for {ticker}: {e}")
             return None
 
     def _save_to_database(
