@@ -3,6 +3,7 @@
 import pytest
 from pydantic import ValidationError
 from src.models import TensionPoint, ManagementQuestion, ThesisCase, ThesisOutput
+from src.agents.thesis_agent import ThesisAgent
 
 
 class TestThesisModels:
@@ -91,9 +92,6 @@ class TestThesisModels:
                 data_completeness=1.5,
                 data_sources_used=[],
             )
-
-
-from src.agents.thesis_agent import ThesisAgent
 
 
 def _make_agent_results(

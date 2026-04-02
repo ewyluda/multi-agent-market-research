@@ -11,8 +11,6 @@ from openai import OpenAI
 
 from .base_agent import BaseAgent
 
-logger = logging.getLogger(__name__)
-
 # Weights for data completeness scoring (sum to 1.0)
 _COMPLETENESS_WEIGHTS = {
     "fundamentals": 0.30,
@@ -60,7 +58,7 @@ class ThesisAgent(BaseAgent):
             extracted_facts = self._parse_llm_response(pass1_response)
         except Exception as e:
             self.logger.warning(f"Thesis Pass 1 failed for {self.ticker}: {e}")
-            return self._empty_result(sources)
+            return self._empty_result(sources, completeness)
 
         # Pass 2: Generate debate
         try:
@@ -365,8 +363,10 @@ Return a JSON object with EXACTLY these keys — no markdown, no explanation, ju
         provider = llm_config.get("provider", "anthropic")
         if provider == "anthropic":
             return await self._call_anthropic(prompt, llm_config)
-        else:
+        elif provider in ("openai", "xai"):
             return await self._call_openai(prompt, llm_config)
+        else:
+            raise ValueError(f"Unsupported LLM provider: {provider!r}")
 
     async def _call_anthropic(self, prompt: str, llm_config: Dict[str, Any]) -> str:
         api_key = llm_config.get("api_key")
@@ -378,7 +378,7 @@ Return a JSON object with EXACTLY these keys — no markdown, no explanation, ju
             return client.messages.create(
                 model=llm_config.get("model", "claude-3-5-sonnet-20241022"),
                 max_tokens=llm_config.get("max_tokens", 4096),
-                temperature=0.4,
+                temperature=llm_config.get("temperature", 0.4),
                 messages=[{"role": "user", "content": prompt}],
             )
 
@@ -399,7 +399,7 @@ Return a JSON object with EXACTLY these keys — no markdown, no explanation, ju
             return client.chat.completions.create(
                 model=llm_config.get("model", "gpt-4o"),
                 max_tokens=llm_config.get("max_tokens", 4096),
-                temperature=0.4,
+                temperature=llm_config.get("temperature", 0.4),
                 messages=[{"role": "user", "content": prompt}],
             )
 
@@ -419,15 +419,15 @@ Return a JSON object with EXACTLY these keys — no markdown, no explanation, ju
 
     # ─── Fallback Results ────────────────────────────────────────────────────
 
-    def _empty_result(self, sources: List[str]) -> Dict[str, Any]:
-        """Return empty result when data gate fails."""
+    def _empty_result(self, sources: List[str], completeness: float = 0.0) -> Dict[str, Any]:
+        """Return empty result when data gate fails or Pass 1 errors."""
         return {
             "bull_case": {"thesis": "", "key_drivers": [], "catalysts": []},
             "bear_case": {"thesis": "", "key_drivers": [], "catalysts": []},
             "tension_points": [],
             "management_questions": [],
             "thesis_summary": f"Insufficient data to generate investment thesis for {self.ticker}.",
-            "data_completeness": 0.0,
+            "data_completeness": completeness,
             "data_sources_used": sources,
             "error": "Data gate failed — fundamentals required plus at least one of: news, earnings, market.",
         }
