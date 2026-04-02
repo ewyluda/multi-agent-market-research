@@ -1,6 +1,8 @@
 """Tests for ThesisAgent — models, data gate, prompts, guardrails."""
 
+import json
 import pytest
+from unittest.mock import patch, AsyncMock
 from pydantic import ValidationError
 from src.models import TensionPoint, ManagementQuestion, ThesisCase, ThesisOutput
 from src.agents.thesis_agent import ThesisAgent
@@ -410,3 +412,190 @@ class TestThesisGuardrails:
         validated, warnings = validate_thesis_output(thesis, facts, results)
         # Should flag the contradiction
         assert any("contradict" in w.lower() or "mismatch" in w.lower() or "revenue" in w.lower() for w in warnings)
+
+
+MOCK_PASS1_RESPONSE = json.dumps({
+    "company_context": "Apple is a $3T technology company focused on consumer electronics and services.",
+    "key_financials": [
+        "Revenue $383B, growth 8%",
+        "Gross margin 46%",
+        "P/E 32.5",
+        "Analyst target mean $210",
+    ],
+    "recent_developments": [
+        "Apple AI push accelerates with new features",
+        "iPhone sales slow in China",
+    ],
+    "management_signals": [
+        "Confident tone on earnings call",
+        "Guidance raised to $93-95B",
+    ],
+    "macro_technical_context": [
+        "RSI 58 — neutral territory",
+        "Fed funds at 4.5%",
+    ],
+    "potential_tensions": [
+        "Revenue sustainability vs China slowdown",
+        "AI investment payoff timeline",
+        "Valuation premium justification",
+    ],
+})
+
+MOCK_PASS2_RESPONSE = json.dumps({
+    "bull_case": {
+        "thesis": "Strong fundamentals and AI investment position Apple for continued growth.",
+        "key_drivers": ["Revenue growth at 8%", "AI product expansion", "Services momentum"],
+        "catalysts": ["Q2 earnings beat", "WWDC product announcements"],
+    },
+    "bear_case": {
+        "thesis": "China headwinds and stretched valuation limit near-term upside.",
+        "key_drivers": ["China market share loss", "P/E of 32.5 is above historical average"],
+        "catalysts": ["Next China sales report", "Fed rate decision impact"],
+    },
+    "tension_points": [
+        {
+            "topic": "Revenue Sustainability",
+            "bull_view": "8% revenue growth with raised guidance shows durable demand across product lines.",
+            "bear_view": "Growth is masking China weakness; excluding China, growth picture changes.",
+            "evidence": ["Revenue $383B, growth 8%", "iPhone sales slow in China", "Guidance raised to $93-95B"],
+            "resolution_catalyst": "Q2 earnings China revenue segment breakdown.",
+        },
+        {
+            "topic": "AI Investment Payoff",
+            "bull_view": "Apple AI features will drive upgrade cycles and boost services revenue.",
+            "bear_view": "AI spend competes with entrenched players and ROI is uncertain.",
+            "evidence": ["Apple AI push accelerates with new features", "Confident tone on earnings call"],
+            "resolution_catalyst": "WWDC developer adoption metrics and AI feature usage data.",
+        },
+        {
+            "topic": "Valuation Premium",
+            "bull_view": "Premium P/E justified by ecosystem lock-in and services growth.",
+            "bear_view": "At 32.5x earnings, any miss gets punished severely.",
+            "evidence": ["P/E 32.5", "Analyst target mean $210"],
+            "resolution_catalyst": "Next earnings relative to consensus expectations.",
+        },
+    ],
+    "management_questions": [
+        {"role": "CEO", "question": "What is the AI feature monetization timeline?", "context": "AI investment is a core bull/bear tension."},
+        {"role": "CFO", "question": "Can you break down China revenue trajectory?", "context": "China is the primary bear concern."},
+        {"role": "CEO", "question": "How do you view competitive positioning in AI?", "context": "Late mover risk vs ecosystem advantage."},
+    ],
+    "thesis_summary": "The core debate centers on whether Apple's AI push and services growth can offset China headwinds and justify a premium valuation.",
+})
+
+
+class TestThesisLLMPasses:
+    """Tests for two-pass LLM flow with mocked responses."""
+
+    @pytest.mark.asyncio
+    async def test_full_two_pass_flow(self):
+        agent = ThesisAgent("AAPL", {"llm_config": {"provider": "none"}}, _make_agent_results())
+        call_count = 0
+
+        async def mock_call_llm(prompt):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return MOCK_PASS1_RESPONSE
+            return MOCK_PASS2_RESPONSE
+
+        with patch.object(agent, "_call_llm", side_effect=mock_call_llm):
+            with patch("src.llm_guardrails.validate_thesis_output", return_value=({
+                **json.loads(MOCK_PASS2_RESPONSE),
+                "data_completeness": 1.0,
+                "data_sources_used": ["fundamentals", "news", "earnings", "market", "technical", "macro", "options", "leadership"],
+            }, [])):
+                result = await agent.analyze(agent.agent_results)
+
+        assert call_count == 2
+        assert result["bull_case"]["thesis"] != ""
+        assert result["bear_case"]["thesis"] != ""
+        assert len(result["tension_points"]) == 3
+        assert len(result["management_questions"]) == 3
+        assert result["data_completeness"] == 1.0
+
+    @pytest.mark.asyncio
+    async def test_pass1_failure_returns_empty(self):
+        agent = ThesisAgent("AAPL", {"llm_config": {"provider": "none"}}, _make_agent_results())
+
+        async def mock_fail(prompt):
+            raise Exception("LLM unavailable")
+
+        with patch.object(agent, "_call_llm", side_effect=mock_fail):
+            result = await agent.analyze(agent.agent_results)
+
+        # Pass 1 failure returns _empty_result with the pre-computed completeness score
+        assert "error" in result or "insufficient" in result.get("thesis_summary", "").lower()
+        assert result["bull_case"]["thesis"] == ""
+        assert result["bear_case"]["thesis"] == ""
+
+    @pytest.mark.asyncio
+    async def test_pass2_failure_returns_pass1_fallback(self):
+        agent = ThesisAgent("AAPL", {"llm_config": {"provider": "none"}}, _make_agent_results())
+        call_count = 0
+
+        async def mock_call_llm(prompt):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return MOCK_PASS1_RESPONSE
+            raise Exception("Pass 2 failed")
+
+        with patch.object(agent, "_call_llm", side_effect=mock_call_llm):
+            result = await agent.analyze(agent.agent_results)
+
+        assert result.get("pass2_failed") is True
+        assert result["data_completeness"] > 0
+        assert "extracted_facts" in result
+        assert len(result["tension_points"]) > 0
+
+    @pytest.mark.asyncio
+    async def test_data_gate_failure_skips_llm(self):
+        results = _make_agent_results(fundamentals=False)
+        agent = ThesisAgent("AAPL", {"llm_config": {"provider": "none"}}, results)
+
+        call_count = 0
+
+        async def mock_call_llm(prompt):
+            nonlocal call_count
+            call_count += 1
+            return "{}"
+
+        with patch.object(agent, "_call_llm", side_effect=mock_call_llm):
+            result = await agent.analyze(results)
+
+        assert call_count == 0  # LLM never called
+        assert result["data_completeness"] == 0.0
+
+
+class TestThesisPromptBuilding:
+    """Tests for prompt construction."""
+
+    def test_pass1_prompt_contains_ticker(self):
+        agent = ThesisAgent("AAPL", {"llm_config": {}}, _make_agent_results())
+        rich, metrics = agent._extract_tiered_data()
+        prompt = agent._build_pass1_prompt(rich, metrics)
+        assert "AAPL" in prompt
+        assert "FUNDAMENTALS" in prompt
+        assert "TECHNICAL" in prompt or "RSI" in prompt
+
+    def test_pass2_prompt_contains_facts(self):
+        agent = ThesisAgent("AAPL", {"llm_config": {}}, _make_agent_results())
+        facts = json.loads(MOCK_PASS1_RESPONSE)
+        prompt = agent._build_pass2_prompt(facts)
+        assert "AAPL" in prompt
+        assert "Revenue $383B" in prompt
+        assert "bull_case" in prompt  # JSON schema in prompt
+
+    def test_pass1_prompt_includes_guardrail_instructions(self):
+        agent = ThesisAgent("AAPL", {"llm_config": {}}, _make_agent_results())
+        rich, metrics = agent._extract_tiered_data()
+        prompt = agent._build_pass1_prompt(rich, metrics)
+        assert "Do NOT infer" in prompt
+        assert "contradictory" in prompt.lower() or "contradiction" in prompt.lower()
+
+    def test_pass2_prompt_includes_guardrail_instructions(self):
+        agent = ThesisAgent("AAPL", {"llm_config": {}}, _make_agent_results())
+        facts = json.loads(MOCK_PASS1_RESPONSE)
+        prompt = agent._build_pass2_prompt(facts)
+        assert "trace to a fact" in prompt.lower() or "trace" in prompt.lower()
