@@ -302,4 +302,38 @@ class CouncilAnalysisResponse(BaseModel):
     disagreements: List[str] = Field(default=[], description="Flagged council disagreements")
     duration_seconds: float
     synthesis: Optional[dict] = Field(default=None, description="Council synthesis: consensus + narrative")
+
+
+class TensionPoint(BaseModel):
+    """A point of debate between bull and bear investment theses."""
+    topic: str = Field(..., description="Debate topic, e.g. 'Revenue Sustainability'")
+    bull_view: str = Field(..., description="Bull argument (2-3 sentences)")
+    bear_view: str = Field(..., description="Bear counter-argument (2-3 sentences)")
+    evidence: List[str] = Field(default=[], description="2-4 supporting data points")
+    resolution_catalyst: str = Field(..., description="What would settle this debate")
+
+
+class ManagementQuestion(BaseModel):
+    """A question for company management derived from thesis tensions."""
+    role: str = Field(..., description="Target executive role: CEO, CFO, etc.")
+    question: str = Field(..., description="The question itself")
+    context: str = Field(..., description="Why this question matters for the thesis")
+
+
+class ThesisCase(BaseModel):
+    """One side of the investment debate (bull or bear)."""
+    thesis: str = Field(..., description="2-3 sentence core thesis")
+    key_drivers: List[str] = Field(default=[], description="3-5 primary drivers")
+    catalysts: List[str] = Field(default=[], description="Near-term catalysts")
+
+
+class ThesisOutput(BaseModel):
+    """Complete bull/bear investment thesis output."""
+    bull_case: ThesisCase
+    bear_case: ThesisCase
+    tension_points: List[TensionPoint] = Field(default=[], description="3-8 debate points")
+    management_questions: List[ManagementQuestion] = Field(default=[], description="5-7 questions")
+    thesis_summary: str = Field(..., description="One-paragraph synthesis")
+    data_completeness: float = Field(..., ge=0.0, le=1.0, description="0.0-1.0 data quality score")
+    data_sources_used: List[str] = Field(default=[], description="Which agents contributed data")
     error: Optional[str] = None
