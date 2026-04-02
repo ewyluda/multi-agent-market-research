@@ -20,6 +20,7 @@ from .agents.options_agent import OptionsAgent
 from .agents.leadership_agent import LeadershipAgent
 from .agents.earnings_agent import EarningsAgent
 from .agents.thesis_agent import ThesisAgent
+from .agents.earnings_review_agent import EarningsReviewAgent
 from .agents.solution_agent import SolutionAgent
 from .agents.council_validator_agent import CouncilValidatorAgent
 from .database import DatabaseManager
@@ -47,6 +48,7 @@ class Orchestrator:
         "leadership": {"class": LeadershipAgent, "requires": []},
         "earnings": {"class": EarningsAgent, "requires": []},
         "thesis": {"class": ThesisAgent, "requires": []},
+        "earnings_review": {"class": EarningsReviewAgent, "requires": []},
         "sentiment": {"class": SentimentAgent, "requires": ["news"]},
     }
 
@@ -221,12 +223,15 @@ class Orchestrator:
             # Phase 2: Run solution agent with aggregated results
             await self._notify_progress("synthesizing", ticker, 80)
 
-            final_analysis, thesis_result = await asyncio.gather(
+            final_analysis, thesis_result, earnings_review_result = await asyncio.gather(
                 self._run_solution_agent(ticker, agent_results),
                 self._run_thesis_agent(ticker, agent_results),
+                self._run_earnings_review_agent(ticker, agent_results),
             )
             if thesis_result:
                 final_analysis["thesis"] = thesis_result
+            if earnings_review_result:
+                final_analysis["earnings_review"] = earnings_review_result
             previous_analysis = self.db_manager.get_latest_analysis(ticker)
             final_analysis["signal_snapshot"] = self._build_signal_snapshot(final_analysis, agent_results)
             diagnostics = self._build_diagnostics(agent_results)
@@ -671,6 +676,34 @@ class Orchestrator:
             return None
         except Exception as e:
             self.logger.warning(f"Thesis agent error for {ticker}: {e}")
+            return None
+
+    async def _run_earnings_review_agent(
+        self,
+        ticker: str,
+        agent_results: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Run earnings review agent for structured earnings digest (non-blocking).
+        """
+        try:
+            review_agent = EarningsReviewAgent(ticker, self.config, agent_results)
+            self._inject_shared_resources(review_agent)
+            timeout = self.config.get("AGENT_TIMEOUT", 30)
+            result = await asyncio.wait_for(
+                review_agent.execute(),
+                timeout=timeout,
+            )
+            if result.get("success"):
+                return result.get("data")
+            else:
+                self.logger.warning(f"Earnings review agent failed for {ticker}: {result.get('error')}")
+                return None
+        except asyncio.TimeoutError:
+            self.logger.warning(f"Earnings review agent timed out for {ticker}")
+            return None
+        except Exception as e:
+            self.logger.warning(f"Earnings review agent error for {ticker}: {e}")
             return None
 
     def _save_to_database(
