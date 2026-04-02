@@ -334,3 +334,137 @@ def _cross_check_metric(
             f"LLM claims {metric_name} ≈ {claimed:.1f} but input data shows {input_value:.1f} "
             f"({deviation:.0%} deviation)"
         )
+
+
+# ─── Thesis Output ─────────────────────────────────────────────────────────
+
+
+_GENERIC_CATALYSTS = {
+    "time will tell", "future earnings", "remains to be seen",
+    "only time will tell", "we will see", "market will decide",
+    "further developments", "more data needed",
+}
+
+
+def validate_thesis_output(
+    thesis: Dict[str, Any],
+    extracted_facts: Dict[str, Any],
+    agent_results: Dict[str, Any],
+) -> Tuple[Dict[str, Any], List[str]]:
+    """Validate thesis agent output against extracted facts and agent data.
+
+    Three checks:
+        1. Evidence grounding — flag evidence not traceable to extracted facts.
+        2. Catalyst specificity — flag generic resolution catalysts.
+        3. Cross-reference — flag claims that contradict agent data.
+
+    Also overrides data_completeness with deterministic value.
+
+    Returns:
+        (validated_thesis, warnings)
+    """
+    warnings: List[str] = []
+    validated = dict(thesis)
+
+    # Build a searchable text corpus from extracted facts
+    fact_corpus = _build_fact_corpus(extracted_facts)
+
+    # 1. Evidence grounding check
+    for i, tp in enumerate(validated.get("tension_points", [])):
+        for evidence_item in tp.get("evidence", []):
+            if not _evidence_is_grounded(evidence_item, fact_corpus):
+                warnings.append(
+                    f"Tension '{tp.get('topic', i)}': ungrounded evidence — "
+                    f"'{evidence_item[:80]}' not found in extracted facts"
+                )
+
+    # 2. Catalyst specificity
+    for i, tp in enumerate(validated.get("tension_points", [])):
+        catalyst = (tp.get("resolution_catalyst") or "").strip().lower()
+        catalyst_stripped = catalyst.rstrip(".")
+        if catalyst_stripped in _GENERIC_CATALYSTS or len(catalyst) < 10:
+            warnings.append(
+                f"Tension '{tp.get('topic', i)}': generic catalyst — "
+                f"'{tp.get('resolution_catalyst', '')}'"
+            )
+
+    # 3. Cross-reference against agent data
+    _cross_reference_claims(validated, agent_results, warnings)
+
+    # Override data_completeness deterministically
+    completeness_weights = {
+        "fundamentals": 0.30, "news": 0.15, "earnings": 0.20,
+        "leadership": 0.10, "market": 0.10, "technical": 0.05,
+        "macro": 0.05, "options": 0.05,
+    }
+    deterministic_completeness = 0.0
+    for agent_name, weight in completeness_weights.items():
+        result = agent_results.get(agent_name, {})
+        if isinstance(result, dict) and result.get("success") and result.get("data"):
+            deterministic_completeness += weight
+    validated["data_completeness"] = round(deterministic_completeness, 2)
+
+    return validated, warnings
+
+
+def _build_fact_corpus(extracted_facts: Dict[str, Any]) -> str:
+    """Flatten extracted facts into a single searchable string."""
+    parts = []
+    for key, value in extracted_facts.items():
+        if isinstance(value, str):
+            parts.append(value.lower())
+        elif isinstance(value, list):
+            for item in value:
+                parts.append(str(item).lower())
+    return " ".join(parts)
+
+
+def _evidence_is_grounded(evidence: str, fact_corpus: str) -> bool:
+    """Check if an evidence string can be traced to the fact corpus.
+
+    Uses keyword overlap: extracts significant words (3+ chars) from the
+    evidence and checks if at least 40% appear in the corpus.
+    """
+    words = re.findall(r"[a-z0-9]+", evidence.lower())
+    significant = [w for w in words if len(w) >= 3]
+    if not significant:
+        return True  # Can't check empty evidence
+    matches = sum(1 for w in significant if w in fact_corpus)
+    return (matches / len(significant)) >= 0.40
+
+
+def _cross_reference_claims(
+    thesis: Dict[str, Any],
+    agent_results: Dict[str, Any],
+    warnings: List[str],
+) -> None:
+    """Check thesis claims against agent data for contradictions."""
+    fund_result = agent_results.get("fundamentals", {})
+    fund_data = fund_result.get("data") if isinstance(fund_result, dict) else None
+    if not fund_data:
+        return
+
+    rev_growth = fund_data.get("revenue_growth")
+    if rev_growth is not None:
+        growth_positive = rev_growth > 0
+        # Check bull and bear thesis text for contradictory claims
+        bull_thesis = (thesis.get("bull_case") or {}).get("thesis", "").lower()
+        bear_thesis = (thesis.get("bear_case") or {}).get("thesis", "").lower()
+
+        decline_phrases = ["revenue is declining", "revenue declining", "falling revenue", "revenue shrink"]
+        growth_phrases = ["revenue is growing rapidly", "accelerating revenue", "surging revenue"]
+
+        if growth_positive:
+            for phrase in decline_phrases:
+                if phrase in bull_thesis or phrase in bear_thesis:
+                    warnings.append(
+                        f"Contradiction: thesis claims '{phrase}' but fundamentals show "
+                        f"revenue growth of {rev_growth * 100:.1f}%"
+                    )
+        else:
+            for phrase in growth_phrases:
+                if phrase in bull_thesis or phrase in bear_thesis:
+                    warnings.append(
+                        f"Contradiction: thesis claims '{phrase}' but fundamentals show "
+                        f"revenue decline of {rev_growth * 100:.1f}%"
+                    )

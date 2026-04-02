@@ -70,10 +70,15 @@ class ThesisAgent(BaseAgent):
             return self._pass1_fallback(extracted_facts, completeness, sources)
 
         # Attach deterministic fields (override LLM values)
-        # Guardrails will be added in Task 3 (validate_thesis_output)
         thesis_raw["data_completeness"] = completeness
         thesis_raw["data_sources_used"] = sources
-        return thesis_raw
+
+        # Guardrails: evidence grounding, catalyst specificity, cross-reference
+        from ..llm_guardrails import validate_thesis_output
+        validated, warnings = validate_thesis_output(thesis_raw, extracted_facts, self.agent_results)
+        if warnings:
+            validated["guardrail_warnings"] = warnings
+        return validated
 
     # ─── Data Gate ───────────────────────────────────────────────────────────
 

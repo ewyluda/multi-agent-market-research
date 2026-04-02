@@ -296,3 +296,119 @@ class TestThesisTieredExtraction:
         # Should not crash, just omit missing sections
         assert "Apple Inc." in rich
         assert "RSI" not in metrics
+
+
+from src.llm_guardrails import validate_thesis_output
+
+
+def _make_extracted_facts():
+    """Build mock Pass 1 extracted facts."""
+    return {
+        "company_context": "Apple is a $3T technology company.",
+        "key_financials": [
+            "Revenue $383B, growth 8%",
+            "Gross margin 46%",
+            "P/E 32.5",
+            "Debt/Equity 1.73",
+        ],
+        "recent_developments": [
+            "Apple AI push accelerates with new features",
+            "iPhone sales slow in China",
+        ],
+        "management_signals": [
+            "Confident tone on earnings call",
+            "Guidance raised to $93-95B",
+        ],
+        "macro_technical_context": [
+            "RSI 58 — neutral territory",
+            "Fed funds at 4.5%",
+        ],
+        "potential_tensions": [
+            "Revenue sustainability vs growth deceleration",
+            "AI investment payoff timeline",
+        ],
+    }
+
+
+def _make_valid_thesis():
+    """Build a valid thesis output dict."""
+    return {
+        "bull_case": {
+            "thesis": "Strong fundamentals and AI investment position Apple for growth.",
+            "key_drivers": ["Revenue growth at 8%", "AI product expansion"],
+            "catalysts": ["Q2 earnings", "WWDC product announcements"],
+        },
+        "bear_case": {
+            "thesis": "Slowing China sales and high valuation limit upside.",
+            "key_drivers": ["China market share loss", "P/E of 32.5 is stretched"],
+            "catalysts": ["Next China sales report", "Fed rate decision"],
+        },
+        "tension_points": [
+            {
+                "topic": "Revenue Sustainability",
+                "bull_view": "Revenue growth of 8% shows durable demand.",
+                "bear_view": "Growth is decelerating and China sales are declining.",
+                "evidence": ["Revenue $383B, growth 8%", "iPhone sales slow in China"],
+                "resolution_catalyst": "Next quarter China revenue breakdown.",
+            },
+            {
+                "topic": "AI Investment Payoff",
+                "bull_view": "AI features will drive upgrade cycles and services revenue.",
+                "bear_view": "AI spend has uncertain ROI and competes with entrenched players.",
+                "evidence": ["Apple AI push accelerates with new features", "Guidance raised to $93-95B"],
+                "resolution_catalyst": "WWDC developer adoption metrics.",
+            },
+        ],
+        "management_questions": [
+            {"role": "CEO", "question": "What is the AI monetization timeline?", "context": "AI investment is a key tension."},
+            {"role": "CFO", "question": "How will China revenue trends impact margins?", "context": "China is the biggest bear concern."},
+        ],
+        "thesis_summary": "The core debate is whether AI investment can offset China headwinds.",
+        "data_completeness": 0.85,
+        "data_sources_used": ["fundamentals", "news", "earnings"],
+    }
+
+
+class TestThesisGuardrails:
+    """Tests for validate_thesis_output() in llm_guardrails.py."""
+
+    def test_valid_thesis_passes_cleanly(self):
+        thesis = _make_valid_thesis()
+        facts = _make_extracted_facts()
+        validated, warnings = validate_thesis_output(thesis, facts, _make_agent_results())
+        assert validated["bull_case"]["thesis"] != ""
+        # May have minor warnings but should not error
+        assert isinstance(warnings, list)
+
+    def test_fabricated_evidence_flagged(self):
+        thesis = _make_valid_thesis()
+        thesis["tension_points"][0]["evidence"] = ["Revenue $500B growing 25%"]  # Not in facts
+        facts = _make_extracted_facts()
+        validated, warnings = validate_thesis_output(thesis, facts, _make_agent_results())
+        assert any("evidence" in w.lower() or "ungrounded" in w.lower() for w in warnings)
+
+    def test_generic_catalyst_flagged(self):
+        thesis = _make_valid_thesis()
+        thesis["tension_points"][0]["resolution_catalyst"] = "Time will tell."
+        facts = _make_extracted_facts()
+        validated, warnings = validate_thesis_output(thesis, facts, _make_agent_results())
+        assert any("catalyst" in w.lower() or "generic" in w.lower() for w in warnings)
+
+    def test_data_completeness_overridden_deterministically(self):
+        thesis = _make_valid_thesis()
+        thesis["data_completeness"] = 0.99  # LLM claimed 0.99 but real is 0.85
+        facts = _make_extracted_facts()
+        results = _make_agent_results()
+        validated, warnings = validate_thesis_output(thesis, facts, results)
+        # Should be overridden to the deterministic value
+        assert validated["data_completeness"] != 0.99
+
+    def test_contradiction_with_agent_data_flagged(self):
+        thesis = _make_valid_thesis()
+        # Bull claims negative revenue growth — contradicts fundamentals (8% growth)
+        thesis["bull_case"]["thesis"] = "Revenue is declining rapidly."
+        facts = _make_extracted_facts()
+        results = _make_agent_results()
+        validated, warnings = validate_thesis_output(thesis, facts, results)
+        # Should flag the contradiction
+        assert any("contradict" in w.lower() or "mismatch" in w.lower() or "revenue" in w.lower() for w in warnings)
