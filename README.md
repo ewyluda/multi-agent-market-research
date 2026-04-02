@@ -3,9 +3,14 @@
 Real-time AI-powered US equity analysis with a quant PM upgrade layer.
 
 ## Overview
-This platform runs specialized agents (news, sentiment, fundamentals, market, technical, macro, options, leadership) and synthesizes their outputs into a unified decision payload.
+This platform runs 9 specialized data agents (news, sentiment, fundamentals, market, technical, macro, options, leadership, earnings) in parallel, then runs 6 synthesis agents simultaneously (solution, thesis, earnings review, narrative, tag extractor, risk diff) to produce institutional-grade research output — all via `asyncio.gather()` with zero added latency.
 
-The latest architecture adds a quant/PM-oriented interface:
+### Core Analysis Pipeline
+- **9 data agents** gather real-time market data, financials, earnings transcripts, news, technicals, macro indicators, options flow, and leadership assessment
+- **6 synthesis agents** run in parallel to produce: final recommendation, bull/bear investment debate, structured earnings digest, multi-year financial narrative, qualitative company tags, and SEC filing risk factor diffs
+- **Deterministic guardrails** validate all LLM output with evidence grounding, cross-reference checks, and sanity clamping
+
+### Quant/PM Layer
 - Deterministic `signal_contract_v2`
 - Optimizer-driven `portfolio_action_v2`
 - Calibration economics and reliability bins
@@ -14,6 +19,51 @@ The latest architecture adds a quant/PM-oriented interface:
 - PM-focused dashboard tabs and cards
 
 By default, long-form chain-of-thought is not persisted or shown (`COT_PERSISTENCE_ENABLED=false`).
+
+## CapRelay-Inspired Research Features
+
+Institutional-grade research capabilities inspired by [CapRelay](https://www.caprelay.com/), built natively using existing data sources and the agent architecture.
+
+### Bull/Bear Thesis Debates (`thesis_agent.py`)
+Two-pass LLM generates structured investment debates with:
+- **Bull and bear cases** — thesis, key drivers, near-term catalysts
+- **Tension points** — adaptive count (3-8) of genuine disagreements with evidence from both sides
+- **Management questions** — CEO/CFO questions tied to specific thesis tensions
+- **Three-layer guardrails** — prompt instructions, deterministic evidence grounding, cross-reference against agent data
+
+### Structured Earnings Digests (`earnings_review_agent.py`)
+Single-pass LLM produces institutional-quality earnings reviews:
+- **Deterministic beat/miss** — EPS computed from structured data (no LLM needed), with revenue and guidance delta
+- **Sector-specific KPI tables** — 7 sector templates (Technology, Financial Services, Healthcare, etc.) guide extraction, plus LLM catches call-only disclosures
+- **Management tone, notable quotes, thesis impact, one-off identification**
+- **Partial results** — deterministic beat/miss still produced even when no transcript available
+
+### Multi-Year Financial Narratives (`narrative_agent.py`)
+Two-pass LLM weaves multi-year financial data into a coherent investment story:
+- **Configurable year span** — default 3 years (`NARRATIVE_YEARS` config)
+- **Year sections** with revenue/margin trajectories, strategic moves, capital allocation
+- **Selective quarterly inflection highlights** — only materially significant quarters flagged (not every quarter)
+- **Thematic narrative chapters** — cross-year threads like "The Services Transition" or "The China Question"
+- **Hybrid data fetching** — agent fetches its own multi-year financials + transcripts from data provider
+
+### Qualitative Company Tagging & Screening (`tag_extractor_agent.py`)
+Lightweight LLM classifies companies with a fixed taxonomy of 36 tags across 5 categories:
+- **Business Model** — recurring_revenue, platform_business, subscription_transition, etc.
+- **Corporate Events** — activist_involved, recent_ceo_change, major_acquisition, etc.
+- **Growth Drivers** — pricing_power, ai_integration, geographic_expansion, etc.
+- **Risk Flags** — customer_concentration, debt_heavy, secular_decline, etc.
+- **Quality Indicators** — high_roic, network_effects, switching_costs, etc.
+
+Tags persist via upsert (never auto-deleted), with `first_seen`/`last_seen` timestamps. Screening API: `GET /api/screen?tags=recurring_revenue,pricing_power&max_age_days=90`.
+
+### SEC Filing Risk Factor Diffing (`risk_diff_agent.py`)
+Two-pass LLM compares risk factor sections across SEC filings:
+- **Hybrid data sourcing** — FMP for filing metadata + EDGAR for full-text HTML
+- **Smart HTML parsing** — BeautifulSoup + regex fast path with LLM fallback for messy filings
+- **Filing comparison** — two most recent 10-Ks + latest 10-Q (3 filings max)
+- **Change detection** — classifies each risk as new, removed, escalated, de-escalated, or reworded
+- **Risk score** — 0-100 composite with period-over-period delta
+- **Graceful degradation** — 1 filing produces risk inventory only, 0 produces empty result
 
 ## Perception Ledger & Inflection Tracker
 
@@ -97,6 +147,10 @@ Deterministic validation layer (`src/llm_guardrails.py`) enforces constraints on
 - **Scenario probabilities** — warns if sum deviates from 1.0; returns clamped to [-30%, +30%]; monotonicity enforced (bull > base > bear)
 - **Equity research cross-check** — regex scans LLM report text for numeric claims (P/E, margins) and warns if >20% deviation from input data
 - **Recommendation override** — if 5+ of 7 agents disagree directionally with the LLM recommendation, forced to HOLD
+- **Thesis output** — evidence grounding (fuzzy-match vs extracted facts), catalyst specificity, cross-reference contradictions
+- **Earnings review** — beat/miss sanity (verdict vs surprise %), KPI value validation, guidance/tone consistency
+- **Narrative output** — year ordering, inflection plausibility (>3 per year flagged), chapter spanning (must cover multiple years)
+- **Risk diff output** — risk score bounds [0-100], change type/severity enum validation, diff consistency
 
 All guardrail warnings are stored in the analysis output JSON for transparency and debugging.
 
@@ -154,11 +208,17 @@ A dedicated "Leadership" tab in the dashboard displays:
 ## Architecture
 
 ```
-Client -> FastAPI -> Orchestrator -> [Data Agents] -> Solution Agent
-                                                   -> signal_contract_v2
-                                                   -> PortfolioEngine
-                                                   -> SQLite
-                                                   -> REST/SSE response
+Client -> FastAPI -> Orchestrator -> [9 Data Agents in Parallel]
+                                  -> [6 Synthesis Agents in Parallel via asyncio.gather()]
+                                      -> Solution Agent (recommendation)
+                                      -> Thesis Agent (bull/bear debate)
+                                      -> Earnings Review Agent (structured digest)
+                                      -> Narrative Agent (multi-year story)
+                                      -> Tag Extractor Agent (qualitative tags)
+                                      -> Risk Diff Agent (SEC filing risk changes)
+                                  -> signal_contract_v2 + PortfolioEngine
+                                  -> SQLite + Tag Persistence
+                                  -> REST/SSE response
 ```
 
 Scheduled flow:
@@ -255,6 +315,11 @@ docker compose -f docker-compose.dev.yml up --build
 
 ### Macro Catalysts
 - `GET /api/macro-events`
+
+### Company Tags & Screening
+- `GET /api/screen?tags=recurring_revenue,pricing_power&max_age_days=90` — screen companies by tag combinations
+- `GET /api/tags/{ticker}` — get all qualitative tags for a company
+- `POST /api/tags/{ticker}` — manual tag add/remove (`{add: [{tag, evidence}], remove: [tags]}`)
 
 ### Alerts
 - `/api/alerts*` CRUD + notifications + acknowledge + unacknowledged count
@@ -409,6 +474,7 @@ SQLite database file: `market_research.db`
 - `confidence_reliability_bins`
 - `perception_snapshots` — KPI values per analysis run
 - `inflection_events` — detected KPI shifts with convergence scoring
+- `company_tags` — qualitative company tags with evidence, first_seen/last_seen timestamps
 
 ### Quant PM schema highlights
 - `analyses`: `analysis_schema_version`, `signal_contract_v2`, `ev_score_7d`, `confidence_calibrated`, `data_quality_score`, `regime_label`, `rationale_summary`
@@ -448,7 +514,14 @@ multi-agent-market-research/
 │       ├── technical_agent.py
 │       ├── macro_agent.py
 │       ├── options_agent.py
-│       └── solution_agent.py
+│       ├── earnings_agent.py
+│       ├── leadership_agent.py
+│       ├── solution_agent.py
+│       ├── thesis_agent.py            # Bull/bear debate engine (2-pass LLM)
+│       ├── earnings_review_agent.py   # Structured earnings digest
+│       ├── narrative_agent.py         # Multi-year financial story (hybrid data)
+│       ├── tag_extractor_agent.py     # Qualitative company classification
+│       └── risk_diff_agent.py         # SEC filing risk factor diffing
 ├── frontend/src/
 │   ├── components/
 │   │   ├── Dashboard.jsx
@@ -462,7 +535,11 @@ multi-agent-market-research/
 │   │   ├── InflectionHeatmap.jsx
 │   │   ├── InflectionChart.jsx
 │   │   ├── InflectionFeed.jsx
-│   │   └── PortfolioPanel.jsx
+│   │   ├── PortfolioPanel.jsx
+│   │   ├── ThesisPanel.jsx            # Bull/bear debate visualization
+│   │   ├── EarningsReviewPanel.jsx    # Structured earnings digest
+│   │   ├── NarrativePanel.jsx         # Multi-year financial story
+│   │   └── RiskDiffPanel.jsx          # Risk factor change detection
 │   ├── hooks/
 │   ├── context/
 │   └── utils/api.js
@@ -495,7 +572,7 @@ source venv/bin/activate
 pytest
 ```
 
-Current backend suite: `361 passed` (unit + integration).
+Current backend suite: `642 passed` (unit + integration).
 
 Frontend quality checks:
 ```bash
@@ -505,11 +582,20 @@ npm run build
 ```
 
 ## Documentation
-- Perception Ledger design spec: `docs/superpowers/specs/2026-04-01-perception-ledger-inflection-tracker-design.md`
-- Perception Ledger implementation plan: `docs/superpowers/plans/2026-04-01-perception-ledger-inflection-tracker.md`
-- Quant PM implementation details: `docs/plans/2026-02-16-quant-pm-upgrade-implementation-plan.md`
-- Prior roadmap context: `docs/plans/2026-02-15-actionable-insights-roadmap.md`
-- Latest backfill audit report: `docs/reports/signal-contract-backfill-report.md`
+
+### CapRelay Feature Specs & Plans
+- Thesis Agent: `docs/superpowers/specs/2026-04-02-thesis-agent-design.md`
+- Earnings Review Agent: `docs/superpowers/specs/2026-04-02-earnings-review-agent-design.md`
+- Narrative Agent: `docs/superpowers/specs/2026-04-02-narrative-agent-design.md`
+- Qualitative Tag System: `docs/superpowers/specs/2026-04-02-qualitative-tag-system-design.md`
+- Risk Diff Agent: `docs/superpowers/specs/2026-04-02-risk-diff-agent-design.md`
+- Frontend Panels: `docs/superpowers/specs/2026-04-02-frontend-panels-design.md`
+
+### Infrastructure
+- Perception Ledger: `docs/superpowers/specs/2026-04-01-perception-ledger-inflection-tracker-design.md`
+- Quant PM implementation: `docs/plans/2026-02-16-quant-pm-upgrade-implementation-plan.md`
+- Prior roadmap: `docs/plans/2026-02-15-actionable-insights-roadmap.md`
+- Backfill audit: `docs/reports/signal-contract-backfill-report.md`
 
 ## License
 MIT
