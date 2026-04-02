@@ -18,6 +18,7 @@ from .agents.technical_agent import TechnicalAgent
 from .agents.macro_agent import MacroAgent
 from .agents.options_agent import OptionsAgent
 from .agents.leadership_agent import LeadershipAgent
+from .agents.earnings_agent import EarningsAgent
 from .agents.solution_agent import SolutionAgent
 from .agents.council_validator_agent import CouncilValidatorAgent
 from .database import DatabaseManager
@@ -43,10 +44,11 @@ class Orchestrator:
         "macro": {"class": MacroAgent, "requires": []},
         "options": {"class": OptionsAgent, "requires": []},
         "leadership": {"class": LeadershipAgent, "requires": []},
+        "earnings": {"class": EarningsAgent, "requires": []},
         "sentiment": {"class": SentimentAgent, "requires": ["news"]},
     }
 
-    DEFAULT_AGENTS = ["news", "market", "fundamentals", "technical", "macro", "options", "leadership", "sentiment"]
+    DEFAULT_AGENTS = ["news", "market", "fundamentals", "technical", "macro", "options", "leadership", "earnings", "sentiment"]
 
     def __init__(
         self,
@@ -156,6 +158,8 @@ class Orchestrator:
                 agents = [a for a in agents if a != "macro"]
             if not self.config.get("OPTIONS_AGENT_ENABLED", True):
                 agents = [a for a in agents if a != "options"]
+            if not self.config.get("EARNINGS_AGENT_ENABLED", True):
+                agents = [a for a in agents if a != "earnings"]
             return agents
 
         agents = set(requested)
@@ -468,7 +472,7 @@ class Orchestrator:
         run_sentiment = "sentiment" in agents_to_run
 
         # Create data agent instances
-        progress_map = {"news": 20, "fundamentals": 40, "market": 50, "macro": 55, "options": 57, "leadership": 59, "technical": 60}
+        progress_map = {"news": 20, "fundamentals": 40, "market": 50, "macro": 55, "options": 57, "earnings": 58, "leadership": 59, "technical": 60}
         agents = {}
         for name in data_agent_names:
             agent_info = self.AGENT_REGISTRY.get(name)

@@ -193,3 +193,37 @@ class TestEarningsAgentAnalyze:
         # Should return a fallback result, not raise
         assert result["stance"] == "neutral"
         assert "data_source" in result
+
+
+class TestEarningsAgentRegistration:
+
+    def test_earnings_in_agent_registry(self):
+        from src.orchestrator import Orchestrator
+        assert "earnings" in Orchestrator.AGENT_REGISTRY
+        assert Orchestrator.AGENT_REGISTRY["earnings"]["requires"] == []
+
+    def test_earnings_in_default_agents(self):
+        from src.orchestrator import Orchestrator
+        assert "earnings" in Orchestrator.DEFAULT_AGENTS
+
+    def test_earnings_disabled_via_config(self):
+        from src.orchestrator import Orchestrator
+        orch = Orchestrator(config={
+            "EARNINGS_AGENT_ENABLED": False,
+            "MACRO_AGENT_ENABLED": True,
+            "OPTIONS_AGENT_ENABLED": True,
+            "DATABASE_PATH": ":memory:",
+        })
+        agents = orch._resolve_agents()
+        assert "earnings" not in agents
+
+    def test_earnings_enabled_via_config(self):
+        from src.orchestrator import Orchestrator
+        orch = Orchestrator(config={
+            "EARNINGS_AGENT_ENABLED": True,
+            "MACRO_AGENT_ENABLED": True,
+            "OPTIONS_AGENT_ENABLED": True,
+            "DATABASE_PATH": ":memory:",
+        })
+        agents = orch._resolve_agents()
+        assert "earnings" in agents
