@@ -429,3 +429,20 @@ class NarrativeOutput(BaseModel):
     data_completeness: float = Field(..., ge=0.0, le=1.0, description="0.0-1.0 data quality score")
     data_sources_used: List[str] = Field(default=[], description="Which data sources contributed")
     error: Optional[str] = None
+
+
+# ── Tag Extractor Agent models ────────────────────────────────────────────────
+
+
+class CompanyTag(BaseModel):
+    """A single qualitative tag assigned to a company."""
+    tag: str = Field(..., description="Tag name from taxonomy, e.g. 'recurring_revenue'")
+    category: str = Field(..., description="Category: business_model, corporate_events, etc.")
+    evidence: Optional[str] = Field(default=None, description="Brief evidence string")
+
+
+class TagExtractorOutput(BaseModel):
+    """Output from the tag extractor agent."""
+    tags: List[CompanyTag] = Field(default=[], description="Extracted tags")
+    tags_count: int = Field(default=0, description="Number of tags extracted")
+    data_sources_used: List[str] = Field(default=[], description="Which agents contributed context")
