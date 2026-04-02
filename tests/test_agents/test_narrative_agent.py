@@ -261,3 +261,96 @@ class TestNarrativeCompleteness:
             num_years_requested=3,
         )
         assert score == pytest.approx(0.0, abs=0.01)
+
+
+from src.llm_guardrails import validate_narrative_output
+
+
+def _make_valid_narrative():
+    """Build a valid narrative output dict."""
+    return {
+        "company_arc": "Apple transitioned from hardware to services over three years.",
+        "year_sections": [
+            {
+                "year": 2023, "headline": "Consolidation year",
+                "revenue_trajectory": "Revenue flat.", "margin_story": "Margins held.",
+                "strategic_moves": [], "management_commentary": "Efficiency focus.",
+                "capital_allocation": "Buybacks.", "quarterly_inflections": [],
+            },
+            {
+                "year": 2024, "headline": "Growth resumed",
+                "revenue_trajectory": "Revenue up 8%.", "margin_story": "Margins expanded.",
+                "strategic_moves": ["Vision Pro launch"], "management_commentary": "AI focus.",
+                "capital_allocation": "$90B buyback.",
+                "quarterly_inflections": [
+                    {"quarter": "Q3'24", "headline": "China decline", "details": "First decline.", "impact": "negative"},
+                ],
+            },
+            {
+                "year": 2025, "headline": "AI acceleration",
+                "revenue_trajectory": "Revenue up 12%.", "margin_story": "Services mix lift.",
+                "strategic_moves": ["AI assistant launch"], "management_commentary": "AI monetization.",
+                "capital_allocation": "Continued buybacks.", "quarterly_inflections": [],
+            },
+        ],
+        "narrative_chapters": [
+            {
+                "title": "The Services Transition",
+                "years_covered": "2023-2025",
+                "narrative": "Services grew from 20% to 28% of revenue.",
+                "evidence": ["Services $85B in 2023", "Services $110B in 2025"],
+            },
+        ],
+        "key_inflection_points": ["Q3'24 China decline", "AI assistant launch 2025"],
+        "current_chapter": "Navigating AI transition.",
+        "years_covered": 3,
+        "data_completeness": 0.85,
+        "data_sources_used": ["financials", "transcripts"],
+    }
+
+
+class TestNarrativeGuardrails:
+    """Tests for validate_narrative_output() in llm_guardrails.py."""
+
+    def test_valid_narrative_passes(self):
+        narrative = _make_valid_narrative()
+        validated, warnings = validate_narrative_output(narrative)
+        assert validated["company_arc"] != ""
+        assert isinstance(warnings, list)
+
+    def test_year_ordering_flagged(self):
+        narrative = _make_valid_narrative()
+        # Reverse year order (should be chronological)
+        narrative["year_sections"].reverse()
+        validated, warnings = validate_narrative_output(narrative)
+        assert any("order" in w.lower() or "chronolog" in w.lower() for w in warnings)
+
+    def test_too_many_inflections_flagged(self):
+        narrative = _make_valid_narrative()
+        # Add 4 inflections to one year (>3 is suspicious)
+        narrative["year_sections"][1]["quarterly_inflections"] = [
+            {"quarter": f"Q{i}'24", "headline": f"Event {i}", "details": "Details.", "impact": "pivotal"}
+            for i in range(1, 5)
+        ]
+        validated, warnings = validate_narrative_output(narrative)
+        assert any("inflection" in w.lower() for w in warnings)
+
+    def test_single_year_chapter_flagged(self):
+        narrative = _make_valid_narrative()
+        narrative["narrative_chapters"] = [
+            {
+                "title": "Single Year Theme",
+                "years_covered": "2024",
+                "narrative": "Only about one year.",
+                "evidence": [],
+            },
+        ]
+        validated, warnings = validate_narrative_output(narrative)
+        assert any("chapter" in w.lower() or "span" in w.lower() for w in warnings)
+
+    def test_data_completeness_preserved(self):
+        narrative = _make_valid_narrative()
+        narrative["data_completeness"] = 0.85
+        validated, warnings = validate_narrative_output(narrative)
+        # Completeness should be preserved (not overridden — narrative doesn't have agent_results in guardrails)
+        assert validated["data_completeness"] == 0.85

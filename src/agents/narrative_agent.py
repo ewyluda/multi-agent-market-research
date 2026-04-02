@@ -87,11 +87,16 @@ class NarrativeAgent(BaseAgent):
             self.logger.warning(f"Narrative Pass 2 failed for {self.ticker}: {e}, using Pass 1 fallback")
             return self._pass1_fallback(extracted_facts, available_years, completeness, sources)
 
-        # Guardrails will be added in Task 3 (validate_narrative_output)
         narrative_raw["years_covered"] = len(available_years)
         narrative_raw["data_completeness"] = completeness
         narrative_raw["data_sources_used"] = sources
-        return narrative_raw
+
+        # Guardrails
+        from ..llm_guardrails import validate_narrative_output
+        validated, warnings = validate_narrative_output(narrative_raw)
+        if warnings:
+            validated["guardrail_warnings"] = warnings
+        return validated
 
     # --- Year Extraction ---------------------------------------------------------
 

@@ -549,3 +549,58 @@ def validate_earnings_review_output(
     validated["data_completeness"] = round(deterministic_completeness, 2)
 
     return validated, warnings
+
+
+# ─── Narrative Output ──────────────────────────────────────────────────────
+
+
+def validate_narrative_output(
+    narrative: Dict[str, Any],
+) -> Tuple[Dict[str, Any], List[str]]:
+    """Validate narrative agent output.
+
+    Checks:
+        1. Year ordering — year_sections should be chronological.
+        2. Inflection plausibility — flag years with more than 3 quarterly inflections.
+        3. Chapter spanning — warn if a narrative chapter covers only 1 year.
+
+    Note: data_completeness is computed by the agent itself (not overridden here)
+    because the narrative agent has different inputs than the standard agent_results pattern.
+
+    Returns:
+        (validated_narrative, warnings)
+    """
+    warnings: List[str] = []
+    validated = dict(narrative)
+
+    # 1. Year ordering
+    year_sections = validated.get("year_sections", [])
+    if len(year_sections) >= 2:
+        years = [ys.get("year", 0) for ys in year_sections]
+        if years != sorted(years):
+            warnings.append(
+                f"Year sections not in chronological order: {years}. Expected ascending."
+            )
+
+    # 2. Inflection plausibility
+    for ys in year_sections:
+        inflections = ys.get("quarterly_inflections", [])
+        year = ys.get("year", "?")
+        if len(inflections) > 3:
+            warnings.append(
+                f"Year {year} has {len(inflections)} quarterly inflections "
+                f"(expected 0-2 significant ones, max 3)"
+            )
+
+    # 3. Chapter spanning
+    for ch in validated.get("narrative_chapters", []):
+        years_covered = ch.get("years_covered", "")
+        title = ch.get("title", "?")
+        # Check if it looks like a single year (no dash/range)
+        if years_covered and "-" not in years_covered:
+            warnings.append(
+                f"Narrative chapter '{title}' covers only '{years_covered}' — "
+                f"chapters should span multiple years"
+            )
+
+    return validated, warnings
