@@ -20,6 +20,10 @@ import CouncilPanel from './CouncilPanel';
 import NewsFeed from './NewsFeed';
 import OptionsFlow from './OptionsFlow';
 import EarningsPanel from './EarningsPanel';
+import ThesisPanel from './ThesisPanel';
+import EarningsReviewPanel from './EarningsReviewPanel';
+import NarrativePanel from './NarrativePanel';
+import RiskDiffPanel from './RiskDiffPanel';
 import HistoryView from './HistoryView';
 import WatchlistView from './WatchlistView';
 import PortfolioView from './PortfolioView';
@@ -106,6 +110,20 @@ function getAgentStance(agentKey, result) {
       if (avg < -0.15) return 'bearish';
       return 'neutral';
     }
+    case 'thesis': return 'neutral';
+    case 'earnings_review': {
+      const verdict = d?.beat_miss?.[0]?.verdict;
+      if (verdict === 'beat') return 'bullish';
+      if (verdict === 'miss') return 'bearish';
+      return 'neutral';
+    }
+    case 'narrative': return 'neutral';
+    case 'risk_diff': {
+      const delta = d?.risk_score_delta ?? 0;
+      if (delta > 5) return 'bearish';
+      if (delta < -5) return 'bullish';
+      return 'neutral';
+    }
     default:
       return 'neutral';
   }
@@ -117,7 +135,7 @@ const STANCE_COLORS = { bullish: '#17c964', bearish: '#f31260', neutral: '#f5a52
 function getAgentSummary(result) {
   if (!result?.success || !result?.data) return null;
   const d = result.data;
-  return d.analysis || d.summary || d.executive_summary || d.assessment || null;
+  return d.analysis || d.summary || d.executive_summary || d.thesis_summary || d.company_arc || d.assessment || null;
 }
 
 /* ─── Agent metrics extractors ─── */
@@ -164,6 +182,10 @@ function getAgentMetrics(agentKey, result) {
 const SECTION_ORDER = [
   { key: 'fundamentals', name: 'Fundamentals', special: false },
   { key: 'earnings', name: 'Earnings', special: 'earnings' },
+  { key: 'earnings_review', name: 'Earnings Review', special: 'earnings_review' },
+  { key: 'thesis', name: 'Thesis', special: 'thesis' },
+  { key: 'narrative', name: 'Narrative', special: 'narrative' },
+  { key: 'risk_diff', name: 'Risk Analysis', special: 'risk_diff' },
   { key: 'technical', name: 'Technical', special: false },
   { key: 'sentiment', name: 'Sentiment', special: false },
   { key: 'macro', name: 'Macro', special: false },
@@ -275,6 +297,14 @@ const Dashboard = () => {
         return <LeadershipPanel analysis={analysis} />;
       case 'council':
         return <CouncilPanel analysis={analysis} ticker={currentTicker} />;
+      case 'earnings_review':
+        return <EarningsReviewPanel analysis={analysis} />;
+      case 'thesis':
+        return <ThesisPanel analysis={analysis} />;
+      case 'narrative':
+        return <NarrativePanel analysis={analysis} />;
+      case 'risk_diff':
+        return <RiskDiffPanel analysis={analysis} />;
       default:
         return null;
     }
@@ -465,7 +495,8 @@ const Dashboard = () => {
                 {/* Narrative agent sections */}
                 <div className="px-6 pt-4 pb-8 flex flex-col gap-3">
                   {SECTION_ORDER.map(({ key, name, special }) => {
-                    const result = agentResults[key];
+                    const result = agentResults[key]
+                      || (analysis?.analysis?.[key] ? { success: true, data: analysis.analysis[key] } : null);
                     const stance = getAgentStance(key, result);
                     const summary = getAgentSummary(result);
                     const metrics = getAgentMetrics(key, result);
