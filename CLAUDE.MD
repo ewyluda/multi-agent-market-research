@@ -25,6 +25,7 @@ User → FastAPI → Orchestrator → [7 Agents in Parallel] → Solution Agent 
 | Thesis | `thesis_agent.py` | Two-pass LLM bull/bear debate (synthesis phase) | Pass 1 fallback |
 | EarningsReview | `earnings_review_agent.py` | Structured earnings digest with sector KPIs (synthesis phase) | Partial (deterministic beat/miss) |
 | Narrative | `narrative_agent.py` | Multi-year financial story with thematic chapters (synthesis phase, hybrid data) | Pass 1 fallback |
+| TagExtractor | `tag_extractor_agent.py` | Qualitative company classification with 36-tag taxonomy (synthesis phase) | Empty tags |
 | Solution | `solution_agent.py` | Synthesizes all agent outputs (LLM) | N/A |
 | CouncilValidator | `council_validator_agent.py` | Validates council analysis coherence | N/A |
 | CouncilSynthesis | `council_synthesis_agent.py` | Aggregates council consensus | N/A |
@@ -140,7 +141,7 @@ Key config: `LLM_PROVIDER` (anthropic/openai/xai), `AGENT_TIMEOUT` (30s), `PARAL
 2. Resolves agents from `AGENT_REGISTRY` (auto-resolves dependencies)
 3. Runs data agents in parallel via `asyncio.gather(return_exceptions=True)`
 4. Runs sentiment agent (depends on news + market + twitter_posts)
-5. Solution + Thesis + EarningsReview + Narrative agents run in parallel (`asyncio.gather`) → DB save → perception snapshot + inflection detection → alert evaluation → cleanup
+5. Solution + Thesis + EarningsReview + Narrative + TagExtractor agents run in parallel (`asyncio.gather`) → DB save → tag persistence → perception snapshot + inflection detection → alert evaluation → cleanup
 
 ### Perception Ledger Flow
 After DB save, the orchestrator:
