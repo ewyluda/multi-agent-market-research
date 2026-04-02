@@ -19,6 +19,7 @@ import LeadershipPanel from './LeadershipPanel';
 import CouncilPanel from './CouncilPanel';
 import NewsFeed from './NewsFeed';
 import OptionsFlow from './OptionsFlow';
+import EarningsPanel from './EarningsPanel';
 import HistoryView from './HistoryView';
 import WatchlistView from './WatchlistView';
 import PortfolioView from './PortfolioView';
@@ -83,6 +84,12 @@ function getAgentStance(agentKey, result) {
       const env = d.risk_environment || d.monetary_policy_stance || '';
       if (/dovish/i.test(env)) return 'bullish';
       if (/hawkish/i.test(env)) return 'bearish';
+      return 'neutral';
+    }
+    case 'earnings': {
+      const stance = d.stance || '';
+      if (/bull/i.test(stance)) return 'bullish';
+      if (/bear/i.test(stance)) return 'bearish';
       return 'neutral';
     }
     case 'options': {
@@ -156,6 +163,7 @@ function getAgentMetrics(agentKey, result) {
 /* ─── Section config ─── */
 const SECTION_ORDER = [
   { key: 'fundamentals', name: 'Fundamentals', special: false },
+  { key: 'earnings', name: 'Earnings', special: 'earnings' },
   { key: 'technical', name: 'Technical', special: false },
   { key: 'sentiment', name: 'Sentiment', special: false },
   { key: 'macro', name: 'Macro', special: false },
@@ -257,6 +265,8 @@ const Dashboard = () => {
   /* ─── Render special section children ─── */
   function renderSpecialChildren(key) {
     switch (key) {
+      case 'earnings':
+        return <EarningsPanel analysis={analysis} />;
       case 'news':
         return <NewsFeed analysis={analysis} />;
       case 'options':
