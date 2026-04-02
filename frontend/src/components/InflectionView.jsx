@@ -11,7 +11,8 @@ const InflectionView = () => {
 
   useEffect(() => {
     getWatchlists()
-      .then((wls) => {
+      .then((data) => {
+        const wls = data.watchlists || [];
         setWatchlists(wls);
         if (wls.length > 0 && !activeWatchlistId) setActiveWatchlistId(wls[0].id);
       })
