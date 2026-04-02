@@ -2,6 +2,11 @@ import { useState, useEffect, useCallback } from 'react';
 
 const SECTIONS = [
   { id: 'section-fundamentals', label: 'Fundamentals' },
+  { id: 'section-earnings', label: 'Earnings' },
+  { id: 'section-earnings_review', label: 'Review' },
+  { id: 'section-thesis', label: 'Thesis' },
+  { id: 'section-narrative', label: 'Narrative' },
+  { id: 'section-risk_diff', label: 'Risk' },
   { id: 'section-technical', label: 'Technical' },
   { id: 'section-sentiment', label: 'Sentiment' },
   { id: 'section-macro', label: 'Macro' },

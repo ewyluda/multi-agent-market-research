@@ -302,4 +302,191 @@ class CouncilAnalysisResponse(BaseModel):
     disagreements: List[str] = Field(default=[], description="Flagged council disagreements")
     duration_seconds: float
     synthesis: Optional[dict] = Field(default=None, description="Council synthesis: consensus + narrative")
+
+
+# ── Thesis Agent models ───────────────────────────────────────────────────
+
+
+class TensionPoint(BaseModel):
+    """A point of debate between bull and bear investment theses."""
+    topic: str = Field(..., description="Debate topic, e.g. 'Revenue Sustainability'")
+    bull_view: str = Field(..., description="Bull argument (2-3 sentences)")
+    bear_view: str = Field(..., description="Bear counter-argument (2-3 sentences)")
+    evidence: List[str] = Field(default=[], description="2-4 supporting data points")
+    resolution_catalyst: str = Field(..., description="What would settle this debate")
+
+
+class ManagementQuestion(BaseModel):
+    """A question for company management derived from thesis tensions."""
+    role: str = Field(..., description="Target executive role: CEO, CFO, etc.")
+    question: str = Field(..., description="The question itself")
+    context: str = Field(..., description="Why this question matters for the thesis")
+
+
+class ThesisCase(BaseModel):
+    """One side of the investment debate (bull or bear)."""
+    thesis: str = Field(..., description="2-3 sentence core thesis")
+    key_drivers: List[str] = Field(default=[], description="3-5 primary drivers")
+    catalysts: List[str] = Field(default=[], description="Near-term catalysts")
+
+
+class ThesisOutput(BaseModel):
+    """Complete bull/bear investment thesis output."""
+    bull_case: ThesisCase
+    bear_case: ThesisCase
+    tension_points: List[TensionPoint] = Field(default=[], description="3-8 debate points")
+    management_questions: List[ManagementQuestion] = Field(default=[], description="5-7 questions")
+    thesis_summary: str = Field(..., description="One-paragraph synthesis")
+    data_completeness: float = Field(..., ge=0.0, le=1.0, description="0.0-1.0 data quality score")
+    data_sources_used: List[str] = Field(default=[], description="Which agents contributed data")
+    error: Optional[str] = None
+
+
+# ── Earnings Review Agent models ──────────────────────────────────────────────
+
+
+class BeatMiss(BaseModel):
+    """Earnings beat/miss for a single metric (deterministic)."""
+    metric: str = Field(..., description="Metric name: EPS, Revenue")
+    actual: Optional[float] = Field(default=None, description="Reported value")
+    estimate: Optional[float] = Field(default=None, description="Consensus estimate")
+    surprise_pct: Optional[float] = Field(default=None, description="Surprise percentage")
+    verdict: str = Field(..., description="beat, miss, or inline")
+
+
+class GuidanceDelta(BaseModel):
+    """Forward guidance change for a single metric."""
+    metric: str = Field(..., description="Revenue, EPS, Gross Margin, etc.")
+    prior_value: Optional[str] = Field(default=None, description="Prior guidance")
+    new_value: Optional[str] = Field(default=None, description="New guidance")
+    direction: str = Field(..., description="raised, lowered, maintained, introduced, withdrawn")
+
+
+class KPIRow(BaseModel):
+    """A single KPI from the earnings call."""
+    metric: str = Field(..., description="KPI name")
+    value: Optional[str] = Field(default=None, description="Current value")
+    prior_value: Optional[str] = Field(default=None, description="Prior quarter value")
+    yoy_change: Optional[str] = Field(default=None, description="Year-over-year change")
+    source: str = Field(..., description="reported, call_disclosed, or calculated")
+
+
+class EarningsReviewOutput(BaseModel):
+    """Complete structured earnings review output."""
+    executive_summary: str = Field(..., description="3-5 sentence key takeaways")
+    beat_miss: List[BeatMiss] = Field(default=[], description="EPS + Revenue beat/miss")
+    guidance_deltas: List[GuidanceDelta] = Field(default=[], description="Forward guidance changes")
+    kpi_table: List[KPIRow] = Field(default=[], description="8-15 key metrics")
+    management_tone: str = Field(..., description="confident, cautious, defensive, etc.")
+    notable_quotes: List[str] = Field(default=[], description="2-3 notable management quotes")
+    thesis_impact: str = Field(default="", description="How this quarter affects investment thesis")
+    one_offs: List[str] = Field(default=[], description="Non-recurring items")
+    sector_template: str = Field(default="default", description="Which sector template was used")
+    data_completeness: float = Field(..., ge=0.0, le=1.0, description="0.0-1.0 data quality score")
+    data_sources_used: List[str] = Field(default=[], description="Which agents contributed data")
+    error: Optional[str] = None
+
+
+# ── Narrative Agent models ────────────────────────────────────────────────────
+
+
+class QuarterlyInflection(BaseModel):
+    """A quarter that represented a material inflection point."""
+    quarter: str = Field(..., description="Quarter label, e.g. Q2'25")
+    headline: str = Field(..., description="One-line summary of why this quarter mattered")
+    details: str = Field(..., description="2-3 sentence explanation")
+    impact: str = Field(..., description="positive, negative, or pivotal")
+
+
+class YearSection(BaseModel):
+    """Chronological section for one fiscal year."""
+    year: int = Field(..., description="Fiscal year")
+    headline: str = Field(..., description="One-line summary of the year")
+    revenue_trajectory: str = Field(..., description="Revenue story for this year")
+    margin_story: str = Field(..., description="Margin expansion/compression narrative")
+    strategic_moves: List[str] = Field(default=[], description="M&A, divestitures, pivots, reorgs")
+    management_commentary: str = Field(..., description="Key themes from earnings calls")
+    capital_allocation: str = Field(..., description="Buybacks, dividends, capex, debt")
+    quarterly_inflections: List[QuarterlyInflection] = Field(default=[], description="0-2 inflection quarters")
+
+
+class NarrativeChapter(BaseModel):
+    """A thematic narrative thread spanning multiple years."""
+    title: str = Field(..., description="Chapter title, e.g. 'The Services Transition'")
+    years_covered: str = Field(..., description="Year range, e.g. '2023-2025'")
+    narrative: str = Field(..., description="3-5 sentence thematic narrative")
+    evidence: List[str] = Field(default=[], description="Supporting data points")
+
+
+class NarrativeOutput(BaseModel):
+    """Complete multi-year financial narrative output."""
+    company_arc: str = Field(..., description="3-5 sentence overarching story")
+    year_sections: List[YearSection] = Field(default=[], description="Chronological year sections")
+    narrative_chapters: List[NarrativeChapter] = Field(default=[], description="2-4 thematic threads")
+    key_inflection_points: List[str] = Field(default=[], description="Top 3-5 trajectory-changing moments")
+    current_chapter: str = Field(..., description="Where the company is now in its story")
+    years_covered: int = Field(..., description="How many years of data were available")
+    data_completeness: float = Field(..., ge=0.0, le=1.0, description="0.0-1.0 data quality score")
+    data_sources_used: List[str] = Field(default=[], description="Which data sources contributed")
+    error: Optional[str] = None
+
+
+# ── Tag Extractor Agent models ────────────────────────────────────────────────
+
+
+class CompanyTag(BaseModel):
+    """A single qualitative tag assigned to a company."""
+    tag: str = Field(..., description="Tag name from taxonomy, e.g. 'recurring_revenue'")
+    category: str = Field(..., description="Category: business_model, corporate_events, etc.")
+    evidence: Optional[str] = Field(default=None, description="Brief evidence string")
+
+
+class TagExtractorOutput(BaseModel):
+    """Output from the tag extractor agent."""
+    tags: List[CompanyTag] = Field(default=[], description="Extracted tags")
+    tags_count: int = Field(default=0, description="Number of tags extracted")
+    data_sources_used: List[str] = Field(default=[], description="Which agents contributed context")
+
+
+# ── Risk Diff Agent models ───────────────────────────────────────────────────
+
+
+class RiskTopic(BaseModel):
+    """A single risk topic from a SEC filing risk factors section."""
+    topic: str = Field(..., description="Risk topic name, e.g. 'Supply Chain Concentration'")
+    severity: str = Field(..., description="Severity: high, medium, or low")
+    summary: str = Field(..., description="2-3 sentence description of the risk")
+    text_excerpt: str = Field(default="", description="Brief excerpt from the filing text")
+
+
+class RiskChange(BaseModel):
+    """A detected change in risk between two filing periods."""
+    risk_topic: str = Field(..., description="Risk topic name")
+    change_type: str = Field(..., description="Change type: new, removed, escalated, de-escalated, reworded")
+    severity: str = Field(..., description="Severity: high, medium, or low")
+    current_text_excerpt: str = Field(default="", description="Excerpt from current filing")
+    prior_text_excerpt: str = Field(default="", description="Excerpt from prior filing (empty if new)")
+    analysis: str = Field(..., description="Why this change matters for investors")
+
+
+class RiskDiffOutput(BaseModel):
+    """Complete risk diff output — risk inventory + period-over-period changes."""
+    # Diff results (empty if only 1 filing available)
+    new_risks: List[RiskChange] = Field(default=[], description="Risks not present in prior filing")
+    removed_risks: List[RiskChange] = Field(default=[], description="Risks removed since prior filing")
+    changed_risks: List[RiskChange] = Field(default=[], description="Risks that changed severity or language")
+    risk_score: float = Field(default=50.0, description="Composite risk score 0-100")
+    risk_score_delta: float = Field(default=0.0, description="Change from prior period")
+    top_emerging_threats: List[str] = Field(default=[], description="3-5 most actionable new/escalated risks")
+    summary: str = Field(default="", description="2-3 sentence risk landscape summary")
+
+    # Risk inventory (always populated from latest filing)
+    current_risk_inventory: List[RiskTopic] = Field(default=[], description="Risk topics from latest filing")
+
+    # Metadata
+    filings_compared: List[Dict[str, Any]] = Field(default=[], description="Filing metadata per filing used")
+    has_diff: bool = Field(default=False, description="True if 2+ filings were compared")
+    extraction_methods: List[str] = Field(default=[], description="'pattern' or 'llm_fallback' per filing")
+    data_completeness: float = Field(default=0.0, ge=0.0, le=1.0, description="0.0-1.0 data quality score")
+    data_sources_used: List[str] = Field(default=[], description="Data sources that contributed")
     error: Optional[str] = None

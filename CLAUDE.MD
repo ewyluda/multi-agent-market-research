@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**Multi-Agent Market Research Platform** — real-time stock analysis via 7 specialized AI agents running in parallel, synthesized by a solution agent into a final recommendation.
+**Multi-Agent Market Research Platform** — real-time stock analysis via 9 specialized AI agents running in parallel, with thesis and solution synthesis agents, producing actionable recommendations.
 
 ```
 User → FastAPI → Orchestrator → [7 Agents in Parallel] → Solution Agent → SQLite → JSON Response
@@ -22,6 +22,11 @@ User → FastAPI → Orchestrator → [7 Agents in Parallel] → Solution Agent 
 | Macro | `macro_agent.py` | FRED (fed_funds, CPI, GDP, yields, unemployment) | None |
 | Options | `options_agent.py` | yfinance via OpenBB | None |
 | Leadership | `leadership_agent.py` | LLM-powered executive assessment | N/A |
+| Thesis | `thesis_agent.py` | Two-pass LLM bull/bear debate (synthesis phase) | Pass 1 fallback |
+| EarningsReview | `earnings_review_agent.py` | Structured earnings digest with sector KPIs (synthesis phase) | Partial (deterministic beat/miss) |
+| Narrative | `narrative_agent.py` | Multi-year financial story with thematic chapters (synthesis phase, hybrid data) | Pass 1 fallback |
+| TagExtractor | `tag_extractor_agent.py` | Qualitative company classification with 36-tag taxonomy (synthesis phase) | Empty tags |
+| RiskDiff | `risk_diff_agent.py` | SEC filing risk factor diffing via EDGAR+FMP (synthesis phase, hybrid data) | Inventory only / empty |
 | Solution | `solution_agent.py` | Synthesizes all agent outputs (LLM) | N/A |
 | CouncilValidator | `council_validator_agent.py` | Validates council analysis coherence | N/A |
 | CouncilSynthesis | `council_synthesis_agent.py` | Aggregates council consensus | N/A |
@@ -105,6 +110,14 @@ Key config: `LLM_PROVIDER` (anthropic/openai/xai), `AGENT_TIMEOUT` (30s), `PARAL
 4. Register in `src/orchestrator.py` `AGENT_REGISTRY` dict
 5. Add to `DEFAULT_AGENTS` if it should run by default
 
+### Adding a Synthesis Agent (consumes other agents' outputs)
+1. Create agent inheriting `BaseAgent` with `__init__(ticker, config, agent_results)`
+2. `fetch_data()` returns `agent_results` as-is; `analyze()` does LLM synthesis
+3. Register in `AGENT_REGISTRY` but NOT `DEFAULT_AGENTS`
+4. Add `_run_<name>_agent()` method to orchestrator, wire into synthesis phase via `asyncio.gather()`
+5. Failure must be non-blocking — return `None`, analysis continues without it
+6. Pattern: `ThesisAgent`, `SolutionAgent`
+
 ### Data Provider
 - All `OpenBBDataProvider` methods are async with TTL caching
 - **Core methods**: `get_quote`, `get_price_history`, `get_company_overview`, `get_financials`, `get_earnings`, `get_earnings_transcript`, `get_earnings_transcripts`, `get_technical_indicators`, `get_macro_indicators`, `get_options_chain`, `get_news`
@@ -118,6 +131,10 @@ Key config: `LLM_PROVIDER` (anthropic/openai/xai), `AGENT_TIMEOUT` (30s), `PARAL
 - `validate_sentiment()` — clamps scores to [-1,1], normalizes factor weights to sum to 1.0
 - `validate_scenarios()` — clamps returns to [-30%,+30%], enforces bull > base > bear monotonicity
 - `validate_equity_research()` — regex cross-checks LLM numeric claims against input metrics, warns on >20% deviation
+- `validate_thesis_output()` — evidence grounding (fuzzy-match vs extracted facts), catalyst specificity, cross-reference contradictions against agent data
+- `validate_earnings_review_output()` — beat/miss sanity (verdict vs surprise %), KPI value validation, guidance/tone consistency
+- `validate_narrative_output()` — year ordering, inflection plausibility (>3 per year), chapter spanning (must cover multiple years)
+- `validate_risk_diff_output()` — risk score bounds [0-100], change type/severity enum validation, diff consistency
 - All functions return `(validated_result, warnings)` — warnings stored in analysis output for transparency
 - Recommendation override: if 5+ of 7 agents disagree with LLM recommendation, forced to HOLD via `validation_rules.py`
 
@@ -126,7 +143,7 @@ Key config: `LLM_PROVIDER` (anthropic/openai/xai), `AGENT_TIMEOUT` (30s), `PARAL
 2. Resolves agents from `AGENT_REGISTRY` (auto-resolves dependencies)
 3. Runs data agents in parallel via `asyncio.gather(return_exceptions=True)`
 4. Runs sentiment agent (depends on news + market + twitter_posts)
-5. Solution agent synthesizes → DB save → perception snapshot + inflection detection → alert evaluation → cleanup
+5. Solution + Thesis + EarningsReview + Narrative + TagExtractor + RiskDiff agents run in parallel (`asyncio.gather`) → DB save → tag persistence → perception snapshot + inflection detection → alert evaluation → cleanup
 
 ### Perception Ledger Flow
 After DB save, the orchestrator:
@@ -154,7 +171,9 @@ React + Vite + Tailwind CSS v4. Hero UI dark theme (zinc-based).
 
 **Theme colors**: Primary `#006fee`, Success `#17c964`, Danger `#f31260`, Warning `#f5a524`, Background `#000000`, Surfaces zinc scale.
 
-**Key components**: `Dashboard.jsx` (root), `Summary.jsx` (exports 5 sub-components), `Recommendation.jsx` (SVG gauge), `PriceChart.jsx` (lightweight-charts), `CouncilPanel.jsx` (investor council), `InflectionView.jsx` (inflection dashboard with heatmap/chart/feed).
+**Key components**: `Dashboard.jsx` (root), `Summary.jsx` (exports 5 sub-components), `Recommendation.jsx` (SVG gauge), `PriceChart.jsx` (lightweight-charts), `CouncilPanel.jsx` (investor council), `InflectionView.jsx` (inflection dashboard with heatmap/chart/feed), `ThesisPanel.jsx` (bull/bear debate), `EarningsReviewPanel.jsx` (structured earnings digest), `NarrativePanel.jsx` (multi-year financial story), `RiskDiffPanel.jsx` (risk factor change detection).
+
+**Section order**: Fundamentals → Earnings → EarningsReview → Thesis → Narrative → RiskDiff → Technical → Sentiment → Macro → News → Options → Leadership → Council. Synthesis panels (EarningsReview, Thesis, Narrative, RiskDiff) read from `analysis.analysis[key]`, not `agent_results`.
 
 Glass cards use `glass-card` / `glass-card-elevated` CSS classes.
 

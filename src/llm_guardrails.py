@@ -334,3 +334,355 @@ def _cross_check_metric(
             f"LLM claims {metric_name} ≈ {claimed:.1f} but input data shows {input_value:.1f} "
             f"({deviation:.0%} deviation)"
         )
+
+
+# ─── Thesis Output ─────────────────────────────────────────────────────────
+
+
+_GENERIC_CATALYSTS = {
+    "time will tell", "future earnings", "remains to be seen",
+    "only time will tell", "we will see", "market will decide",
+    "further developments", "more data needed",
+}
+
+
+def validate_thesis_output(
+    thesis: Dict[str, Any],
+    extracted_facts: Dict[str, Any],
+    agent_results: Dict[str, Any],
+) -> Tuple[Dict[str, Any], List[str]]:
+    """Validate thesis agent output against extracted facts and agent data.
+
+    Three checks:
+        1. Evidence grounding — flag evidence not traceable to extracted facts.
+        2. Catalyst specificity — flag generic resolution catalysts.
+        3. Cross-reference — flag claims that contradict agent data.
+
+    Also overrides data_completeness with deterministic value.
+
+    Returns:
+        (validated_thesis, warnings)
+    """
+    warnings: List[str] = []
+    validated = dict(thesis)
+
+    # Build a searchable text corpus from extracted facts
+    fact_corpus = _build_fact_corpus(extracted_facts)
+
+    # 1. Evidence grounding check
+    for i, tp in enumerate(validated.get("tension_points", [])):
+        for evidence_item in tp.get("evidence", []):
+            if not _evidence_is_grounded(evidence_item, fact_corpus):
+                warnings.append(
+                    f"Tension '{tp.get('topic', i)}': ungrounded evidence — "
+                    f"'{evidence_item[:80]}' not found in extracted facts"
+                )
+
+    # 2. Catalyst specificity
+    for i, tp in enumerate(validated.get("tension_points", [])):
+        catalyst = (tp.get("resolution_catalyst") or "").strip().lower()
+        catalyst_stripped = catalyst.rstrip(".")
+        if catalyst_stripped in _GENERIC_CATALYSTS or len(catalyst) < 10:
+            warnings.append(
+                f"Tension '{tp.get('topic', i)}': generic catalyst — "
+                f"'{tp.get('resolution_catalyst', '')}'"
+            )
+
+    # 3. Cross-reference against agent data
+    _cross_reference_claims(validated, agent_results, warnings)
+
+    # Override data_completeness deterministically
+    completeness_weights = {
+        "fundamentals": 0.30, "news": 0.15, "earnings": 0.20,
+        "leadership": 0.10, "market": 0.10, "technical": 0.05,
+        "macro": 0.05, "options": 0.05,
+    }
+    deterministic_completeness = 0.0
+    for agent_name, weight in completeness_weights.items():
+        result = agent_results.get(agent_name, {})
+        if isinstance(result, dict) and result.get("success") and result.get("data"):
+            deterministic_completeness += weight
+    validated["data_completeness"] = round(deterministic_completeness, 2)
+
+    return validated, warnings
+
+
+def _build_fact_corpus(extracted_facts: Dict[str, Any]) -> str:
+    """Flatten extracted facts into a single searchable string."""
+    parts = []
+    for key, value in extracted_facts.items():
+        if isinstance(value, str):
+            parts.append(value.lower())
+        elif isinstance(value, list):
+            for item in value:
+                parts.append(str(item).lower())
+    return " ".join(parts)
+
+
+def _evidence_is_grounded(evidence: str, fact_corpus: str) -> bool:
+    """Check if an evidence string can be traced to the fact corpus.
+
+    Uses keyword overlap: extracts significant words (3+ chars) from the
+    evidence and checks if at least 40% appear in the corpus.
+    """
+    words = re.findall(r"[a-z0-9]+", evidence.lower())
+    significant = [w for w in words if len(w) >= 3]
+    if not significant:
+        return True  # Can't check empty evidence
+    matches = sum(1 for w in significant if w in fact_corpus)
+    return (matches / len(significant)) >= 0.40
+
+
+def _cross_reference_claims(
+    thesis: Dict[str, Any],
+    agent_results: Dict[str, Any],
+    warnings: List[str],
+) -> None:
+    """Check thesis claims against agent data for contradictions."""
+    fund_result = agent_results.get("fundamentals", {})
+    fund_data = fund_result.get("data") if isinstance(fund_result, dict) else None
+    if not fund_data:
+        return
+
+    rev_growth = fund_data.get("revenue_growth")
+    if rev_growth is not None:
+        growth_positive = rev_growth > 0
+        # Check bull and bear thesis text for contradictory claims
+        bull_thesis = (thesis.get("bull_case") or {}).get("thesis", "").lower()
+        bear_thesis = (thesis.get("bear_case") or {}).get("thesis", "").lower()
+
+        decline_phrases = ["revenue is declining", "revenue declining", "falling revenue", "revenue shrink"]
+        growth_phrases = ["revenue is growing rapidly", "accelerating revenue", "surging revenue"]
+
+        if growth_positive:
+            for phrase in decline_phrases:
+                if phrase in bull_thesis or phrase in bear_thesis:
+                    warnings.append(
+                        f"Contradiction: thesis claims '{phrase}' but fundamentals show "
+                        f"revenue growth of {rev_growth * 100:.1f}%"
+                    )
+        else:
+            for phrase in growth_phrases:
+                if phrase in bull_thesis or phrase in bear_thesis:
+                    warnings.append(
+                        f"Contradiction: thesis claims '{phrase}' but fundamentals show "
+                        f"revenue decline of {rev_growth * 100:.1f}%"
+                    )
+
+
+# ─── Earnings Review Output ────────────────────────────────────────────────
+
+
+def validate_earnings_review_output(
+    review: Dict[str, Any],
+    agent_results: Dict[str, Any],
+) -> Tuple[Dict[str, Any], List[str]]:
+    """Validate earnings review agent output.
+
+    Checks:
+        1. Beat/miss sanity — verdict matches surprise_pct direction.
+        2. KPI value validation — flag unreasonable values.
+        3. Guidance/tone consistency — flag raised guidance with defensive tone.
+        4. Data completeness override — deterministic recalculation.
+
+    Returns:
+        (validated_review, warnings)
+    """
+    warnings: List[str] = []
+    validated = dict(review)
+
+    # 1. Beat/miss sanity
+    for bm in validated.get("beat_miss", []):
+        surprise = bm.get("surprise_pct")
+        verdict = bm.get("verdict", "")
+        if surprise is not None:
+            expected_verdict = "beat" if surprise > 1.0 else "miss" if surprise < -1.0 else "inline"
+            if verdict != expected_verdict:
+                warnings.append(
+                    f"Beat/miss verdict mismatch for {bm.get('metric', '?')}: "
+                    f"verdict='{verdict}' but surprise={surprise:.1f}% implies '{expected_verdict}'"
+                )
+
+    # 2. KPI value validation
+    for kpi in validated.get("kpi_table", []):
+        value_str = (kpi.get("value") or "").strip()
+        metric_lower = kpi.get("metric", "").lower()
+        # Check percentage values > 100% for margin-type metrics
+        if "margin" in metric_lower or "retention" in metric_lower:
+            pct_match = re.search(r"([\d.]+)\s*%", value_str)
+            if pct_match:
+                pct_val = float(pct_match.group(1))
+                # Net Revenue Retention can exceed 100%, margins generally shouldn't exceed ~80%
+                if "retention" not in metric_lower and pct_val > 100:
+                    warnings.append(
+                        f"Unreasonable KPI value: {kpi['metric']} = {value_str} (margin > 100%)"
+                    )
+
+    # 3. Guidance/tone consistency
+    guidance_deltas = validated.get("guidance_deltas", [])
+    has_raised = any(g.get("direction") == "raised" for g in guidance_deltas)
+    earnings_result = agent_results.get("earnings", {})
+    earnings_data = earnings_result.get("data") if isinstance(earnings_result, dict) else None
+    if earnings_data and has_raised:
+        tone = earnings_data.get("tone", "")
+        if tone in ("defensive", "evasive"):
+            warnings.append(
+                f"Guidance/tone contradiction: guidance raised but EarningsAgent tone is '{tone}'"
+            )
+
+    # 4. Data completeness override
+    completeness_weights = {"earnings": 0.50, "fundamentals": 0.30, "market": 0.20}
+    deterministic_completeness = 0.0
+    for agent_name, weight in completeness_weights.items():
+        result = agent_results.get(agent_name, {})
+        if isinstance(result, dict) and result.get("success") and result.get("data"):
+            if agent_name == "earnings":
+                data = result.get("data", {})
+                highlights = data.get("highlights", [])
+                data_source = data.get("data_source", "")
+                if len(highlights) > 0 and data_source != "none":
+                    deterministic_completeness += weight
+                else:
+                    deterministic_completeness += 0.15
+            else:
+                deterministic_completeness += weight
+    validated["data_completeness"] = round(deterministic_completeness, 2)
+
+    return validated, warnings
+
+
+# ─── Narrative Output ──────────────────────────────────────────────────────
+
+
+def validate_narrative_output(
+    narrative: Dict[str, Any],
+) -> Tuple[Dict[str, Any], List[str]]:
+    """Validate narrative agent output.
+
+    Checks:
+        1. Year ordering — year_sections should be chronological.
+        2. Inflection plausibility — flag years with more than 3 quarterly inflections.
+        3. Chapter spanning — warn if a narrative chapter covers only 1 year.
+
+    Note: data_completeness is computed by the agent itself (not overridden here)
+    because the narrative agent has different inputs than the standard agent_results pattern.
+
+    Returns:
+        (validated_narrative, warnings)
+    """
+    warnings: List[str] = []
+    validated = dict(narrative)
+
+    # 1. Year ordering
+    year_sections = validated.get("year_sections", [])
+    if len(year_sections) >= 2:
+        years = [ys.get("year", 0) for ys in year_sections]
+        if years != sorted(years):
+            warnings.append(
+                f"Year sections not in chronological order: {years}. Expected ascending."
+            )
+
+    # 2. Inflection plausibility
+    for ys in year_sections:
+        inflections = ys.get("quarterly_inflections", [])
+        year = ys.get("year", "?")
+        if len(inflections) > 3:
+            warnings.append(
+                f"Year {year} has {len(inflections)} quarterly inflections "
+                f"(expected 0-2 significant ones, max 3)"
+            )
+
+    # 3. Chapter spanning
+    for ch in validated.get("narrative_chapters", []):
+        years_covered = ch.get("years_covered", "")
+        title = ch.get("title", "?")
+        # Check if it looks like a single year (no dash/range)
+        if years_covered and "-" not in years_covered:
+            warnings.append(
+                f"Narrative chapter '{title}' covers only '{years_covered}' — "
+                f"chapters should span multiple years"
+            )
+
+    return validated, warnings
+
+
+# ─── Risk Diff Output ─────────────────────────────────────────────────────
+
+
+VALID_CHANGE_TYPES = {"new", "removed", "escalated", "de-escalated", "reworded"}
+VALID_SEVERITIES = {"high", "medium", "low"}
+
+
+def validate_risk_diff_output(
+    risk_diff: Dict[str, Any],
+) -> Tuple[Dict[str, Any], List[str]]:
+    """Validate risk diff agent output.
+
+    Checks:
+        1. Risk score bounds — clamp risk_score to [0, 100].
+        2. Risk score delta bounds — clamp risk_score_delta to [-50, +50].
+        3. Change type validation — verify all change_type values are valid.
+        4. Severity validation — verify all severity values are valid.
+        5. Diff consistency — if has_diff=False, warn if diff fields are non-empty.
+
+    Returns:
+        (validated_risk_diff, warnings)
+    """
+    warnings: List[str] = []
+    validated = dict(risk_diff)
+
+    # 1. Risk score bounds
+    risk_score = _safe_float(validated.get("risk_score", 0))
+    if risk_score is not None:
+        if risk_score < 0 or risk_score > 100:
+            warnings.append(
+                f"risk_score {risk_score} out of bounds [0, 100], clamped to {_clamp(risk_score, 0, 100)}"
+            )
+            risk_score = _clamp(risk_score, 0, 100)
+        validated["risk_score"] = risk_score
+
+    # 2. Risk score delta bounds
+    delta = _safe_float(validated.get("risk_score_delta", 0))
+    if delta is not None:
+        if delta < -50 or delta > 50:
+            warnings.append(
+                f"risk_score_delta {delta} out of bounds [-50, +50], clamped to {_clamp(delta, -50, 50)}"
+            )
+            delta = _clamp(delta, -50, 50)
+        validated["risk_score_delta"] = delta
+
+    # 3. Change type validation
+    for list_key in ("new_risks", "removed_risks", "changed_risks"):
+        for item in validated.get(list_key, []):
+            ct = item.get("change_type", "")
+            if ct and ct not in VALID_CHANGE_TYPES:
+                warnings.append(
+                    f"Invalid change_type '{ct}' in {list_key}. "
+                    f"Expected one of: {sorted(VALID_CHANGE_TYPES)}"
+                )
+
+    # 4. Severity validation
+    for list_key in ("new_risks", "removed_risks", "changed_risks", "current_risk_inventory"):
+        for item in validated.get(list_key, []):
+            sev = item.get("severity", "")
+            if sev and sev not in VALID_SEVERITIES:
+                warnings.append(
+                    f"Invalid severity '{sev}' in {list_key}. "
+                    f"Expected one of: {sorted(VALID_SEVERITIES)}"
+                )
+
+    # 5. Diff consistency
+    has_diff = validated.get("has_diff", False)
+    if not has_diff:
+        has_diff_data = (
+            len(validated.get("new_risks", [])) > 0
+            or len(validated.get("removed_risks", [])) > 0
+            or len(validated.get("changed_risks", [])) > 0
+        )
+        if has_diff_data:
+            warnings.append(
+                "has_diff is False but diff fields (new_risks, removed_risks, changed_risks) "
+                "are non-empty. This is inconsistent."
+            )
+
+    return validated, warnings

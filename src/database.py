@@ -630,6 +630,25 @@ class DatabaseManager:
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_inflection_ticker ON inflection_events(ticker, detected_at)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_inflection_convergence ON inflection_events(ticker, convergence_score)")
 
+            # Company qualitative tags
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS company_tags (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ticker TEXT NOT NULL,
+                    tag TEXT NOT NULL,
+                    category TEXT NOT NULL,
+                    evidence TEXT,
+                    source_agent TEXT DEFAULT 'tag_extractor',
+                    analysis_id INTEGER,
+                    first_seen DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    last_seen DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(ticker, tag)
+                )
+            """)
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_company_tags_ticker ON company_tags(ticker)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_company_tags_tag ON company_tags(tag)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_company_tags_category ON company_tags(category)")
+
             # Ensure singleton portfolio profile exists and seed macro events.
             self._ensure_alert_rule_schema(cursor)
             self._ensure_portfolio_profile_row(cursor)
@@ -3259,3 +3278,89 @@ class DatabaseManager:
                     except Exception:
                         pass
             return result
+
+    # ── Company Tags ─────────────────────────────────────────────────────────
+
+    def upsert_company_tags(self, ticker: str, tags: list, analysis_id: int):
+        """Upsert company tags — insert new, update existing (preserves first_seen)."""
+        with self.get_connection() as conn:
+            for tag_data in tags:
+                conn.execute("""
+                    INSERT INTO company_tags (ticker, tag, category, evidence, analysis_id, first_seen, last_seen)
+                    VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    ON CONFLICT(ticker, tag) DO UPDATE SET
+                        evidence = excluded.evidence,
+                        analysis_id = excluded.analysis_id,
+                        last_seen = CURRENT_TIMESTAMP
+                """, (
+                    ticker,
+                    tag_data["tag"],
+                    tag_data["category"],
+                    tag_data.get("evidence"),
+                    analysis_id,
+                ))
+
+    def get_company_tags(self, ticker: str) -> list:
+        """Get all tags for a ticker, ordered by category then tag."""
+        with self.get_connection() as conn:
+            cursor = conn.execute("""
+                SELECT tag, category, evidence, source_agent, analysis_id,
+                       first_seen, last_seen
+                FROM company_tags
+                WHERE ticker = ?
+                ORDER BY category, tag
+            """, (ticker,))
+            return [
+                {
+                    "tag": row[0], "category": row[1], "evidence": row[2],
+                    "source_agent": row[3], "analysis_id": row[4],
+                    "first_seen": row[5], "last_seen": row[6],
+                }
+                for row in cursor.fetchall()
+            ]
+
+    def screen_by_tags(self, tags: list, max_age_days: int = None) -> list:
+        """Find tickers that have ALL specified tags, with optional recency filter."""
+        if not tags:
+            return []
+        placeholders = ",".join("?" * len(tags))
+        age_clause = ""
+        params = list(tags)
+        if max_age_days is not None:
+            age_clause = "AND last_seen >= datetime('now', ?)"
+            params.append(f"-{max_age_days} days")
+        params.append(len(tags))
+
+        with self.get_connection() as conn:
+            cursor = conn.execute(f"""
+                SELECT ticker, COUNT(DISTINCT tag) as matching_tags
+                FROM company_tags
+                WHERE tag IN ({placeholders})
+                {age_clause}
+                GROUP BY ticker
+                HAVING COUNT(DISTINCT tag) = ?
+            """, params)
+            rows = cursor.fetchall()
+
+        results = []
+        for row in rows:
+            ticker = row[0]
+            all_tags = self.get_company_tags(ticker)
+            results.append({
+                "ticker": ticker,
+                "matching_tags": row[1],
+                "total_tags": len(all_tags),
+                "tags": all_tags,
+            })
+        return results
+
+    def delete_company_tags(self, ticker: str, tags: list):
+        """Delete specific tags for a ticker (manual removal)."""
+        if not tags:
+            return
+        placeholders = ",".join("?" * len(tags))
+        with self.get_connection() as conn:
+            conn.execute(
+                f"DELETE FROM company_tags WHERE ticker = ? AND tag IN ({placeholders})",
+                [ticker] + list(tags),
+            )

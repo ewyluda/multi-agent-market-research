@@ -22,3 +22,4 @@ openbb>=4.7.0
 openbb-fmp>=1.0.0
 openbb-fred>=1.0.0
 openbb-yfinance>=1.0.0
+beautifulsoup4>=4.12.0

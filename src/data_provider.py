@@ -1246,3 +1246,205 @@ class OpenBBDataProvider:
         except Exception as e:
             logger.warning("OpenBB peers fetch failed for %s: %s", ticker, e)
             return None
+
+    # ------------------------------------------------------------------
+    # SEC EDGAR Integration
+    # ------------------------------------------------------------------
+
+    TTL_SEC_FILINGS = 86400  # 24 hours
+
+    async def _resolve_cik(self, ticker: str) -> Optional[str]:
+        """Resolve ticker to zero-padded SEC CIK number.
+
+        Uses https://www.sec.gov/files/company_tickers.json — a free,
+        unthrottled endpoint mapping tickers to CIK numbers.
+
+        Returns:
+            Zero-padded CIK string (e.g. '0000320193'), or None if not found.
+        """
+        # Check in-memory CIK cache
+        if not hasattr(self, "_cik_cache"):
+            self._cik_cache: Dict[str, str] = {}
+        ticker_upper = ticker.upper()
+        if ticker_upper in self._cik_cache:
+            return self._cik_cache[ticker_upper]
+
+        url = "https://www.sec.gov/files/company_tickers.json"
+        user_agent = self._config.get(
+            "SEC_EDGAR_USER_AGENT",
+            "MarketResearch/1.0 (research@example.com)",
+        )
+        try:
+            async with aiohttp.ClientSession() as session:
+                headers = {"User-Agent": user_agent}
+                async with session.get(
+                    url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)
+                ) as resp:
+                    if resp.status != 200:
+                        logger.warning("SEC company_tickers.json returned %d", resp.status)
+                        return None
+                    data = await resp.json()
+                    for entry in data.values():
+                        if entry.get("ticker", "").upper() == ticker_upper:
+                            cik_raw = entry.get("cik_str")
+                            if cik_raw is not None:
+                                cik_padded = str(cik_raw).zfill(10)
+                                self._cik_cache[ticker_upper] = cik_padded
+                                return cik_padded
+        except Exception as e:
+            logger.warning("CIK resolution failed for %s: %s", ticker, e)
+        return None
+
+    async def get_sec_filing_metadata(
+        self,
+        ticker: str,
+        filing_type: str = "10-K",
+        limit: int = 3,
+    ) -> List[Dict[str, Any]]:
+        """Fetch SEC filing metadata from FMP.
+
+        Uses ``/stable/sec-filings?symbol={ticker}&type={filing_type}&limit={limit}``.
+
+        Returns:
+            List of dicts with keys: filing_type, filing_date, filing_url, accession_number.
+            Empty list on failure.
+        """
+        ck = self._cache_key("sec_filing_metadata", ticker, filing_type=filing_type, limit=limit)
+        cached = self._cache_get(ck)
+        if cached is not None:
+            return cached
+
+        fmp_key = self._config.get("FMP_API_KEY", "")
+        if not fmp_key:
+            logger.warning("No FMP_API_KEY — cannot fetch SEC filing metadata")
+            return []
+
+        url = (
+            f"https://financialmodelingprep.com/stable/sec-filings"
+            f"?symbol={ticker.upper()}&type={filing_type}&limit={limit}&apikey={fmp_key}"
+        )
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    url, timeout=aiohttp.ClientTimeout(total=15)
+                ) as resp:
+                    if resp.status != 200:
+                        logger.warning("FMP sec-filings returned %d for %s", resp.status, ticker)
+                        return []
+                    raw = await resp.json()
+                    if not isinstance(raw, list):
+                        return []
+
+                    filings = []
+                    for item in raw:
+                        filing_url = item.get("finalLink") or item.get("link", "")
+                        filings.append({
+                            "filing_type": item.get("type", filing_type),
+                            "filing_date": item.get("fillingDate", ""),
+                            "filing_url": filing_url,
+                            "accession_number": item.get("cik", ""),
+                        })
+                    self._cache_put(ck, filings, self.TTL_SEC_FILINGS)
+                    return filings
+        except Exception as e:
+            logger.warning("FMP sec-filings fetch failed for %s: %s", ticker, e)
+            return []
+
+    async def get_sec_filing_section(
+        self,
+        ticker: str,
+        filing_url: str,
+        section: str = "1A",
+    ) -> Optional[Dict[str, Any]]:
+        """Fetch a SEC filing HTML and extract a section (default: Item 1A Risk Factors).
+
+        Two-tier extraction:
+            1. Fast path: BeautifulSoup + regex for section headers.
+            2. Returns None if fast path fails (caller handles LLM fallback).
+
+        Returns:
+            Dict with section_text, extraction_method, char_count — or None on failure.
+        """
+        user_agent = self._config.get(
+            "SEC_EDGAR_USER_AGENT",
+            "MarketResearch/1.0 (research@example.com)",
+        )
+        try:
+            async with aiohttp.ClientSession() as session:
+                headers = {"User-Agent": user_agent}
+                async with session.get(
+                    filing_url,
+                    headers=headers,
+                    timeout=aiohttp.ClientTimeout(total=30),
+                ) as resp:
+                    if resp.status != 200:
+                        logger.warning(
+                            "EDGAR filing fetch returned %d for %s (%s)",
+                            resp.status, ticker, filing_url,
+                        )
+                        return None
+                    html = await resp.text()
+        except Exception as e:
+            logger.warning("EDGAR filing fetch failed for %s: %s", ticker, e)
+            return None
+
+        # Fast path: pattern matching
+        section_text = self._parse_risk_section(html)
+        if section_text:
+            return {
+                "section_text": section_text,
+                "extraction_method": "pattern",
+                "char_count": len(section_text),
+            }
+
+        # Fast path failed — return None so caller can try LLM fallback
+        # Also provide stripped text for the LLM fallback
+        try:
+            from bs4 import BeautifulSoup
+            soup = BeautifulSoup(html, "html.parser")
+            clean_text = soup.get_text(separator="\n")
+            # Truncate to 30K chars for LLM fallback
+            return {
+                "section_text": None,
+                "extraction_method": "needs_llm_fallback",
+                "char_count": 0,
+                "raw_text_for_fallback": clean_text[:30000],
+            }
+        except Exception:
+            return None
+
+    @staticmethod
+    def _parse_risk_section(html: str) -> Optional[str]:
+        """Extract Item 1A Risk Factors section from filing HTML.
+
+        Uses BeautifulSoup to get plain text, then regex to find
+        the section boundaries.
+
+        Returns:
+            Extracted section text, or None if parsing fails.
+        """
+        if not html or len(html) < 100:
+            return None
+        try:
+            from bs4 import BeautifulSoup
+            soup = BeautifulSoup(html, "html.parser")
+            text = soup.get_text(separator="\n")
+
+            # Find Item 1A header
+            import re as _re
+            pattern = r"(?:Item\s*1A[\.\s\-\u2014:]*Risk\s*Factors)"
+            match = _re.search(pattern, text, _re.IGNORECASE)
+            if not match:
+                return None
+
+            start = match.start()
+
+            # Find next Item header (Item 1B, Item 2, etc.)
+            end_pattern = r"(?:Item\s*(?:1B|2)[\.\s\-\u2014:])"
+            end_match = _re.search(end_pattern, text[start + 100:], _re.IGNORECASE)
+            end = (start + 100 + end_match.start()) if end_match else start + 50000
+
+            section = text[start:end].strip()
+            return section if len(section) > 200 else None
+        except Exception:
+            return None

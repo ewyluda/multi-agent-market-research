@@ -3,7 +3,7 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from typing import Optional, Dict, Any
 import json
 import math
@@ -138,6 +138,81 @@ async def root():
             "alert_notifications": "GET /api/alerts/notifications",
             "health": "GET /health"
         }
+    }
+
+
+# ─── Tag Screening & CRUD ────────────────────────────────────────────────────
+
+from .agents.tag_extractor_agent import ALL_TAGS, TAG_TO_CATEGORY
+
+
+@app.get("/api/screen")
+async def screen_by_tags(tags: str, max_age_days: int = None):
+    """Screen companies by qualitative tag combinations."""
+    tag_list = [t.strip() for t in tags.split(",") if t.strip()]
+    if not tag_list:
+        return JSONResponse(status_code=400, content={"error": "tags parameter required"})
+
+    db = app.state.db_manager
+    results = db.screen_by_tags(tag_list, max_age_days=max_age_days)
+
+    return {
+        "tags_queried": tag_list,
+        "max_age_days": max_age_days,
+        "results": results,
+        "count": len(results),
+    }
+
+
+@app.get("/api/tags/{ticker}")
+async def get_company_tags(ticker: str):
+    """Get all qualitative tags for a company."""
+    db = app.state.db_manager
+    tags = db.get_company_tags(ticker.upper())
+    return {
+        "ticker": ticker.upper(),
+        "tags": tags,
+        "count": len(tags),
+    }
+
+
+@app.post("/api/tags/{ticker}")
+async def update_company_tags(ticker: str, body: dict):
+    """Manually add or remove tags for a company."""
+    db = app.state.db_manager
+    ticker = ticker.upper()
+
+    # Add tags
+    add_tags = body.get("add", [])
+    if add_tags:
+        # Validate all tags are in taxonomy
+        invalid = [t["tag"] for t in add_tags if t.get("tag") not in ALL_TAGS]
+        if invalid:
+            return JSONResponse(
+                status_code=400,
+                content={"error": f"Invalid tags: {invalid}. Must be from predefined taxonomy."},
+            )
+        # Enrich with correct category
+        enriched = []
+        for t in add_tags:
+            enriched.append({
+                "tag": t["tag"],
+                "category": TAG_TO_CATEGORY[t["tag"]],
+                "evidence": t.get("evidence", "Manual tag"),
+            })
+        db.upsert_company_tags(ticker, enriched, analysis_id=None)
+
+    # Remove tags
+    remove_tags = body.get("remove", [])
+    if remove_tags:
+        db.delete_company_tags(ticker, remove_tags)
+
+    # Return updated tags
+    tags = db.get_company_tags(ticker)
+    return {
+        "ticker": ticker,
+        "tags": tags,
+        "count": len(tags),
     }
 
 

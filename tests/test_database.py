@@ -937,3 +937,136 @@ class TestThesisHealthAndSynthesisTables:
 
     def test_get_latest_council_synthesis_nonexistent(self, db_manager):
         assert db_manager.get_latest_council_synthesis("ZZZZ") is None
+
+
+from datetime import datetime, timedelta
+
+
+class TestCompanyTags:
+    """Tests for company_tags table and methods."""
+
+    def test_company_tags_table_exists(self, db_manager, tmp_db_path):
+        """company_tags table is created on initialization."""
+        import sqlite3
+        conn = sqlite3.connect(tmp_db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='company_tags'")
+        assert cursor.fetchone() is not None
+        conn.close()
+
+    def test_upsert_inserts_new_tags(self, db_manager):
+        tags = [
+            {"tag": "recurring_revenue", "category": "business_model", "evidence": "High retention"},
+            {"tag": "pricing_power", "category": "growth_drivers", "evidence": "Strong moat"},
+        ]
+        db_manager.upsert_company_tags("AAPL", tags, analysis_id=1)
+        result = db_manager.get_company_tags("AAPL")
+        assert len(result) == 2
+        tag_names = {t["tag"] for t in result}
+        assert "recurring_revenue" in tag_names
+        assert "pricing_power" in tag_names
+
+    def test_upsert_updates_existing_tag(self, db_manager):
+        tags1 = [{"tag": "recurring_revenue", "category": "business_model", "evidence": "Old evidence"}]
+        db_manager.upsert_company_tags("AAPL", tags1, analysis_id=1)
+
+        tags2 = [{"tag": "recurring_revenue", "category": "business_model", "evidence": "New evidence"}]
+        db_manager.upsert_company_tags("AAPL", tags2, analysis_id=2)
+
+        result = db_manager.get_company_tags("AAPL")
+        assert len(result) == 1
+        assert result[0]["evidence"] == "New evidence"
+        assert result[0]["analysis_id"] == 2
+
+    def test_upsert_preserves_first_seen(self, db_manager):
+        tags = [{"tag": "debt_heavy", "category": "risk_flags", "evidence": "High leverage"}]
+        db_manager.upsert_company_tags("AAPL", tags, analysis_id=1)
+        result1 = db_manager.get_company_tags("AAPL")
+        first_seen_1 = result1[0]["first_seen"]
+
+        # Upsert again — first_seen should NOT change
+        db_manager.upsert_company_tags("AAPL", tags, analysis_id=2)
+        result2 = db_manager.get_company_tags("AAPL")
+        assert result2[0]["first_seen"] == first_seen_1
+
+    def test_get_tags_empty_ticker(self, db_manager):
+        result = db_manager.get_company_tags("UNKNOWN")
+        assert result == []
+
+    def test_get_tags_ordered_by_category(self, db_manager):
+        tags = [
+            {"tag": "pricing_power", "category": "growth_drivers", "evidence": "Moat"},
+            {"tag": "recurring_revenue", "category": "business_model", "evidence": "Subs"},
+            {"tag": "debt_heavy", "category": "risk_flags", "evidence": "Leverage"},
+        ]
+        db_manager.upsert_company_tags("AAPL", tags, analysis_id=1)
+        result = db_manager.get_company_tags("AAPL")
+        categories = [t["category"] for t in result]
+        assert categories == sorted(categories)
+
+    def test_screen_by_tags_finds_matching_tickers(self, db_manager):
+        db_manager.upsert_company_tags("AAPL", [
+            {"tag": "recurring_revenue", "category": "business_model", "evidence": "Subs"},
+            {"tag": "pricing_power", "category": "growth_drivers", "evidence": "Moat"},
+        ], analysis_id=1)
+        db_manager.upsert_company_tags("MSFT", [
+            {"tag": "recurring_revenue", "category": "business_model", "evidence": "Cloud"},
+            {"tag": "pricing_power", "category": "growth_drivers", "evidence": "Enterprise"},
+        ], analysis_id=2)
+        db_manager.upsert_company_tags("TSLA", [
+            {"tag": "recurring_revenue", "category": "business_model", "evidence": "FSD subs"},
+        ], analysis_id=3)
+
+        # Both tags required — TSLA only has one
+        result = db_manager.screen_by_tags(["recurring_revenue", "pricing_power"])
+        tickers = {r["ticker"] for r in result}
+        assert "AAPL" in tickers
+        assert "MSFT" in tickers
+        assert "TSLA" not in tickers
+
+    def test_screen_by_tags_single_tag(self, db_manager):
+        db_manager.upsert_company_tags("AAPL", [
+            {"tag": "recurring_revenue", "category": "business_model", "evidence": "Subs"},
+        ], analysis_id=1)
+        db_manager.upsert_company_tags("TSLA", [
+            {"tag": "recurring_revenue", "category": "business_model", "evidence": "FSD"},
+        ], analysis_id=2)
+
+        result = db_manager.screen_by_tags(["recurring_revenue"])
+        assert len(result) == 2
+
+    def test_screen_by_tags_empty_result(self, db_manager):
+        result = db_manager.screen_by_tags(["nonexistent_tag"])
+        assert result == []
+
+    def test_screen_by_tags_with_max_age(self, db_manager):
+        db_manager.upsert_company_tags("AAPL", [
+            {"tag": "recurring_revenue", "category": "business_model", "evidence": "Subs"},
+        ], analysis_id=1)
+
+        # Manually backdate last_seen to 100 days ago
+        with db_manager.get_connection() as conn:
+            old_date = (datetime.utcnow() - timedelta(days=100)).isoformat()
+            conn.execute(
+                "UPDATE company_tags SET last_seen = ? WHERE ticker = 'AAPL'",
+                (old_date,)
+            )
+
+        # max_age_days=90 should exclude AAPL
+        result = db_manager.screen_by_tags(["recurring_revenue"], max_age_days=90)
+        assert len(result) == 0
+
+        # max_age_days=120 should include AAPL
+        result = db_manager.screen_by_tags(["recurring_revenue"], max_age_days=120)
+        assert len(result) == 1
+
+    def test_delete_company_tag(self, db_manager):
+        db_manager.upsert_company_tags("AAPL", [
+            {"tag": "recurring_revenue", "category": "business_model", "evidence": "Subs"},
+            {"tag": "debt_heavy", "category": "risk_flags", "evidence": "Leverage"},
+        ], analysis_id=1)
+
+        db_manager.delete_company_tags("AAPL", ["debt_heavy"])
+        result = db_manager.get_company_tags("AAPL")
+        assert len(result) == 1
+        assert result[0]["tag"] == "recurring_revenue"
