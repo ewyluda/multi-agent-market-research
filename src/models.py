@@ -340,3 +340,48 @@ class ThesisOutput(BaseModel):
     data_completeness: float = Field(..., ge=0.0, le=1.0, description="0.0-1.0 data quality score")
     data_sources_used: List[str] = Field(default=[], description="Which agents contributed data")
     error: Optional[str] = None
+
+
+# ── Earnings Review Agent models ──────────────────────────────────────────────
+
+
+class BeatMiss(BaseModel):
+    """Earnings beat/miss for a single metric (deterministic)."""
+    metric: str = Field(..., description="Metric name: EPS, Revenue")
+    actual: Optional[float] = Field(default=None, description="Reported value")
+    estimate: Optional[float] = Field(default=None, description="Consensus estimate")
+    surprise_pct: Optional[float] = Field(default=None, description="Surprise percentage")
+    verdict: str = Field(..., description="beat, miss, or inline")
+
+
+class GuidanceDelta(BaseModel):
+    """Forward guidance change for a single metric."""
+    metric: str = Field(..., description="Revenue, EPS, Gross Margin, etc.")
+    prior_value: Optional[str] = Field(default=None, description="Prior guidance")
+    new_value: Optional[str] = Field(default=None, description="New guidance")
+    direction: str = Field(..., description="raised, lowered, maintained, introduced, withdrawn")
+
+
+class KPIRow(BaseModel):
+    """A single KPI from the earnings call."""
+    metric: str = Field(..., description="KPI name")
+    value: Optional[str] = Field(default=None, description="Current value")
+    prior_value: Optional[str] = Field(default=None, description="Prior quarter value")
+    yoy_change: Optional[str] = Field(default=None, description="Year-over-year change")
+    source: str = Field(..., description="reported, call_disclosed, or calculated")
+
+
+class EarningsReviewOutput(BaseModel):
+    """Complete structured earnings review output."""
+    executive_summary: str = Field(..., description="3-5 sentence key takeaways")
+    beat_miss: List[BeatMiss] = Field(default=[], description="EPS + Revenue beat/miss")
+    guidance_deltas: List[GuidanceDelta] = Field(default=[], description="Forward guidance changes")
+    kpi_table: List[KPIRow] = Field(default=[], description="8-15 key metrics")
+    management_tone: str = Field(..., description="confident, cautious, defensive, etc.")
+    notable_quotes: List[str] = Field(default=[], description="2-3 notable management quotes")
+    thesis_impact: str = Field(default="", description="How this quarter affects investment thesis")
+    one_offs: List[str] = Field(default=[], description="Non-recurring items")
+    sector_template: str = Field(default="default", description="Which sector template was used")
+    data_completeness: float = Field(..., ge=0.0, le=1.0, description="0.0-1.0 data quality score")
+    data_sources_used: List[str] = Field(default=[], description="Which agents contributed data")
+    error: Optional[str] = None
