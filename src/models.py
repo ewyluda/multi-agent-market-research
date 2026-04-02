@@ -304,6 +304,9 @@ class CouncilAnalysisResponse(BaseModel):
     synthesis: Optional[dict] = Field(default=None, description="Council synthesis: consensus + narrative")
 
 
+# ── Thesis Agent models ───────────────────────────────────────────────────
+
+
 class TensionPoint(BaseModel):
     """A point of debate between bull and bear investment theses."""
     topic: str = Field(..., description="Debate topic, e.g. 'Revenue Sustainability'")

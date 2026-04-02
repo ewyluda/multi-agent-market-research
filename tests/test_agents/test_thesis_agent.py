@@ -1,6 +1,7 @@
 """Tests for ThesisAgent — models, data gate, prompts, guardrails."""
 
 import pytest
+from pydantic import ValidationError
 from src.models import TensionPoint, ManagementQuestion, ThesisCase, ThesisOutput
 
 
@@ -26,7 +27,7 @@ class TestThesisModels:
         )
         assert mq.role == "CEO"
 
-    def test_management_question_role_must_be_ceo_or_cfo(self):
+    def test_management_question_accepts_any_role_string(self):
         mq = ManagementQuestion(
             role="CTO",
             question="What about tech debt?",
@@ -80,7 +81,7 @@ class TestThesisModels:
 
     def test_thesis_output_data_completeness_clamped(self):
         """data_completeness must be between 0.0 and 1.0."""
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             ThesisOutput(
                 bull_case=ThesisCase(thesis="x", key_drivers=[], catalysts=[]),
                 bear_case=ThesisCase(thesis="x", key_drivers=[], catalysts=[]),
