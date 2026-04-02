@@ -4,6 +4,7 @@ import pytest
 from pydantic import ValidationError
 from src.models import TensionPoint, ManagementQuestion, ThesisCase, ThesisOutput
 from src.agents.thesis_agent import ThesisAgent
+from src.llm_guardrails import validate_thesis_output
 
 
 class TestThesisModels:
@@ -296,9 +297,6 @@ class TestThesisTieredExtraction:
         # Should not crash, just omit missing sections
         assert "Apple Inc." in rich
         assert "RSI" not in metrics
-
-
-from src.llm_guardrails import validate_thesis_output
 
 
 def _make_extracted_facts():
