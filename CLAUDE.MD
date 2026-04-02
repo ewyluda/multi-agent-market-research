@@ -23,6 +23,7 @@ User → FastAPI → Orchestrator → [7 Agents in Parallel] → Solution Agent 
 | Options | `options_agent.py` | yfinance via OpenBB | None |
 | Leadership | `leadership_agent.py` | LLM-powered executive assessment | N/A |
 | Thesis | `thesis_agent.py` | Two-pass LLM bull/bear debate (synthesis phase) | Pass 1 fallback |
+| EarningsReview | `earnings_review_agent.py` | Structured earnings digest with sector KPIs (synthesis phase) | Partial (deterministic beat/miss) |
 | Solution | `solution_agent.py` | Synthesizes all agent outputs (LLM) | N/A |
 | CouncilValidator | `council_validator_agent.py` | Validates council analysis coherence | N/A |
 | CouncilSynthesis | `council_synthesis_agent.py` | Aggregates council consensus | N/A |
@@ -128,6 +129,7 @@ Key config: `LLM_PROVIDER` (anthropic/openai/xai), `AGENT_TIMEOUT` (30s), `PARAL
 - `validate_scenarios()` — clamps returns to [-30%,+30%], enforces bull > base > bear monotonicity
 - `validate_equity_research()` — regex cross-checks LLM numeric claims against input metrics, warns on >20% deviation
 - `validate_thesis_output()` — evidence grounding (fuzzy-match vs extracted facts), catalyst specificity, cross-reference contradictions against agent data
+- `validate_earnings_review_output()` — beat/miss sanity (verdict vs surprise %), KPI value validation, guidance/tone consistency
 - All functions return `(validated_result, warnings)` — warnings stored in analysis output for transparency
 - Recommendation override: if 5+ of 7 agents disagree with LLM recommendation, forced to HOLD via `validation_rules.py`
 
@@ -136,7 +138,7 @@ Key config: `LLM_PROVIDER` (anthropic/openai/xai), `AGENT_TIMEOUT` (30s), `PARAL
 2. Resolves agents from `AGENT_REGISTRY` (auto-resolves dependencies)
 3. Runs data agents in parallel via `asyncio.gather(return_exceptions=True)`
 4. Runs sentiment agent (depends on news + market + twitter_posts)
-5. Solution + Thesis agents run in parallel (`asyncio.gather`) → DB save → perception snapshot + inflection detection → alert evaluation → cleanup
+5. Solution + Thesis + EarningsReview agents run in parallel (`asyncio.gather`) → DB save → perception snapshot + inflection detection → alert evaluation → cleanup
 
 ### Perception Ledger Flow
 After DB save, the orchestrator:
