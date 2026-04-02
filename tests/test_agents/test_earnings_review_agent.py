@@ -1,6 +1,8 @@
 """Tests for EarningsReviewAgent — models, deterministic, LLM, guardrails."""
 
 import pytest
+import json as json_module
+from unittest.mock import patch as mock_patch, AsyncMock as MockAsync
 from pydantic import ValidationError
 from src.models import BeatMiss, GuidanceDelta, KPIRow, EarningsReviewOutput
 from src.agents.earnings_review_agent import EarningsReviewAgent, SECTOR_KPI_TEMPLATES, DEFAULT_KPI_TEMPLATE
@@ -340,3 +342,122 @@ class TestEarningsReviewGuardrails:
         review["beat_miss"] = [{"metric": "EPS", "actual": 1.80, "estimate": 2.15, "surprise_pct": -16.28, "verdict": "beat"}]
         validated, warnings = validate_earnings_review_output(review, _make_agent_results())
         assert any("beat" in w.lower() or "verdict" in w.lower() or "mismatch" in w.lower() for w in warnings)
+
+
+MOCK_LLM_RESPONSE = json_module.dumps({
+    "executive_summary": "Apple delivered a strong Q1 with EPS beating estimates by 12%. Revenue guidance raised to $93-95B.",
+    "guidance_deltas": [
+        {"metric": "Revenue", "prior_value": "$90-92B", "new_value": "$93-95B", "direction": "raised"},
+    ],
+    "kpi_table": [
+        {"metric": "Gross Margin", "value": "46%", "prior_value": "45%", "yoy_change": "+1pp", "source": "reported"},
+        {"metric": "ARR", "value": "$5.2B", "prior_value": "$4.8B", "yoy_change": "+8.3%", "source": "call_disclosed"},
+        {"metric": "R&D % of Revenue", "value": "7.2%", "prior_value": "6.8%", "yoy_change": "+0.4pp", "source": "calculated"},
+    ],
+    "management_tone": "confident",
+    "notable_quotes": [
+        "We see strong momentum in AI and expect it to be a meaningful revenue driver.",
+        "Our services business continues to hit all-time highs.",
+    ],
+    "thesis_impact": "Confirms the bull case — growth is accelerating and guidance raise signals management confidence.",
+    "one_offs": ["$200M restructuring charge related to workforce optimization"],
+})
+
+
+class TestEarningsReviewLLMFlow:
+    """Tests for single-pass LLM flow with mocked responses."""
+
+    @pytest.mark.asyncio
+    async def test_full_flow_with_llm(self):
+        agent = EarningsReviewAgent("AAPL", {"llm_config": {"provider": "none"}}, _make_agent_results())
+
+        async def mock_call_llm(prompt):
+            return MOCK_LLM_RESPONSE
+
+        with mock_patch.object(agent, "_call_llm", side_effect=mock_call_llm):
+            with mock_patch("src.llm_guardrails.validate_earnings_review_output", return_value=({
+                **json_module.loads(MOCK_LLM_RESPONSE),
+                "beat_miss": [{"metric": "EPS", "actual": 2.40, "estimate": 2.15, "surprise_pct": 11.63, "verdict": "beat"}],
+                "sector_template": "Technology",
+                "data_completeness": 1.0,
+                "data_sources_used": ["earnings", "fundamentals", "market"],
+            }, [])):
+                result = await agent.analyze(agent.agent_results)
+
+        assert result["executive_summary"] != ""
+        assert len(result["beat_miss"]) >= 1
+        assert result["beat_miss"][0]["verdict"] == "beat"
+        assert len(result["kpi_table"]) >= 3
+        assert result["management_tone"] == "confident"
+        assert result["sector_template"] == "Technology"
+
+    @pytest.mark.asyncio
+    async def test_llm_failure_returns_partial(self):
+        agent = EarningsReviewAgent("AAPL", {"llm_config": {"provider": "none"}}, _make_agent_results())
+
+        async def mock_fail(prompt):
+            raise Exception("LLM unavailable")
+
+        with mock_patch.object(agent, "_call_llm", side_effect=mock_fail):
+            result = await agent.analyze(agent.agent_results)
+
+        # Should still have deterministic beat/miss
+        assert result.get("partial") is True
+        assert len(result["beat_miss"]) >= 1
+        assert result["beat_miss"][0]["verdict"] == "beat"
+        assert result["kpi_table"] == []
+
+    @pytest.mark.asyncio
+    async def test_no_transcript_returns_partial(self):
+        results = _make_agent_results(has_transcript=False)
+        agent = EarningsReviewAgent("AAPL", {"llm_config": {"provider": "none"}}, results)
+
+        call_count = 0
+
+        async def mock_call_llm(prompt):
+            nonlocal call_count
+            call_count += 1
+            return "{}"
+
+        with mock_patch.object(agent, "_call_llm", side_effect=mock_call_llm):
+            result = await agent.analyze(results)
+
+        assert call_count == 0  # LLM not called for partial
+        assert result.get("partial") is True
+        assert len(result["beat_miss"]) >= 1
+
+    @pytest.mark.asyncio
+    async def test_no_earnings_returns_empty(self):
+        results = _make_agent_results(earnings=False)
+        agent = EarningsReviewAgent("AAPL", {"llm_config": {"provider": "none"}}, results)
+
+        result = await agent.analyze(results)
+
+        # No earnings means no transcript → partial result path
+        assert result.get("partial") is True
+        assert result["beat_miss"] == []
+        assert result["kpi_table"] == []
+
+
+class TestEarningsReviewPrompt:
+    """Tests for prompt construction."""
+
+    def test_prompt_contains_ticker(self):
+        agent = EarningsReviewAgent("AAPL", {"llm_config": {}}, _make_agent_results())
+        prompt = agent._build_prompt()
+        assert "AAPL" in prompt
+
+    def test_prompt_contains_sector_template(self):
+        agent = EarningsReviewAgent("AAPL", {"llm_config": {}}, _make_agent_results())
+        prompt = agent._build_prompt()
+        assert "ARR" in prompt  # Technology template includes ARR
+
+    def test_prompt_contains_eps_history(self):
+        agent = EarningsReviewAgent("AAPL", {"llm_config": {}}, _make_agent_results())
+        prompt = agent._build_prompt()
+        assert "2.40" in prompt or "Q1'26" in prompt
+
+    def test_prompt_contains_market_context(self):
+        agent = EarningsReviewAgent("AAPL", {"llm_config": {}}, _make_agent_results())
+        prompt = agent._build_prompt()
+        assert "195" in prompt or "220" in prompt  # price or 52w high
