@@ -468,3 +468,84 @@ def _cross_reference_claims(
                         f"Contradiction: thesis claims '{phrase}' but fundamentals show "
                         f"revenue decline of {rev_growth * 100:.1f}%"
                     )
+
+
+# ─── Earnings Review Output ────────────────────────────────────────────────
+
+
+def validate_earnings_review_output(
+    review: Dict[str, Any],
+    agent_results: Dict[str, Any],
+) -> Tuple[Dict[str, Any], List[str]]:
+    """Validate earnings review agent output.
+
+    Checks:
+        1. Beat/miss sanity — verdict matches surprise_pct direction.
+        2. KPI value validation — flag unreasonable values.
+        3. Guidance/tone consistency — flag raised guidance with defensive tone.
+        4. Data completeness override — deterministic recalculation.
+
+    Returns:
+        (validated_review, warnings)
+    """
+    warnings: List[str] = []
+    validated = dict(review)
+
+    # 1. Beat/miss sanity
+    for bm in validated.get("beat_miss", []):
+        surprise = bm.get("surprise_pct")
+        verdict = bm.get("verdict", "")
+        if surprise is not None:
+            expected_verdict = "beat" if surprise > 1.0 else "miss" if surprise < -1.0 else "inline"
+            if verdict != expected_verdict:
+                warnings.append(
+                    f"Beat/miss verdict mismatch for {bm.get('metric', '?')}: "
+                    f"verdict='{verdict}' but surprise={surprise:.1f}% implies '{expected_verdict}'"
+                )
+
+    # 2. KPI value validation
+    for kpi in validated.get("kpi_table", []):
+        value_str = (kpi.get("value") or "").strip()
+        metric_lower = kpi.get("metric", "").lower()
+        # Check percentage values > 100% for margin-type metrics
+        if "margin" in metric_lower or "retention" in metric_lower:
+            pct_match = re.search(r"([\d.]+)\s*%", value_str)
+            if pct_match:
+                pct_val = float(pct_match.group(1))
+                # Net Revenue Retention can exceed 100%, margins generally shouldn't exceed ~80%
+                if "retention" not in metric_lower and pct_val > 100:
+                    warnings.append(
+                        f"Unreasonable KPI value: {kpi['metric']} = {value_str} (margin > 100%)"
+                    )
+
+    # 3. Guidance/tone consistency
+    guidance_deltas = validated.get("guidance_deltas", [])
+    has_raised = any(g.get("direction") == "raised" for g in guidance_deltas)
+    earnings_result = agent_results.get("earnings", {})
+    earnings_data = earnings_result.get("data") if isinstance(earnings_result, dict) else None
+    if earnings_data and has_raised:
+        tone = earnings_data.get("tone", "")
+        if tone in ("defensive", "evasive"):
+            warnings.append(
+                f"Guidance/tone contradiction: guidance raised but EarningsAgent tone is '{tone}'"
+            )
+
+    # 4. Data completeness override
+    completeness_weights = {"earnings": 0.50, "fundamentals": 0.30, "market": 0.20}
+    deterministic_completeness = 0.0
+    for agent_name, weight in completeness_weights.items():
+        result = agent_results.get(agent_name, {})
+        if isinstance(result, dict) and result.get("success") and result.get("data"):
+            if agent_name == "earnings":
+                data = result.get("data", {})
+                highlights = data.get("highlights", [])
+                data_source = data.get("data_source", "")
+                if len(highlights) > 0 and data_source != "none":
+                    deterministic_completeness += weight
+                else:
+                    deterministic_completeness += 0.15
+            else:
+                deterministic_completeness += weight
+    validated["data_completeness"] = round(deterministic_completeness, 2)
+
+    return validated, warnings

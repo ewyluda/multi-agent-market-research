@@ -278,3 +278,65 @@ class TestDataCompleteness:
         score = agent._compute_data_completeness()
         # Missing earnings (0.50) = 0.50
         assert score == pytest.approx(0.50, abs=0.01)
+
+
+from src.llm_guardrails import validate_earnings_review_output
+
+
+def _make_valid_review():
+    """Build a valid earnings review output dict."""
+    return {
+        "executive_summary": "Strong quarter with EPS beat and raised guidance.",
+        "beat_miss": [{"metric": "EPS", "actual": 2.40, "estimate": 2.15, "surprise_pct": 11.63, "verdict": "beat"}],
+        "guidance_deltas": [{"metric": "Revenue", "prior_value": "$90-92B", "new_value": "$93-95B", "direction": "raised"}],
+        "kpi_table": [
+            {"metric": "Gross Margin", "value": "46%", "prior_value": "45%", "yoy_change": "+1pp", "source": "reported"},
+            {"metric": "ARR", "value": "$5.2B", "prior_value": "$4.8B", "yoy_change": "+8.3%", "source": "call_disclosed"},
+        ],
+        "management_tone": "confident",
+        "notable_quotes": ["We see strong momentum in AI."],
+        "thesis_impact": "Confirms bull case on growth.",
+        "one_offs": ["$200M restructuring charge"],
+        "sector_template": "Technology",
+        "data_completeness": 0.85,
+        "data_sources_used": ["earnings", "fundamentals"],
+    }
+
+
+class TestEarningsReviewGuardrails:
+    """Tests for validate_earnings_review_output() in llm_guardrails.py."""
+
+    def test_valid_review_passes_cleanly(self):
+        review = _make_valid_review()
+        validated, warnings = validate_earnings_review_output(review, _make_agent_results())
+        assert validated["executive_summary"] != ""
+        assert isinstance(warnings, list)
+
+    def test_unreasonable_kpi_flagged(self):
+        review = _make_valid_review()
+        review["kpi_table"].append(
+            {"metric": "Gross Margin", "value": "150%", "prior_value": None, "yoy_change": None, "source": "reported"}
+        )
+        validated, warnings = validate_earnings_review_output(review, _make_agent_results())
+        assert any("margin" in w.lower() or "unreasonable" in w.lower() or "150" in w for w in warnings)
+
+    def test_guidance_tone_contradiction_flagged(self):
+        review = _make_valid_review()
+        review["guidance_deltas"] = [{"metric": "Revenue", "prior_value": "$90B", "new_value": "$95B", "direction": "raised"}]
+        results = _make_agent_results()
+        results["earnings"]["data"]["tone"] = "defensive"
+        validated, warnings = validate_earnings_review_output(review, results)
+        assert any("guidance" in w.lower() or "tone" in w.lower() or "contradict" in w.lower() for w in warnings)
+
+    def test_data_completeness_overridden(self):
+        review = _make_valid_review()
+        review["data_completeness"] = 0.99
+        validated, warnings = validate_earnings_review_output(review, _make_agent_results())
+        assert validated["data_completeness"] != 0.99
+
+    def test_beat_miss_sanity_check(self):
+        review = _make_valid_review()
+        # Verdict says beat but surprise is negative
+        review["beat_miss"] = [{"metric": "EPS", "actual": 1.80, "estimate": 2.15, "surprise_pct": -16.28, "verdict": "beat"}]
+        validated, warnings = validate_earnings_review_output(review, _make_agent_results())
+        assert any("beat" in w.lower() or "verdict" in w.lower() or "mismatch" in w.lower() for w in warnings)

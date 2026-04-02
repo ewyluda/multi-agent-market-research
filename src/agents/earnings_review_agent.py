@@ -93,12 +93,16 @@ class EarningsReviewAgent(BaseAgent):
             "thesis_impact": parsed.get("thesis_impact", ""),
             "one_offs": parsed.get("one_offs", []),
             "sector_template": sector_template_name,
+            "data_completeness": completeness,
+            "data_sources_used": sources,
         }
 
-        # Guardrails will be added in Task 3 (validate_earnings_review_output)
-        result["data_completeness"] = completeness
-        result["data_sources_used"] = sources
-        return result
+        # Guardrails
+        from ..llm_guardrails import validate_earnings_review_output
+        validated, warnings = validate_earnings_review_output(result, self.agent_results)
+        if warnings:
+            validated["guardrail_warnings"] = warnings
+        return validated
 
     # ─── Deterministic Computation ───────────────────────────────────────────
 
