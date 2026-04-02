@@ -604,3 +604,261 @@ class TestRiskDiffGuardrails:
         output["data_completeness"] = 0.85
         validated, warnings = validate_risk_diff_output(output)
         assert validated["data_completeness"] == 0.85
+
+
+# ── LLM Mock Tests & Prompt Tests ─────────────────────────────────────────────
+
+import json as json_module
+
+
+MOCK_PASS1_RESPONSE = json_module.dumps({
+    "risks": [
+        {
+            "topic": "Supply Chain Concentration",
+            "severity": "high",
+            "summary": "Company relies on limited suppliers for key components.",
+            "text_excerpt": "We rely on a limited number of suppliers...",
+        },
+        {
+            "topic": "Regulatory Risk",
+            "severity": "medium",
+            "summary": "Subject to evolving government regulations.",
+            "text_excerpt": "Changes in laws and regulations could impact...",
+        },
+        {
+            "topic": "Market Competition",
+            "severity": "medium",
+            "summary": "Faces intense competition across product categories.",
+            "text_excerpt": "We face intense competition...",
+        },
+    ]
+})
+
+MOCK_PASS1_RESPONSE_PRIOR = json_module.dumps({
+    "risks": [
+        {
+            "topic": "Supply Chain Concentration",
+            "severity": "medium",
+            "summary": "Reliance on a few suppliers for components.",
+            "text_excerpt": "We source components from select suppliers...",
+        },
+        {
+            "topic": "Regulatory Risk",
+            "severity": "medium",
+            "summary": "Subject to government regulations.",
+            "text_excerpt": "We are subject to various regulations...",
+        },
+        {
+            "topic": "Foreign Currency Risk",
+            "severity": "low",
+            "summary": "Exposure to currency fluctuations.",
+            "text_excerpt": "Our international operations expose us to currency risk...",
+        },
+    ]
+})
+
+MOCK_PASS2_RESPONSE = json_module.dumps({
+    "new_risks": [
+        {
+            "risk_topic": "Market Competition",
+            "change_type": "new",
+            "severity": "medium",
+            "current_text_excerpt": "We face intense competition...",
+            "prior_text_excerpt": "",
+            "analysis": "New explicit competition disclosure added to risk factors.",
+        }
+    ],
+    "removed_risks": [
+        {
+            "risk_topic": "Foreign Currency Risk",
+            "change_type": "removed",
+            "severity": "low",
+            "current_text_excerpt": "",
+            "prior_text_excerpt": "Our international operations expose us to currency risk...",
+            "analysis": "Currency risk disclosure removed, possibly folded into another section.",
+        }
+    ],
+    "changed_risks": [
+        {
+            "risk_topic": "Supply Chain Concentration",
+            "change_type": "escalated",
+            "severity": "high",
+            "current_text_excerpt": "We rely on a limited number of suppliers...",
+            "prior_text_excerpt": "We source components from select suppliers...",
+            "analysis": "Language escalated from 'select suppliers' to 'limited number', severity raised to high.",
+        }
+    ],
+    "risk_score": 62,
+    "risk_score_delta": 8,
+    "top_emerging_threats": [
+        "Supply chain concentration escalated to high severity",
+        "New competition risk disclosure",
+    ],
+    "summary": "Risk profile moderately elevated. Supply chain risk language escalated and a new competition disclosure was added, while currency risk was removed.",
+})
+
+
+class TestRiskDiffLLMFlow:
+    """Tests for the full two-pass LLM flow with mocked LLM calls."""
+
+    @pytest.mark.asyncio
+    async def test_full_diff_flow(self):
+        agent = RiskDiffAgent("AAPL", {"llm_config": {"provider": "anthropic", "api_key": "test"}}, _make_agent_results())
+        mock_dp = MagicMock()
+        # Return 2 10-Ks for first call, empty for 10-Q call
+        mock_dp.get_sec_filing_metadata = AsyncMock(
+            side_effect=[_make_mock_filing_metadata(2), []]
+        )
+        mock_dp.get_sec_filing_section = AsyncMock(return_value=_make_mock_filing_section())
+        agent._data_provider = mock_dp
+
+        # Mock LLM calls: Pass 1 current, Pass 1 prior, Pass 2
+        call_count = 0
+
+        async def mock_call_llm(prompt):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return MOCK_PASS1_RESPONSE
+            elif call_count == 2:
+                return MOCK_PASS1_RESPONSE_PRIOR
+            else:
+                return MOCK_PASS2_RESPONSE
+
+        agent._call_llm = mock_call_llm
+
+        raw_data = await agent.fetch_data()
+        result = await agent.analyze(raw_data)
+
+        assert result["has_diff"] is True
+        assert len(result["new_risks"]) == 1
+        assert len(result["removed_risks"]) == 1
+        assert len(result["changed_risks"]) == 1
+        assert result["risk_score"] == 62
+        assert result["risk_score_delta"] == 8
+        assert len(result["current_risk_inventory"]) == 3
+        assert len(result["filings_compared"]) == 2
+
+    @pytest.mark.asyncio
+    async def test_inventory_only_flow(self):
+        agent = RiskDiffAgent("AAPL", {"llm_config": {"provider": "anthropic", "api_key": "test"}}, _make_agent_results())
+        mock_dp = MagicMock()
+        # Return 1 10-K for first call, empty for 10-Q call
+        mock_dp.get_sec_filing_metadata = AsyncMock(
+            side_effect=[_make_mock_filing_metadata(1), []]
+        )
+        mock_dp.get_sec_filing_section = AsyncMock(return_value=_make_mock_filing_section())
+        agent._data_provider = mock_dp
+
+        async def mock_call_llm(prompt):
+            return MOCK_PASS1_RESPONSE
+
+        agent._call_llm = mock_call_llm
+
+        raw_data = await agent.fetch_data()
+        result = await agent.analyze(raw_data)
+
+        assert result["has_diff"] is False
+        assert len(result["current_risk_inventory"]) == 3
+        assert result["new_risks"] == []
+        assert result["removed_risks"] == []
+        assert result["changed_risks"] == []
+
+    @pytest.mark.asyncio
+    async def test_pass2_failure_fallback(self):
+        agent = RiskDiffAgent("AAPL", {"llm_config": {"provider": "anthropic", "api_key": "test"}}, _make_agent_results())
+        mock_dp = MagicMock()
+        # Return 2 10-Ks for first call, empty for 10-Q call
+        mock_dp.get_sec_filing_metadata = AsyncMock(
+            side_effect=[_make_mock_filing_metadata(2), []]
+        )
+        mock_dp.get_sec_filing_section = AsyncMock(return_value=_make_mock_filing_section())
+        agent._data_provider = mock_dp
+
+        call_count = 0
+
+        async def mock_call_llm(prompt):
+            nonlocal call_count
+            call_count += 1
+            if call_count <= 2:
+                return MOCK_PASS1_RESPONSE
+            else:
+                raise Exception("LLM failed on Pass 2")
+
+        agent._call_llm = mock_call_llm
+
+        raw_data = await agent.fetch_data()
+        result = await agent.analyze(raw_data)
+
+        # Should fall back to inventory-only with pass2_failed flag
+        assert result["has_diff"] is False
+        assert result.get("pass2_failed") is True
+        assert len(result["current_risk_inventory"]) == 3
+
+    @pytest.mark.asyncio
+    async def test_no_filings_empty_result(self):
+        agent = RiskDiffAgent("AAPL", {"llm_config": {}}, _make_agent_results())
+        mock_dp = MagicMock()
+        mock_dp.get_sec_filing_metadata = AsyncMock(return_value=[])
+        agent._data_provider = mock_dp
+
+        raw_data = await agent.fetch_data()
+        result = await agent.analyze(raw_data)
+
+        assert result["has_diff"] is False
+        assert result["data_completeness"] == pytest.approx(0.15, abs=0.02)
+        assert "error" in result
+
+    @pytest.mark.asyncio
+    async def test_all_pass1_failures_empty(self):
+        agent = RiskDiffAgent("AAPL", {"llm_config": {"provider": "anthropic", "api_key": "test"}}, _make_agent_results())
+        mock_dp = MagicMock()
+        # Return 2 10-Ks for first call, empty for 10-Q call
+        mock_dp.get_sec_filing_metadata = AsyncMock(
+            side_effect=[_make_mock_filing_metadata(2), []]
+        )
+        mock_dp.get_sec_filing_section = AsyncMock(return_value=_make_mock_filing_section())
+        agent._data_provider = mock_dp
+
+        async def mock_call_llm(prompt):
+            raise Exception("LLM completely dead")
+
+        agent._call_llm = mock_call_llm
+
+        raw_data = await agent.fetch_data()
+        result = await agent.analyze(raw_data)
+
+        # All Pass 1 calls fail -> empty result
+        assert result["has_diff"] is False
+        assert result["current_risk_inventory"] == []
+
+
+class TestRiskDiffPrompts:
+    """Tests for prompt construction."""
+
+    def test_pass1_prompt_contains_ticker(self):
+        agent = RiskDiffAgent("AAPL", {"llm_config": {}}, _make_agent_results())
+        filing = {"filing_type": "10-K", "filing_date": "2025-02-15"}
+        prompt = agent._build_pass1_prompt("Risk text here", filing)
+        assert "AAPL" in prompt
+        assert "10-K" in prompt
+        assert "2025-02-15" in prompt
+        assert "Risk text here" in prompt
+
+    def test_pass2_prompt_contains_inventories(self):
+        agent = RiskDiffAgent("AAPL", {"llm_config": {}}, _make_agent_results())
+        current = {"risks": [{"topic": "Test Risk"}]}
+        prior = {"risks": [{"topic": "Old Risk"}]}
+        prompt = agent._build_pass2_prompt(current, prior)
+        assert "AAPL" in prompt
+        assert "Test Risk" in prompt
+        assert "Old Risk" in prompt
+
+    def test_pass2_prompt_includes_supplementary(self):
+        agent = RiskDiffAgent("AAPL", {"llm_config": {}}, _make_agent_results())
+        current = {"risks": []}
+        prior = {"risks": []}
+        supplement = {"risks": [{"topic": "Quarterly Risk"}]}
+        prompt = agent._build_pass2_prompt(current, prior, supplement)
+        assert "Quarterly Risk" in prompt
+        assert "Supplementary" in prompt or "10-Q" in prompt
