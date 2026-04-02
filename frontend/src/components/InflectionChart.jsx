@@ -80,7 +80,7 @@ const InflectionChart = ({ ticker }) => {
   };
 
   if (!ticker) {
-    return <div className="flex items-center justify-center h-full text-zinc-500 text-sm">Select a ticker to view KPI trends</div>;
+    return <div className="flex items-center justify-center min-h-[200px] text-zinc-500 text-sm">Select a ticker to view KPI trends</div>;
   }
 
   return (

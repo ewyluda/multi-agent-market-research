@@ -19,7 +19,7 @@ const InflectionView = () => {
   }, []);
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col" style={{ height: 'calc(100vh - 64px)' }}>
       <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800">
         <h2 className="text-sm font-medium text-zinc-200">Inflection Radar</h2>
         <select value={activeWatchlistId || ''} onChange={(e) => setActiveWatchlistId(Number(e.target.value))}
