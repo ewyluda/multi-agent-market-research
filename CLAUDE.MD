@@ -171,7 +171,9 @@ React + Vite + Tailwind CSS v4. Hero UI dark theme (zinc-based).
 
 **Theme colors**: Primary `#006fee`, Success `#17c964`, Danger `#f31260`, Warning `#f5a524`, Background `#000000`, Surfaces zinc scale.
 
-**Key components**: `Dashboard.jsx` (root), `Summary.jsx` (exports 5 sub-components), `Recommendation.jsx` (SVG gauge), `PriceChart.jsx` (lightweight-charts), `CouncilPanel.jsx` (investor council), `InflectionView.jsx` (inflection dashboard with heatmap/chart/feed).
+**Key components**: `Dashboard.jsx` (root), `Summary.jsx` (exports 5 sub-components), `Recommendation.jsx` (SVG gauge), `PriceChart.jsx` (lightweight-charts), `CouncilPanel.jsx` (investor council), `InflectionView.jsx` (inflection dashboard with heatmap/chart/feed), `ThesisPanel.jsx` (bull/bear debate), `EarningsReviewPanel.jsx` (structured earnings digest), `NarrativePanel.jsx` (multi-year financial story), `RiskDiffPanel.jsx` (risk factor change detection).
+
+**Section order**: Fundamentals → Earnings → EarningsReview → Thesis → Narrative → RiskDiff → Technical → Sentiment → Macro → News → Options → Leadership → Council. Synthesis panels (EarningsReview, Thesis, Narrative, RiskDiff) read from `analysis.analysis[key]`, not `agent_results`.
 
 Glass cards use `glass-card` / `glass-card-elevated` CSS classes.
 
