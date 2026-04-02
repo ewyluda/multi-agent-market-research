@@ -19,6 +19,7 @@ from .agents.macro_agent import MacroAgent
 from .agents.options_agent import OptionsAgent
 from .agents.leadership_agent import LeadershipAgent
 from .agents.earnings_agent import EarningsAgent
+from .agents.thesis_agent import ThesisAgent
 from .agents.solution_agent import SolutionAgent
 from .agents.council_validator_agent import CouncilValidatorAgent
 from .database import DatabaseManager
@@ -45,6 +46,7 @@ class Orchestrator:
         "options": {"class": OptionsAgent, "requires": []},
         "leadership": {"class": LeadershipAgent, "requires": []},
         "earnings": {"class": EarningsAgent, "requires": []},
+        "thesis": {"class": ThesisAgent, "requires": []},
         "sentiment": {"class": SentimentAgent, "requires": ["news"]},
     }
 
@@ -219,7 +221,12 @@ class Orchestrator:
             # Phase 2: Run solution agent with aggregated results
             await self._notify_progress("synthesizing", ticker, 80)
 
-            final_analysis = await self._run_solution_agent(ticker, agent_results)
+            final_analysis, thesis_result = await asyncio.gather(
+                self._run_solution_agent(ticker, agent_results),
+                self._run_thesis_agent(ticker, agent_results),
+            )
+            if thesis_result:
+                final_analysis["thesis"] = thesis_result
             previous_analysis = self.db_manager.get_latest_analysis(ticker)
             final_analysis["signal_snapshot"] = self._build_signal_snapshot(final_analysis, agent_results)
             diagnostics = self._build_diagnostics(agent_results)
@@ -630,6 +637,41 @@ class Orchestrator:
 
         except asyncio.TimeoutError:
             raise Exception("Solution agent timed out")
+
+    async def _run_thesis_agent(
+        self,
+        ticker: str,
+        agent_results: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Run thesis agent to generate bull/bear debate (non-blocking).
+
+        Args:
+            ticker: Stock ticker
+            agent_results: Results from all data agents
+
+        Returns:
+            Thesis output dict, or None on failure
+        """
+        try:
+            thesis_agent = ThesisAgent(ticker, self.config, agent_results)
+            self._inject_shared_resources(thesis_agent)
+            timeout = self.config.get("AGENT_TIMEOUT", 30)
+            result = await asyncio.wait_for(
+                thesis_agent.execute(),
+                timeout=timeout,
+            )
+            if result.get("success"):
+                return result.get("data")
+            else:
+                self.logger.warning(f"Thesis agent failed for {ticker}: {result.get('error')}")
+                return None
+        except asyncio.TimeoutError:
+            self.logger.warning(f"Thesis agent timed out for {ticker}")
+            return None
+        except Exception as e:
+            self.logger.warning(f"Thesis agent error for {ticker}: {e}")
+            return None
 
     def _save_to_database(
         self,

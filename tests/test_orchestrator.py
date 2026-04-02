@@ -690,3 +690,106 @@ def test_change_summary_not_truncated(test_config, tmp_db_path):
     assert result["has_previous"] is True
     # Should not be truncated to 6
     assert result["change_count"] > 6 or result["change_count"] == len(result["material_changes"])
+
+
+class TestThesisIntegration:
+    """Tests for thesis agent integration in synthesis phase."""
+
+    def test_thesis_in_registry(self, test_config):
+        """Thesis agent is registered in AGENT_REGISTRY."""
+        orch = Orchestrator(config=test_config)
+        assert "thesis" in orch.AGENT_REGISTRY
+
+    def test_thesis_not_in_default_agents(self, test_config):
+        """Thesis agent is NOT in DEFAULT_AGENTS (wired in synthesis phase)."""
+        orch = Orchestrator(config=test_config)
+        assert "thesis" not in orch.DEFAULT_AGENTS
+
+    @pytest.mark.asyncio
+    async def test_thesis_runs_parallel_with_solution(self, test_config, tmp_path):
+        """Thesis agent runs during synthesis phase and result is attached."""
+        db_path = str(tmp_path / "test.db")
+        db_manager = DatabaseManager(db_path)
+        orch = Orchestrator(config=test_config, db_manager=db_manager)
+
+        mock_thesis_data = {
+            "bull_case": {"thesis": "Bull.", "key_drivers": [], "catalysts": []},
+            "bear_case": {"thesis": "Bear.", "key_drivers": [], "catalysts": []},
+            "tension_points": [],
+            "management_questions": [],
+            "thesis_summary": "Test thesis.",
+            "data_completeness": 0.5,
+            "data_sources_used": ["fundamentals"],
+        }
+
+        with (
+            patch("src.orchestrator.NewsAgent") as MockNews,
+            patch("src.orchestrator.MarketAgent") as MockMarket,
+            patch("src.orchestrator.FundamentalsAgent") as MockFund,
+            patch("src.orchestrator.TechnicalAgent") as MockTech,
+            patch("src.orchestrator.MacroAgent") as MockMacro,
+            patch("src.orchestrator.OptionsAgent") as MockOptions,
+            patch("src.orchestrator.EarningsAgent") as MockEarnings,
+            patch("src.orchestrator.LeadershipAgent") as MockLeadership,
+            patch("src.orchestrator.SentimentAgent") as MockSent,
+            patch("src.orchestrator.SolutionAgent") as MockSolution,
+            patch("src.orchestrator.ThesisAgent") as MockThesis,
+        ):
+            for mock_cls, name in [
+                (MockNews, "news"), (MockMarket, "market"),
+                (MockFund, "fundamentals"), (MockTech, "technical"),
+                (MockMacro, "macro"), (MockOptions, "options"),
+                (MockEarnings, "earnings"), (MockLeadership, "leadership"),
+            ]:
+                mock_cls.return_value.execute = AsyncMock(return_value=_make_agent_result(name))
+
+            MockSent.return_value.set_context_data = MagicMock()
+            MockSent.return_value.execute = AsyncMock(return_value=_make_agent_result("sentiment"))
+            MockSolution.return_value.execute = AsyncMock(return_value=_make_solution_result())
+            MockThesis.return_value.execute = AsyncMock(return_value={
+                "success": True, "data": mock_thesis_data,
+            })
+
+            result = await orch.analyze_ticker("AAPL")
+
+        assert result["success"] is True
+        assert "thesis" in result["analysis"]
+        assert result["analysis"]["thesis"]["thesis_summary"] == "Test thesis."
+
+    @pytest.mark.asyncio
+    async def test_thesis_failure_is_nonblocking(self, test_config, tmp_path):
+        """If thesis agent fails, analysis still completes without thesis."""
+        db_path = str(tmp_path / "test.db")
+        db_manager = DatabaseManager(db_path)
+        orch = Orchestrator(config=test_config, db_manager=db_manager)
+
+        with (
+            patch("src.orchestrator.NewsAgent") as MockNews,
+            patch("src.orchestrator.MarketAgent") as MockMarket,
+            patch("src.orchestrator.FundamentalsAgent") as MockFund,
+            patch("src.orchestrator.TechnicalAgent") as MockTech,
+            patch("src.orchestrator.MacroAgent") as MockMacro,
+            patch("src.orchestrator.OptionsAgent") as MockOptions,
+            patch("src.orchestrator.EarningsAgent") as MockEarnings,
+            patch("src.orchestrator.LeadershipAgent") as MockLeadership,
+            patch("src.orchestrator.SentimentAgent") as MockSent,
+            patch("src.orchestrator.SolutionAgent") as MockSolution,
+            patch("src.orchestrator.ThesisAgent") as MockThesis,
+        ):
+            for mock_cls, name in [
+                (MockNews, "news"), (MockMarket, "market"),
+                (MockFund, "fundamentals"), (MockTech, "technical"),
+                (MockMacro, "macro"), (MockOptions, "options"),
+                (MockEarnings, "earnings"), (MockLeadership, "leadership"),
+            ]:
+                mock_cls.return_value.execute = AsyncMock(return_value=_make_agent_result(name))
+
+            MockSent.return_value.set_context_data = MagicMock()
+            MockSent.return_value.execute = AsyncMock(return_value=_make_agent_result("sentiment"))
+            MockSolution.return_value.execute = AsyncMock(return_value=_make_solution_result())
+            MockThesis.return_value.execute = AsyncMock(side_effect=Exception("LLM exploded"))
+
+            result = await orch.analyze_ticker("AAPL")
+
+        assert result["success"] is True
+        assert result["analysis"].get("thesis") is None
