@@ -22,6 +22,7 @@ from .agents.earnings_agent import EarningsAgent
 from .agents.thesis_agent import ThesisAgent
 from .agents.earnings_review_agent import EarningsReviewAgent
 from .agents.narrative_agent import NarrativeAgent
+from .agents.tag_extractor_agent import TagExtractorAgent
 from .agents.solution_agent import SolutionAgent
 from .agents.council_validator_agent import CouncilValidatorAgent
 from .database import DatabaseManager
@@ -51,6 +52,7 @@ class Orchestrator:
         "thesis": {"class": ThesisAgent, "requires": []},
         "earnings_review": {"class": EarningsReviewAgent, "requires": []},
         "narrative": {"class": NarrativeAgent, "requires": []},
+        "tag_extractor": {"class": TagExtractorAgent, "requires": []},
         "sentiment": {"class": SentimentAgent, "requires": ["news"]},
     }
 
@@ -225,11 +227,12 @@ class Orchestrator:
             # Phase 2: Run solution agent with aggregated results
             await self._notify_progress("synthesizing", ticker, 80)
 
-            final_analysis, thesis_result, earnings_review_result, narrative_result = await asyncio.gather(
+            final_analysis, thesis_result, earnings_review_result, narrative_result, tag_result = await asyncio.gather(
                 self._run_solution_agent(ticker, agent_results),
                 self._run_thesis_agent(ticker, agent_results),
                 self._run_earnings_review_agent(ticker, agent_results),
                 self._run_narrative_agent(ticker, agent_results),
+                self._run_tag_extractor_agent(ticker, agent_results),
             )
             if thesis_result:
                 final_analysis["thesis"] = thesis_result
@@ -398,6 +401,16 @@ class Orchestrator:
                                 )
                 except Exception as e:
                     self.logger.warning(f"Perception/inflection processing failed: {e}")
+
+            # Persist company tags
+            if analysis_id and tag_result:
+                try:
+                    tags_to_save = tag_result.get("tags", [])
+                    if tags_to_save:
+                        self.db_manager.upsert_company_tags(ticker, tags_to_save, analysis_id)
+                        self.logger.info(f"Saved {len(tags_to_save)} tags for {ticker}")
+                except Exception as e:
+                    self.logger.warning(f"Tag save failed for {ticker}: {e}")
 
             # Persist thesis health snapshot
             if analysis_id and thesis_health_report is not None:
@@ -735,6 +748,32 @@ class Orchestrator:
             return None
         except Exception as e:
             self.logger.warning(f"Narrative agent error for {ticker}: {e}")
+            return None
+
+    async def _run_tag_extractor_agent(
+        self,
+        ticker: str,
+        agent_results: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        """Run tag extractor for qualitative classification (non-blocking)."""
+        try:
+            tag_agent = TagExtractorAgent(ticker, self.config, agent_results)
+            self._inject_shared_resources(tag_agent)
+            timeout = self.config.get("AGENT_TIMEOUT", 30)
+            result = await asyncio.wait_for(
+                tag_agent.execute(),
+                timeout=timeout,
+            )
+            if result.get("success"):
+                return result.get("data")
+            else:
+                self.logger.warning(f"Tag extractor failed for {ticker}: {result.get('error')}")
+                return None
+        except asyncio.TimeoutError:
+            self.logger.warning(f"Tag extractor timed out for {ticker}")
+            return None
+        except Exception as e:
+            self.logger.warning(f"Tag extractor error for {ticker}: {e}")
             return None
 
     def _save_to_database(

@@ -1008,3 +1008,125 @@ class TestNarrativeIntegration:
 
         assert result["success"] is True
         assert result["analysis"].get("narrative") is None
+
+
+class TestTagExtractorIntegration:
+    """Tests for tag extractor agent integration in synthesis phase."""
+
+    def test_tag_extractor_in_registry(self, test_config):
+        orch = Orchestrator(config=test_config)
+        assert "tag_extractor" in orch.AGENT_REGISTRY
+
+    def test_tag_extractor_not_in_default_agents(self, test_config):
+        orch = Orchestrator(config=test_config)
+        assert "tag_extractor" not in orch.DEFAULT_AGENTS
+
+    @pytest.mark.asyncio
+    async def test_tag_extractor_runs_parallel_in_synthesis(self, test_config, tmp_path):
+        db_path = str(tmp_path / "test.db")
+        db_manager = DatabaseManager(db_path)
+        orch = Orchestrator(config=test_config, db_manager=db_manager)
+
+        mock_tag_data = {
+            "tags": [
+                {"tag": "AI Leader", "category": "theme", "evidence": "Dominates AI chip market."},
+                {"tag": "High Margin", "category": "financial_profile", "evidence": "Gross margin above 60%."},
+            ],
+            "ticker": "AAPL",
+            "tag_count": 2,
+        }
+
+        with (
+            patch("src.orchestrator.NewsAgent") as MockNews,
+            patch("src.orchestrator.MarketAgent") as MockMarket,
+            patch("src.orchestrator.FundamentalsAgent") as MockFund,
+            patch("src.orchestrator.TechnicalAgent") as MockTech,
+            patch("src.orchestrator.MacroAgent") as MockMacro,
+            patch("src.orchestrator.OptionsAgent") as MockOptions,
+            patch("src.orchestrator.EarningsAgent") as MockEarnings,
+            patch("src.orchestrator.LeadershipAgent") as MockLeadership,
+            patch("src.orchestrator.SentimentAgent") as MockSent,
+            patch("src.orchestrator.SolutionAgent") as MockSolution,
+            patch("src.orchestrator.ThesisAgent") as MockThesis,
+            patch("src.orchestrator.EarningsReviewAgent") as MockReview,
+            patch("src.orchestrator.NarrativeAgent") as MockNarrative,
+            patch("src.orchestrator.TagExtractorAgent") as MockTagExtractor,
+        ):
+            for mock_cls, name in [
+                (MockNews, "news"), (MockMarket, "market"),
+                (MockFund, "fundamentals"), (MockTech, "technical"),
+                (MockMacro, "macro"), (MockOptions, "options"),
+                (MockEarnings, "earnings"), (MockLeadership, "leadership"),
+            ]:
+                mock_cls.return_value.execute = AsyncMock(return_value=_make_agent_result(name))
+
+            MockSent.return_value.set_context_data = MagicMock()
+            MockSent.return_value.execute = AsyncMock(return_value=_make_agent_result("sentiment"))
+            MockSolution.return_value.execute = AsyncMock(return_value=_make_solution_result())
+            MockThesis.return_value.execute = AsyncMock(return_value={"success": True, "data": {"thesis_summary": "Test."}})
+            MockReview.return_value.execute = AsyncMock(return_value={"success": True, "data": {"executive_summary": "Test."}})
+            MockNarrative.return_value.execute = AsyncMock(return_value={"success": True, "data": {"company_arc": "Test."}})
+            MockTagExtractor.return_value.execute = AsyncMock(return_value={"success": True, "data": mock_tag_data})
+
+            result = await orch.analyze_ticker("AAPL")
+
+        assert result["success"] is True
+        # Tag extractor ran successfully — verify via DB
+        assert MockTagExtractor.return_value.execute.called
+
+    @pytest.mark.asyncio
+    async def test_tags_saved_after_analysis(self, test_config, tmp_path):
+        db_path = str(tmp_path / "test.db")
+        db_manager = DatabaseManager(db_path)
+        orch = Orchestrator(config=test_config, db_manager=db_manager)
+
+        mock_tag_data = {
+            "tags": [
+                {"tag": "AI Leader", "category": "theme", "evidence": "Dominates AI chip market."},
+                {"tag": "High Margin", "category": "financial_profile", "evidence": "Gross margin above 60%."},
+            ],
+            "ticker": "AAPL",
+            "tag_count": 2,
+        }
+
+        with (
+            patch("src.orchestrator.NewsAgent") as MockNews,
+            patch("src.orchestrator.MarketAgent") as MockMarket,
+            patch("src.orchestrator.FundamentalsAgent") as MockFund,
+            patch("src.orchestrator.TechnicalAgent") as MockTech,
+            patch("src.orchestrator.MacroAgent") as MockMacro,
+            patch("src.orchestrator.OptionsAgent") as MockOptions,
+            patch("src.orchestrator.EarningsAgent") as MockEarnings,
+            patch("src.orchestrator.LeadershipAgent") as MockLeadership,
+            patch("src.orchestrator.SentimentAgent") as MockSent,
+            patch("src.orchestrator.SolutionAgent") as MockSolution,
+            patch("src.orchestrator.ThesisAgent") as MockThesis,
+            patch("src.orchestrator.EarningsReviewAgent") as MockReview,
+            patch("src.orchestrator.NarrativeAgent") as MockNarrative,
+            patch("src.orchestrator.TagExtractorAgent") as MockTagExtractor,
+        ):
+            for mock_cls, name in [
+                (MockNews, "news"), (MockMarket, "market"),
+                (MockFund, "fundamentals"), (MockTech, "technical"),
+                (MockMacro, "macro"), (MockOptions, "options"),
+                (MockEarnings, "earnings"), (MockLeadership, "leadership"),
+            ]:
+                mock_cls.return_value.execute = AsyncMock(return_value=_make_agent_result(name))
+
+            MockSent.return_value.set_context_data = MagicMock()
+            MockSent.return_value.execute = AsyncMock(return_value=_make_agent_result("sentiment"))
+            MockSolution.return_value.execute = AsyncMock(return_value=_make_solution_result())
+            MockThesis.return_value.execute = AsyncMock(return_value={"success": True, "data": {"thesis_summary": "Test."}})
+            MockReview.return_value.execute = AsyncMock(return_value={"success": True, "data": {"executive_summary": "Test."}})
+            MockNarrative.return_value.execute = AsyncMock(return_value={"success": True, "data": {"company_arc": "Test."}})
+            MockTagExtractor.return_value.execute = AsyncMock(return_value={"success": True, "data": mock_tag_data})
+
+            result = await orch.analyze_ticker("AAPL")
+
+        assert result["success"] is True
+        # Verify tags were persisted in DB
+        saved_tags = db_manager.get_company_tags("AAPL")
+        assert len(saved_tags) == 2
+        tag_names = [t["tag"] for t in saved_tags]
+        assert "AI Leader" in tag_names
+        assert "High Margin" in tag_names
