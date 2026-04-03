@@ -3,7 +3,7 @@
  * tension points, and management questions for the CEO/CFO.
  */
 
-import React from 'react';
+import React, { useState, useCallback } from 'react';
 import { motion as Motion } from 'framer-motion';
 
 const fadeUp = {
@@ -247,29 +247,80 @@ const ManagementQuestions = ({ questions }) => {
 
 const ThesisPanel = ({ analysis }) => {
   const data = getThesisData(analysis);
+  const [retrying, setRetrying] = useState(false);
+  const [retryError, setRetryError] = useState(null);
+  const [retryData, setRetryData] = useState(null);
 
-  if (!data) {
-    return (
-      <div className="text-sm py-4 text-center" style={{ color: 'var(--text-muted)' }}>
-        Thesis analysis not available
-      </div>
-    );
-  }
+  const ticker = analysis?.ticker;
 
-  if (data.error) {
+  const handleRetry = useCallback(async () => {
+    if (!ticker) return;
+    setRetrying(true);
+    setRetryError(null);
+    try {
+      const res = await fetch(`/api/analyze/${ticker}?agents=thesis`, { method: 'POST' });
+      if (!res.ok) throw new Error(`Failed (${res.status})`);
+      const result = await res.json();
+      const thesisResult = result?.analysis?.thesis || result?.agent_results?.thesis?.data || null;
+      if (thesisResult) {
+        setRetryData(thesisResult);
+      } else {
+        setRetryError('Thesis agent returned no data');
+      }
+    } catch (err) {
+      setRetryError(err.message || 'Retry failed');
+    } finally {
+      setRetrying(false);
+    }
+  }, [ticker]);
+
+  const activeData = retryData || data;
+
+  if (!activeData || activeData.error) {
     return (
-      <div className="text-sm py-4 text-center" style={{ color: 'var(--text-muted)' }}>
-        Thesis analysis not available
+      <div
+        className="glass-card rounded-xl flex flex-col items-center justify-center py-12 px-6 text-center"
+        style={{ padding: 'var(--space-card-padding, 20px)' }}
+      >
+        <svg width="40" height="40" viewBox="0 0 40 40" fill="none" className="mb-4 opacity-40">
+          <rect x="8" y="6" width="24" height="28" rx="3" stroke="#52525b" strokeWidth="1.5" fill="none" />
+          <line x1="13" y1="14" x2="27" y2="14" stroke="#3f3f46" strokeWidth="1" />
+          <line x1="13" y1="19" x2="24" y2="19" stroke="#3f3f46" strokeWidth="1" />
+          <line x1="13" y1="24" x2="21" y2="24" stroke="#3f3f46" strokeWidth="1" />
+        </svg>
+        <p className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>
+          Thesis analysis unavailable
+        </p>
+        <p className="text-xs mt-1 mb-4" style={{ color: 'var(--text-muted)' }}>
+          The thesis agent didn&apos;t return data for this analysis
+        </p>
+        <button
+          onClick={handleRetry}
+          disabled={retrying}
+          className="px-5 py-2.5 rounded-full text-sm font-medium border cursor-pointer transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+          style={{
+            color: 'var(--accent-blue)',
+            borderColor: 'rgba(0,111,238,0.3)',
+            background: 'rgba(0,111,238,0.08)',
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(0,111,238,0.15)'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(0,111,238,0.08)'; }}
+        >
+          {retrying ? 'Retrying...' : 'Retry Thesis Analysis'}
+        </button>
+        {retryError && (
+          <p className="text-xs mt-2" style={{ color: 'var(--accent-red)' }}>{retryError}</p>
+        )}
       </div>
     );
   }
 
   return (
     <Motion.div variants={fadeUp} initial="hidden" animate="visible" className="flex flex-col gap-0">
-      <ThesisSummary data={data} />
-      <BullBearCards data={data} />
-      <TensionPointsList tensionPoints={data.tension_points} />
-      <ManagementQuestions questions={data.management_questions} />
+      <ThesisSummary data={activeData} />
+      <BullBearCards data={activeData} />
+      <TensionPointsList tensionPoints={activeData.tension_points} />
+      <ManagementQuestions questions={activeData.management_questions} />
     </Motion.div>
   );
 };

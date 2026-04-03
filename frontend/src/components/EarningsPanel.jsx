@@ -343,6 +343,37 @@ const QuarterIndicator = ({ availableQuarters }) => {
   );
 };
 
+const EarningsSummary = ({ text }) => {
+  if (!text) return null;
+
+  // Split into sentences
+  const sentences = text.match(/[^.!?]+[.!?]+/g) || [text];
+  const introParagraph = sentences.slice(0, 3).join(' ').trim();
+  const bulletPoints = sentences.slice(3);
+
+  return (
+    <div>
+      {introParagraph && (
+        <p className="text-[0.88rem] leading-relaxed mb-3" style={{ color: 'var(--text-secondary)' }}>
+          {introParagraph}
+        </p>
+      )}
+      {bulletPoints.length > 0 && (
+        <ul className="space-y-1.5">
+          {bulletPoints.map((point, i) => (
+            <li key={i} className="flex items-start gap-2">
+              <span className="text-accent-blue mt-1.5 text-[8px] flex-shrink-0">●</span>
+              <span className="text-[0.85rem] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+                {point.trim()}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+};
+
 // ─── Main Component ──────────────────────────────────────────────────────────
 
 const EarningsPanel = ({ analysis }) => {
@@ -357,17 +388,24 @@ const EarningsPanel = ({ analysis }) => {
   }
 
   return (
-    <Motion.div variants={fadeUp} initial="hidden" animate="visible" className="flex flex-col gap-4">
+    <Motion.div variants={fadeUp} initial="hidden" animate="visible" className="flex flex-col" style={{ gap: 'var(--space-card-gap, 20px)' }}>
       <HeaderRow data={data} />
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      {/* Summary — hybrid format: paragraph + bullets */}
+      {data.summary && (
+        <div className="glass-card" style={{ padding: 'var(--space-card-padding, 20px)' }}>
+          <EarningsSummary text={data.summary} />
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 sm:grid-cols-2" style={{ gap: 'var(--space-card-gap, 20px)' }}>
         <HighlightsCard highlights={data.highlights} />
         <GuidanceCard guidance={data.guidance} />
       </div>
 
       <QACard qaHighlights={data.qa_highlights} />
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2" style={{ gap: 'var(--space-card-gap, 20px)' }}>
         <EPSChart epsHistory={data.eps_history} />
         <ToneChart toneAnalysis={data.tone_analysis} />
       </div>

@@ -15,10 +15,10 @@ import {
 const EMPTY_ARRAY = [];
 
 const SMA_CONFIG = [
-  { period: 9, color: '#ef4444', label: 'SMA 9', defaultVisible: false },
-  { period: 20, color: '#f59e0b', label: 'SMA 20', defaultVisible: false },
+  { period: 9, color: '#ef4444', label: 'SMA 9', defaultVisible: true },
+  { period: 20, color: '#f59e0b', label: 'SMA 20', defaultVisible: true },
   { period: 50, color: '#22c55e', label: 'SMA 50', defaultVisible: true },
-  { period: 100, color: '#3b82f6', label: 'SMA 100', defaultVisible: false },
+  { period: 100, color: '#3b82f6', label: 'SMA 100', defaultVisible: true },
   { period: 200, color: '#a855f7', label: 'SMA 200', defaultVisible: true },
 ];
 
