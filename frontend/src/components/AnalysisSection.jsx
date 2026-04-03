@@ -1,5 +1,4 @@
-import { useState, forwardRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { forwardRef } from 'react';
 
 const STANCE_CONFIG = {
   bullish: { label: 'Bullish', className: 'badge-bullish' },
@@ -22,15 +21,15 @@ const AnalysisSection = forwardRef(function AnalysisSection(
   { id, name, stance, stanceColor, summary, metrics, fullContent, dataSource, duration, children },
   ref
 ) {
-  const [expanded, setExpanded] = useState(false);
   const config = STANCE_CONFIG[stance] || STANCE_CONFIG.neutral;
 
   return (
     <div
       ref={ref}
       id={id}
-      className="rounded-[10px] p-5"
+      className="rounded-[10px]"
       style={{
+        padding: 'var(--space-card-padding, 20px)',
         background: 'rgba(255,255,255,0.02)',
         border: '1px solid rgba(255,255,255,0.06)',
       }}
@@ -61,36 +60,13 @@ const AnalysisSection = forwardRef(function AnalysisSection(
       )}
 
       {(fullContent || children) && (
-        <>
-          <button
-            onClick={() => setExpanded(!expanded)}
-            className="text-[0.75rem] font-medium cursor-pointer border-none bg-transparent"
-            style={{ color: 'rgba(0,111,238,0.7)' }}
-            onMouseEnter={(e) => (e.target.style.color = '#006fee')}
-            onMouseLeave={(e) => (e.target.style.color = 'rgba(0,111,238,0.7)')}
-          >
-            {expanded ? 'Hide details ▲' : 'Show full analysis ▼'}
-          </button>
-          <AnimatePresence>
-            {expanded && (
-              <motion.div
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: 'auto', opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-                transition={{ duration: 0.2 }}
-                className="overflow-hidden"
-              >
-                <div className="mt-3 pt-3" style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>
-                  {children || (
-                    <div className="text-[0.82rem] text-white/55 leading-relaxed whitespace-pre-wrap">
-                      {typeof fullContent === 'string' ? fullContent : JSON.stringify(fullContent, null, 2)}
-                    </div>
-                  )}
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </>
+        <div className="mt-3 pt-3" style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+          {children || (
+            <div className="text-[0.82rem] text-white/55 leading-relaxed whitespace-pre-wrap">
+              {typeof fullContent === 'string' ? fullContent : JSON.stringify(fullContent, null, 2)}
+            </div>
+          )}
+        </div>
       )}
     </div>
   );
