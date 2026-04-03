@@ -1,9 +1,23 @@
+import { useEffect } from 'react'
 import { useParams } from 'react-router-dom'
 import { useAnalysisContext } from '@/context/AnalysisContext'
+import { useAnalysis } from '@/hooks/useAnalysis'
+import { Skeleton } from '@/components/ui/skeleton'
+import KpiRow from './KpiRow'
+import AnalysisTabs from './AnalysisTabs'
+import MetaFooter from '@/components/MetaFooter'
+import { motion } from 'framer-motion'
 
 export default function AnalysisView() {
   const { ticker } = useParams()
   const { analysis, loading } = useAnalysisContext()
+  const { fetchLatest } = useAnalysis()
+
+  useEffect(() => {
+    if (ticker && !analysis && !loading) {
+      fetchLatest(ticker)
+    }
+  }, [ticker])
 
   if (!analysis && !loading) {
     return (
@@ -21,14 +35,26 @@ export default function AnalysisView() {
     )
   }
 
+  if (loading && !analysis) {
+    return (
+      <div className="space-y-6">
+        <div className="grid grid-cols-5 gap-4">
+          {[...Array(5)].map((_, i) => (
+            <Skeleton key={i} className="h-28 rounded-lg" />
+          ))}
+        </div>
+        <Skeleton className="h-10 w-96 rounded-lg" />
+        <Skeleton className="h-64 rounded-lg" />
+        <Skeleton className="h-48 rounded-lg" />
+      </div>
+    )
+  }
+
   return (
-    <div>
-      <h1 className="text-xl font-semibold mb-4">
-        {analysis?.ticker || ticker} Analysis
-      </h1>
-      <p className="text-[var(--muted-foreground)]">
-        {loading ? 'Analyzing...' : 'Analysis complete — tabs coming in next task.'}
-      </p>
-    </div>
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.2 }}>
+      <KpiRow analysis={analysis} />
+      <AnalysisTabs analysis={analysis} />
+      <MetaFooter analysis={analysis} />
+    </motion.div>
   )
 }
