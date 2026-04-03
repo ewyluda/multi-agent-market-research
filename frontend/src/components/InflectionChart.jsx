@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { createChart } from 'lightweight-charts';
 import { getInflectionTimeseries } from '../utils/api';
+import { Card } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 
 const TIME_RANGES = [
   { label: '1M', days: 30 },
@@ -43,7 +45,7 @@ const InflectionChart = ({ ticker }) => {
     if (chartInstance.current) { chartInstance.current.remove(); chartInstance.current = null; }
 
     const chart = createChart(chartRef.current, {
-      layout: { background: { type: 'solid', color: 'transparent' }, textColor: '#a1a1aa', fontSize: 11 },
+      layout: { background: { type: 'solid', color: '#141414' }, textColor: '#a1a1aa', fontSize: 11 },
       grid: { vertLines: { color: 'rgba(255,255,255,0.04)' }, horzLines: { color: 'rgba(255,255,255,0.04)' } },
       rightPriceScale: { borderColor: 'rgba(255,255,255,0.1)' },
       timeScale: { borderColor: 'rgba(255,255,255,0.1)' },
@@ -80,34 +82,59 @@ const InflectionChart = ({ ticker }) => {
   };
 
   if (!ticker) {
-    return <div className="flex items-center justify-center min-h-[200px] text-zinc-500 text-sm">Select a ticker to view KPI trends</div>;
+    return (
+      <div className="flex items-center justify-center min-h-[200px] text-sm" style={{ color: 'var(--text-muted)' }}>
+        Select a ticker to view KPI trends
+      </div>
+    );
   }
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between px-3 py-2 border-b border-zinc-800">
+    <Card className="flex flex-col h-full rounded-none border-0">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--border)]">
         <div className="flex gap-1">
           {TIME_RANGES.map((r) => (
-            <button key={r.label} onClick={() => setTimeRange(r.label)}
-              className={`px-2 py-0.5 text-xs rounded ${timeRange === r.label ? 'bg-zinc-700 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}>
+            <Button
+              key={r.label}
+              size="sm"
+              variant={timeRange === r.label ? 'default' : 'secondary'}
+              onClick={() => setTimeRange(r.label)}
+              className="h-6 px-2 text-xs"
+            >
               {r.label}
-            </button>
+            </Button>
           ))}
         </div>
         <div className="flex gap-1 flex-wrap justify-end">
           {availableKPIs.map((kpi) => (
-            <button key={kpi} onClick={() => toggleKPI(kpi)}
-              className={`px-1.5 py-0.5 text-[0.6rem] rounded border transition-colors ${activeKPIs.has(kpi) ? 'border-zinc-600 text-zinc-200' : 'border-zinc-800 text-zinc-600'}`}
-              style={{ borderLeftColor: activeKPIs.has(kpi) ? (KPI_COLORS[kpi] || '#71717a') : undefined, borderLeftWidth: activeKPIs.has(kpi) ? 2 : undefined }}>
+            <button
+              key={kpi}
+              onClick={() => toggleKPI(kpi)}
+              className="px-1.5 py-0.5 text-[0.6rem] rounded border transition-colors"
+              style={{
+                borderColor: activeKPIs.has(kpi) ? (KPI_COLORS[kpi] || 'var(--border)') : 'var(--border)',
+                color: activeKPIs.has(kpi) ? 'var(--text-primary)' : 'var(--text-muted)',
+                background: 'none',
+                cursor: 'pointer',
+                borderLeftWidth: activeKPIs.has(kpi) ? 2 : 1,
+                borderLeftColor: activeKPIs.has(kpi) ? (KPI_COLORS[kpi] || 'var(--border)') : 'var(--border)',
+              }}
+            >
               {kpi.replace(/_/g, ' ')}
             </button>
           ))}
         </div>
       </div>
       <div className="flex-1 min-h-0">
-        {loading ? <div className="flex items-center justify-center h-full text-zinc-500 text-sm">Loading…</div> : <div ref={chartRef} className="w-full h-full" />}
+        {loading ? (
+          <div className="flex items-center justify-center h-full text-sm" style={{ color: 'var(--text-muted)' }}>
+            Loading…
+          </div>
+        ) : (
+          <div ref={chartRef} className="w-full h-full" />
+        )}
       </div>
-    </div>
+    </Card>
   );
 };
 

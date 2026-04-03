@@ -11,6 +11,10 @@ import {
   getAlertNotifications,
   acknowledgeAlert,
 } from '../utils/api';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 
 const RULE_TYPE_OPTIONS = [
   { value: 'recommendation_change', label: 'Recommendation Change', needsThreshold: false },
@@ -59,20 +63,15 @@ const ToggleSwitch = ({ enabled, onChange, disabled }) => (
   <button
     onClick={onChange}
     disabled={disabled}
+    className="relative inline-flex items-center flex-shrink-0 rounded-full transition-colors"
     style={{
-      position: 'relative',
-      display: 'inline-flex',
-      alignItems: 'center',
       width: 36,
       height: 20,
-      borderRadius: 10,
       border: 'none',
       cursor: disabled ? 'not-allowed' : 'pointer',
       background: enabled ? 'rgba(23,201,100,0.4)' : 'rgba(255,255,255,0.1)',
-      transition: 'background 0.2s',
       opacity: disabled ? 0.5 : 1,
       padding: 0,
-      flexShrink: 0,
     }}
   >
     <span style={{
@@ -105,106 +104,89 @@ const RuleCard = ({ rule, onToggle, onDelete }) => {
   };
 
   return (
-    <div style={{
-      background: 'rgba(255,255,255,0.02)',
-      border: '1px solid rgba(255,255,255,0.06)',
-      borderRadius: 10,
-      padding: '14px 18px',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      transition: 'border-color 0.15s',
-    }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-        {/* Status dot */}
-        <span style={{
-          display: 'inline-block',
-          width: 8,
-          height: 8,
-          borderRadius: '50%',
-          background: rule.enabled ? '#17c964' : 'rgba(255,255,255,0.2)',
-          boxShadow: rule.enabled ? '0 0 6px rgba(23,201,100,0.5)' : 'none',
-          flexShrink: 0,
-        }} />
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-            <span style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '0.85rem', color: 'rgba(255,255,255,0.9)' }}>
-              {rule.ticker}
-            </span>
-            <span style={{
-              fontSize: '0.7rem',
-              color: 'rgba(255,255,255,0.45)',
-              background: 'rgba(255,255,255,0.04)',
-              border: '1px solid rgba(255,255,255,0.06)',
-              borderRadius: 4,
-              padding: '1px 6px',
-            }}>
-              {formatRuleType(rule.rule_type)}
-            </span>
-            {rule.threshold != null && (
-              <span style={{
-                fontSize: '0.7rem',
-                fontFamily: 'monospace',
-                fontWeight: 600,
-                color: '#006fee',
-                background: 'rgba(0,111,238,0.1)',
-                border: '1px solid rgba(0,111,238,0.2)',
-                borderRadius: 4,
-                padding: '1px 6px',
-              }}>
-                {formatThreshold(rule.rule_type, rule.threshold)}
+    <Card>
+      <CardContent className="pt-3.5 pb-3.5 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          {/* Status dot */}
+          <span style={{
+            display: 'inline-block',
+            width: 8,
+            height: 8,
+            borderRadius: '50%',
+            background: rule.enabled ? 'var(--success)' : 'rgba(255,255,255,0.2)',
+            boxShadow: rule.enabled ? '0 0 6px rgba(23,201,100,0.5)' : 'none',
+            flexShrink: 0,
+          }} />
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <span className="font-data font-bold text-[0.85rem]" style={{ color: 'var(--text-primary)' }}>
+                {rule.ticker}
               </span>
-            )}
-          </div>
-          <div style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.3)' }}>
-            Created {formatRelativeTime(rule.created_at)}
+              <Badge variant="secondary" className="text-[0.65rem] px-1.5 py-0">
+                {formatRuleType(rule.rule_type)}
+              </Badge>
+              {rule.threshold != null && (
+                <Badge variant="default" className="text-[0.65rem] px-1.5 py-0 font-data">
+                  {formatThreshold(rule.rule_type, rule.threshold)}
+                </Badge>
+              )}
+            </div>
+            <div className="text-[0.7rem]" style={{ color: 'var(--text-muted)' }}>
+              Created {formatRelativeTime(rule.created_at)}
+            </div>
           </div>
         </div>
-      </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <ToggleSwitch enabled={rule.enabled} onChange={handleToggle} disabled={toggling} />
-        <button
-          onClick={handleDelete}
-          disabled={deleting}
-          style={{
-            background: 'none',
-            border: 'none',
-            cursor: deleting ? 'not-allowed' : 'pointer',
-            color: 'rgba(255,255,255,0.2)',
-            fontSize: '0.75rem',
-            padding: '4px 6px',
-            borderRadius: 6,
-            opacity: deleting ? 0.5 : 1,
-            transition: 'color 0.15s',
-          }}
-          onMouseEnter={(e) => { if (!deleting) e.currentTarget.style.color = '#f31260'; }}
-          onMouseLeave={(e) => { e.currentTarget.style.color = 'rgba(255,255,255,0.2)'; }}
-          title="Delete rule"
-        >
-          ✕
-        </button>
-      </div>
-    </div>
+        <div className="flex items-center gap-2.5">
+          <ToggleSwitch enabled={rule.enabled} onChange={handleToggle} disabled={toggling} />
+          <button
+            onClick={handleDelete}
+            disabled={deleting}
+            className="text-[0.75rem] px-1.5 py-1 rounded-md transition-colors"
+            style={{
+              color: 'var(--text-muted)',
+              background: 'none',
+              border: 'none',
+              cursor: deleting ? 'not-allowed' : 'pointer',
+              opacity: deleting ? 0.5 : 1,
+            }}
+            onMouseEnter={(e) => { if (!deleting) e.currentTarget.style.color = 'var(--danger)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-muted)'; }}
+            title="Delete rule"
+          >
+            ✕
+          </button>
+        </div>
+      </CardContent>
+    </Card>
   );
 };
 
 /* ──────── Notification severity ──────── */
-const getSeverityStyle = (notification) => {
+const getSeverityVariant = (notification) => {
   const ruleType = notification.trigger_context?.rule_type || '';
-  if (ruleType.includes('sell') || ruleType === 'recommendation_change') {
-    return { dot: '#f31260', bg: 'rgba(243,18,96,0.06)' };
-  }
-  if (ruleType.includes('above') || ruleType.includes('buy')) {
-    return { dot: '#17c964', bg: 'rgba(23,201,100,0.04)' };
-  }
-  return { dot: '#f5a524', bg: 'rgba(245,165,36,0.04)' };
+  if (ruleType.includes('sell') || ruleType === 'recommendation_change') return 'danger';
+  if (ruleType.includes('above') || ruleType.includes('buy')) return 'success';
+  return 'warning';
+};
+
+const getSeverityDotColor = (notification) => {
+  const ruleType = notification.trigger_context?.rule_type || '';
+  if (ruleType.includes('sell') || ruleType === 'recommendation_change') return 'var(--danger)';
+  if (ruleType.includes('above') || ruleType.includes('buy')) return 'var(--success)';
+  return 'var(--warning)';
+};
+
+const getSeverityBg = (notification) => {
+  const ruleType = notification.trigger_context?.rule_type || '';
+  if (ruleType.includes('sell') || ruleType === 'recommendation_change') return 'rgba(243,18,96,0.06)';
+  if (ruleType.includes('above') || ruleType.includes('buy')) return 'rgba(23,201,100,0.04)';
+  return 'rgba(245,165,36,0.04)';
 };
 
 /* ──────── Notification row ──────── */
 const NotificationRow = ({ notification, onAcknowledge }) => {
   const [acknowledging, setAcknowledging] = useState(false);
-  const severity = getSeverityStyle(notification);
   const triggerCtx = notification.trigger_context || {};
 
   const handleAck = async () => {
@@ -214,100 +196,85 @@ const NotificationRow = ({ notification, onAcknowledge }) => {
   };
 
   return (
-    <div style={{
-      display: 'flex',
-      alignItems: 'flex-start',
-      justifyContent: 'space-between',
-      padding: '12px 16px',
-      borderRadius: 10,
-      background: notification.acknowledged ? 'transparent' : severity.bg,
-      border: notification.acknowledged ? '1px solid rgba(255,255,255,0.04)' : '1px solid rgba(255,255,255,0.06)',
-      opacity: notification.acknowledged ? 0.5 : 1,
-      gap: 12,
-      transition: 'all 0.15s',
-    }}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, flex: 1, minWidth: 0 }}>
-        {/* Severity dot */}
-        <span style={{
-          display: 'inline-block',
-          width: 7,
-          height: 7,
-          borderRadius: '50%',
-          background: notification.acknowledged ? 'rgba(255,255,255,0.2)' : severity.dot,
-          marginTop: 4,
-          flexShrink: 0,
-        }} />
-        <div style={{ minWidth: 0, flex: 1 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2, flexWrap: 'wrap' }}>
-            <span style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '0.82rem', color: 'rgba(255,255,255,0.85)' }}>
-              {notification.ticker}
-            </span>
-            <span style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.55)' }}>
-              {notification.message}
-            </span>
-          </div>
-
-          {triggerCtx.rule_type && (
-            <div style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.35)', marginBottom: 2 }}>
-              Rule: {formatRuleType(triggerCtx.rule_type)}
-              {triggerCtx.threshold != null && ` — Threshold: ${formatThreshold(triggerCtx.rule_type, triggerCtx.threshold)}`}
-            </div>
-          )}
-
-          <div style={{ display: 'flex', gap: 12, fontSize: '0.7rem', color: 'rgba(255,255,255,0.3)', marginTop: 2 }}>
-            {notification.previous_value && (
-              <span>From: <span style={{ color: 'rgba(255,255,255,0.5)' }}>{notification.previous_value}</span></span>
-            )}
-            {notification.current_value && (
-              <span>To: <span style={{ color: 'rgba(255,255,255,0.5)' }}>{notification.current_value}</span></span>
-            )}
-            <span>{formatRelativeTime(notification.created_at)}</span>
-          </div>
-
-          {notification.suggested_action && (
-            <div style={{
-              marginTop: 8,
-              padding: '8px 10px',
-              borderRadius: 6,
-              background: 'rgba(0,111,238,0.08)',
-              border: '1px solid rgba(0,111,238,0.15)',
-            }}>
-              <div style={{ fontSize: '0.6rem', color: '#006fee', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 3 }}>
-                Suggested Action
-              </div>
-              <div style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.7)', lineHeight: 1.5 }}>
-                {notification.suggested_action}
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {!notification.acknowledged && (
-        <button
-          onClick={handleAck}
-          disabled={acknowledging}
-          style={{
-            background: 'rgba(23,201,100,0.1)',
-            border: '1px solid rgba(23,201,100,0.2)',
-            borderRadius: 6,
-            padding: '4px 10px',
-            fontSize: '0.7rem',
-            fontWeight: 600,
-            color: '#17c964',
-            cursor: acknowledging ? 'not-allowed' : 'pointer',
-            opacity: acknowledging ? 0.5 : 1,
-            whiteSpace: 'nowrap',
+    <Card
+      style={{
+        background: notification.acknowledged ? 'transparent' : getSeverityBg(notification),
+        opacity: notification.acknowledged ? 0.5 : 1,
+        transition: 'all 0.15s',
+      }}
+    >
+      <CardContent className="pt-3 pb-3 flex items-start justify-between gap-3">
+        <div className="flex items-start gap-2.5 flex-1 min-w-0">
+          {/* Severity dot */}
+          <span style={{
+            display: 'inline-block',
+            width: 7,
+            height: 7,
+            borderRadius: '50%',
+            background: notification.acknowledged ? 'rgba(255,255,255,0.2)' : getSeverityDotColor(notification),
+            marginTop: 4,
             flexShrink: 0,
-            transition: 'background 0.15s',
-          }}
-          onMouseEnter={(e) => { if (!acknowledging) e.currentTarget.style.background = 'rgba(23,201,100,0.18)'; }}
-          onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(23,201,100,0.1)'; }}
-        >
-          {acknowledging ? '...' : 'Dismiss'}
-        </button>
-      )}
-    </div>
+          }} />
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+              <span className="font-data font-bold text-[0.82rem]" style={{ color: 'var(--text-primary)' }}>
+                {notification.ticker}
+              </span>
+              <span className="text-[0.75rem]" style={{ color: 'var(--text-secondary)' }}>
+                {notification.message}
+              </span>
+            </div>
+
+            {triggerCtx.rule_type && (
+              <div className="text-[0.7rem] mb-0.5" style={{ color: 'var(--text-muted)' }}>
+                Rule: {formatRuleType(triggerCtx.rule_type)}
+                {triggerCtx.threshold != null && ` — Threshold: ${formatThreshold(triggerCtx.rule_type, triggerCtx.threshold)}`}
+              </div>
+            )}
+
+            <div className="flex gap-3 text-[0.7rem] mt-0.5" style={{ color: 'var(--text-muted)' }}>
+              {notification.previous_value && (
+                <span>From: <span style={{ color: 'var(--text-secondary)' }}>{notification.previous_value}</span></span>
+              )}
+              {notification.current_value && (
+                <span>To: <span style={{ color: 'var(--text-secondary)' }}>{notification.current_value}</span></span>
+              )}
+              <span>{formatRelativeTime(notification.created_at)}</span>
+            </div>
+
+            {notification.suggested_action && (
+              <div
+                className="mt-2 px-2.5 py-2 rounded-md"
+                style={{
+                  background: 'rgba(0,111,238,0.08)',
+                  border: '1px solid rgba(0,111,238,0.15)',
+                }}
+              >
+                <div className="text-[0.6rem] font-bold uppercase tracking-widest mb-0.5" style={{ color: 'var(--primary)' }}>
+                  Suggested Action
+                </div>
+                <div className="text-[0.75rem] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+                  {notification.suggested_action}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {!notification.acknowledged && (
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={handleAck}
+            disabled={acknowledging}
+            className="h-7 px-2.5 text-[0.7rem] shrink-0"
+            style={{ color: 'var(--success)', borderColor: 'rgba(23,201,100,0.2)', background: 'rgba(23,201,100,0.1)' }}
+          >
+            {acknowledging ? '...' : 'Dismiss'}
+          </Button>
+        )}
+      </CardContent>
+    </Card>
   );
 };
 
@@ -406,7 +373,7 @@ const AlertsView = () => {
 
   const unreadCount = notifications.filter((n) => !n.acknowledged).length;
 
-  const inputStyle = {
+  const selectStyle = {
     background: 'rgba(255,255,255,0.04)',
     border: '1px solid rgba(255,255,255,0.06)',
     borderRadius: 8,
@@ -414,124 +381,106 @@ const AlertsView = () => {
     fontSize: '0.82rem',
     color: 'rgba(255,255,255,0.9)',
     outline: 'none',
+    cursor: 'pointer',
+    appearance: 'none',
+    width: '100%',
   };
 
-  const cardStyle = {
-    background: 'rgba(255,255,255,0.02)',
-    border: '1px solid rgba(255,255,255,0.06)',
-    borderRadius: 12,
-    padding: '20px',
-    marginBottom: 24,
-  };
-
-  const sectionLabelStyle = {
-    fontSize: '0.65rem',
-    fontWeight: 700,
-    color: 'rgba(255,255,255,0.4)',
-    textTransform: 'uppercase',
-    letterSpacing: '0.08em',
-    marginBottom: 12,
-  };
+  const sectionLabel = (
+    <span className="text-[0.65rem] font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }} />
+  );
 
   return (
     <div className="flex-1 p-6">
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-        <h2 className="text-lg font-bold text-white/90">Alerts</h2>
-        <span style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)' }}>
+      <div className="flex items-center justify-between mb-5">
+        <h2 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>Alerts</h2>
+        <span className="text-[0.75rem]" style={{ color: 'var(--text-muted)' }}>
           {rules.filter((r) => r.enabled).length} active rules / {unreadCount} unread
         </span>
       </div>
 
       {/* Create rule form */}
-      <div style={cardStyle}>
-        <div style={sectionLabelStyle}>New Alert Rule</div>
-        <form onSubmit={handleCreate} style={{ display: 'flex', alignItems: 'flex-end', gap: 12, flexWrap: 'wrap' }}>
-          <div style={{ flex: '0 0 120px' }}>
-            <label style={{ ...sectionLabelStyle, marginBottom: 4 }}>Ticker</label>
-            <input
-              type="text"
-              value={tickerInput}
-              onChange={(e) => setTickerInput(e.target.value.toUpperCase())}
-              placeholder="e.g. NVDA"
-              maxLength={5}
-              disabled={creating}
-              style={{ ...inputStyle, width: '100%', textTransform: 'uppercase' }}
-            />
-          </div>
-          <div style={{ flex: 1, minWidth: 180 }}>
-            <label style={{ ...sectionLabelStyle, marginBottom: 4 }}>Rule Type</label>
-            <select
-              value={ruleType}
-              onChange={(e) => { setRuleType(e.target.value); setThreshold(''); }}
-              disabled={creating}
-              style={{ ...inputStyle, width: '100%', cursor: 'pointer', appearance: 'none' }}
-            >
-              {RULE_TYPE_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value} style={{ background: '#1a1a1a' }}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          {needsThreshold && (
-            <div style={{ flex: '0 0 130px' }}>
-              <label style={{ ...sectionLabelStyle, marginBottom: 4 }}>Threshold</label>
-              <input
-                type="number"
-                step="any"
-                value={threshold}
-                onChange={(e) => setThreshold(e.target.value)}
-                placeholder={
-                  ruleType.startsWith('confidence_') || ruleType === 'calibration_drop'
-                    ? '0.0–1.0'
-                    : ruleType.includes('quality')
-                      ? '0–100'
-                      : '–100 to 100'
-                }
+      <Card className="mb-6">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-xs uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
+            New Alert Rule
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pt-0">
+          <form onSubmit={handleCreate} className="flex items-end gap-3 flex-wrap">
+            <div style={{ flex: '0 0 120px' }}>
+              <label className="text-[0.65rem] font-semibold uppercase tracking-wider block mb-1" style={{ color: 'var(--text-muted)' }}>Ticker</label>
+              <Input
+                type="text"
+                value={tickerInput}
+                onChange={(e) => setTickerInput(e.target.value.toUpperCase())}
+                placeholder="e.g. NVDA"
+                maxLength={5}
                 disabled={creating}
-                style={{ ...inputStyle, width: '100%' }}
+                className="uppercase font-data"
               />
             </div>
-          )}
-          <button
-            type="submit"
-            disabled={creating || !tickerInput.trim() || (needsThreshold && threshold === '')}
-            style={{
-              background: (creating || !tickerInput.trim() || (needsThreshold && threshold === '')) ? 'rgba(255,255,255,0.06)' : '#006fee',
-              color: (creating || !tickerInput.trim() || (needsThreshold && threshold === '')) ? 'rgba(255,255,255,0.3)' : '#fff',
-              border: 'none',
-              borderRadius: 8,
-              padding: '9px 20px',
-              fontSize: '0.82rem',
-              fontWeight: 600,
-              cursor: (creating || !tickerInput.trim() || (needsThreshold && threshold === '')) ? 'not-allowed' : 'pointer',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {creating ? 'Creating...' : 'Create'}
-          </button>
-        </form>
-      </div>
+            <div style={{ flex: 1, minWidth: 180 }}>
+              <label className="text-[0.65rem] font-semibold uppercase tracking-wider block mb-1" style={{ color: 'var(--text-muted)' }}>Rule Type</label>
+              <select
+                value={ruleType}
+                onChange={(e) => { setRuleType(e.target.value); setThreshold(''); }}
+                disabled={creating}
+                style={selectStyle}
+              >
+                {RULE_TYPE_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value} style={{ background: '#1a1a1a' }}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {needsThreshold && (
+              <div style={{ flex: '0 0 130px' }}>
+                <label className="text-[0.65rem] font-semibold uppercase tracking-wider block mb-1" style={{ color: 'var(--text-muted)' }}>Threshold</label>
+                <Input
+                  type="number"
+                  step="any"
+                  value={threshold}
+                  onChange={(e) => setThreshold(e.target.value)}
+                  placeholder={
+                    ruleType.startsWith('confidence_') || ruleType === 'calibration_drop'
+                      ? '0.0–1.0'
+                      : ruleType.includes('quality')
+                        ? '0–100'
+                        : '–100 to 100'
+                  }
+                  disabled={creating}
+                  className="font-data"
+                />
+              </div>
+            )}
+            <Button
+              type="submit"
+              disabled={creating || !tickerInput.trim() || (needsThreshold && threshold === '')}
+              className="whitespace-nowrap"
+            >
+              {creating ? 'Creating...' : 'Create'}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
 
       {/* Active rules */}
-      <div style={{ marginBottom: 28 }}>
-        <div style={sectionLabelStyle}>Alert Rules</div>
+      <div className="mb-7">
+        <div className="text-[0.65rem] font-bold uppercase tracking-widest mb-3" style={{ color: 'var(--text-muted)' }}>
+          Alert Rules
+        </div>
         {loading && rules.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '32px', color: 'rgba(255,255,255,0.25)', fontSize: '0.82rem' }}>Loading...</div>
+          <div className="text-center py-8 text-[0.82rem]" style={{ color: 'var(--text-muted)' }}>Loading...</div>
         ) : rules.length === 0 ? (
-          <div style={{
-            background: 'rgba(255,255,255,0.02)',
-            border: '1px solid rgba(255,255,255,0.06)',
-            borderRadius: 12,
-            padding: '32px',
-            textAlign: 'center',
-            color: 'rgba(255,255,255,0.25)',
-            fontSize: '0.82rem',
-          }}>
-            No alert rules yet. Create one above.
-          </div>
+          <Card>
+            <CardContent className="pt-8 pb-8 text-center text-[0.82rem]" style={{ color: 'var(--text-muted)' }}>
+              No alert rules yet. Create one above.
+            </CardContent>
+          </Card>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div className="flex flex-col gap-2">
             {rules.map((rule) => (
               <RuleCard key={rule.id} rule={rule} onToggle={handleToggle} onDelete={handleDelete} />
             ))}
@@ -541,40 +490,29 @@ const AlertsView = () => {
 
       {/* Notifications */}
       <div>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-          <div style={sectionLabelStyle}>Notifications</div>
-          <button
+        <div className="flex items-center justify-between mb-3">
+          <div className="text-[0.65rem] font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
+            Notifications
+          </div>
+          <Button
+            variant={showUnacknowledgedOnly ? 'secondary' : 'outline'}
+            size="sm"
             onClick={() => setShowUnacknowledgedOnly((prev) => !prev)}
-            style={{
-              background: showUnacknowledgedOnly ? 'rgba(245,165,36,0.12)' : 'transparent',
-              border: showUnacknowledgedOnly ? '1px solid rgba(245,165,36,0.25)' : '1px solid rgba(255,255,255,0.06)',
-              borderRadius: 6,
-              padding: '4px 10px',
-              fontSize: '0.72rem',
-              fontWeight: 600,
-              color: showUnacknowledgedOnly ? '#f5a524' : 'rgba(255,255,255,0.4)',
-              cursor: 'pointer',
-              transition: 'all 0.15s',
-            }}
+            className="h-6 px-2.5 text-[0.72rem]"
+            style={showUnacknowledgedOnly ? { color: 'var(--warning)', borderColor: 'rgba(245,165,36,0.25)' } : {}}
           >
             {showUnacknowledgedOnly ? 'Showing unread' : 'Unread only'}
-          </button>
+          </Button>
         </div>
 
         {filteredNotifications.length === 0 ? (
-          <div style={{
-            background: 'rgba(255,255,255,0.02)',
-            border: '1px solid rgba(255,255,255,0.06)',
-            borderRadius: 12,
-            padding: '32px',
-            textAlign: 'center',
-            color: 'rgba(255,255,255,0.25)',
-            fontSize: '0.82rem',
-          }}>
-            {showUnacknowledgedOnly ? 'No unread notifications.' : 'No notifications yet.'}
-          </div>
+          <Card>
+            <CardContent className="pt-8 pb-8 text-center text-[0.82rem]" style={{ color: 'var(--text-muted)' }}>
+              {showUnacknowledgedOnly ? 'No unread notifications.' : 'No notifications yet.'}
+            </CardContent>
+          </Card>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div className="flex flex-col gap-2">
             {filteredNotifications.map((notif) => (
               <NotificationRow key={notif.id} notification={notif} onAcknowledge={handleAcknowledge} />
             ))}
@@ -584,15 +522,14 @@ const AlertsView = () => {
 
       {/* Error */}
       {error && (
-        <div style={{
-          marginTop: 16,
-          padding: '10px 14px',
-          background: 'rgba(243,18,96,0.1)',
-          border: '1px solid rgba(243,18,96,0.3)',
-          borderRadius: 8,
-          color: '#f31260',
-          fontSize: '0.82rem',
-        }}>
+        <div
+          className="mt-4 px-3.5 py-2.5 rounded-lg text-[0.82rem]"
+          style={{
+            background: 'rgba(243,18,96,0.1)',
+            border: '1px solid rgba(243,18,96,0.3)',
+            color: 'var(--danger)',
+          }}
+        >
           {error}
         </div>
       )}

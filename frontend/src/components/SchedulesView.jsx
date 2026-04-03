@@ -10,6 +10,10 @@ import {
   deleteSchedule,
   getScheduleWithRuns,
 } from '../utils/api';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 
 const INTERVAL_OPTIONS = [
   { label: 'Every 30 minutes', value: 30 },
@@ -61,20 +65,15 @@ const ToggleSwitch = ({ enabled, onChange, disabled }) => (
   <button
     onClick={onChange}
     disabled={disabled}
+    className="relative inline-flex items-center rounded-full flex-shrink-0 transition-colors"
     style={{
-      position: 'relative',
-      display: 'inline-flex',
-      alignItems: 'center',
       width: 36,
       height: 20,
-      borderRadius: 10,
       border: 'none',
       cursor: disabled ? 'not-allowed' : 'pointer',
       background: enabled ? 'rgba(23,201,100,0.4)' : 'rgba(255,255,255,0.1)',
-      transition: 'background 0.2s',
       opacity: disabled ? 0.5 : 1,
       padding: 0,
-      flexShrink: 0,
     }}
   >
     <span style={{
@@ -96,7 +95,7 @@ const StatusDot = ({ enabled }) => (
     width: 8,
     height: 8,
     borderRadius: '50%',
-    background: enabled ? '#17c964' : 'rgba(255,255,255,0.2)',
+    background: enabled ? 'var(--success)' : 'rgba(255,255,255,0.2)',
     boxShadow: enabled ? '0 0 6px rgba(23,201,100,0.5)' : 'none',
     flexShrink: 0,
   }} />
@@ -106,48 +105,27 @@ const StatusDot = ({ enabled }) => (
 const RunRow = ({ run, fallbackTicker }) => {
   const success = run.success === true || run.success === 1;
   const ticker = run.ticker || fallbackTicker || '—';
-  const recColors = {
-    BUY: { bg: 'rgba(23,201,100,0.12)', color: '#17c964', border: 'rgba(23,201,100,0.25)' },
-    HOLD: { bg: 'rgba(245,165,36,0.12)', color: '#f5a524', border: 'rgba(245,165,36,0.25)' },
-    SELL: { bg: 'rgba(243,18,96,0.12)', color: '#f31260', border: 'rgba(243,18,96,0.25)' },
-  };
   const rec = run.recommendation;
-  const recStyle = recColors[rec];
+  const recVariant = { BUY: 'success', HOLD: 'warning', SELL: 'danger' }[rec] || 'secondary';
 
   return (
-    <div style={{
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      padding: '6px 8px',
-      borderRadius: 6,
-      transition: 'background 0.15s',
-    }}
-      onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.02)'; }}
-      onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+    <div
+      className="flex items-center justify-between px-2 py-1.5 rounded-md transition-colors hover:bg-white/[0.02]"
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <span style={{ fontSize: '0.75rem', color: success ? '#17c964' : '#f31260' }}>
+      <div className="flex items-center gap-2">
+        <span className="text-[0.75rem]" style={{ color: success ? 'var(--success)' : 'var(--danger)' }}>
           {success ? '✓' : '✗'}
         </span>
-        <span style={{ fontFamily: 'monospace', fontSize: '0.75rem', color: 'rgba(255,255,255,0.7)' }}>
+        <span className="font-data text-[0.75rem]" style={{ color: 'var(--text-secondary)' }}>
           {ticker}
         </span>
-        {rec && recStyle && (
-          <span style={{
-            fontSize: '0.65rem',
-            fontWeight: 700,
-            padding: '1px 6px',
-            borderRadius: 4,
-            background: recStyle.bg,
-            color: recStyle.color,
-            border: `1px solid ${recStyle.border}`,
-          }}>
+        {rec && (
+          <Badge variant={recVariant} className="text-[0.6rem] px-1.5 py-0">
             {rec}
-          </span>
+          </Badge>
         )}
       </div>
-      <span style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.3)' }}>
+      <span className="text-[0.7rem] font-data" style={{ color: 'var(--text-muted)' }}>
         {formatRelativeTime(run.timestamp || run.completed_at)}
       </span>
     </div>
@@ -172,112 +150,95 @@ const ScheduleCard = ({ schedule, onToggle, onDelete, expanded, onExpand, runs, 
   };
 
   return (
-    <div style={{
-      background: 'rgba(255,255,255,0.02)',
-      border: '1px solid rgba(255,255,255,0.06)',
-      borderRadius: 12,
-      padding: '16px 20px',
-      transition: 'border-color 0.15s',
-    }}>
-      {/* Main row */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <StatusDot enabled={schedule.enabled} />
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-              <span style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '0.9rem', color: 'rgba(255,255,255,0.9)' }}>
-                {schedule.ticker}
-              </span>
-              <span style={{
-                fontSize: '0.7rem',
-                color: 'rgba(255,255,255,0.4)',
-                background: 'rgba(255,255,255,0.04)',
-                border: '1px solid rgba(255,255,255,0.06)',
-                borderRadius: 4,
-                padding: '1px 6px',
-              }}>
-                {formatIntervalLabel(schedule.interval_minutes)}
-              </span>
-            </div>
-            <div style={{ display: 'flex', gap: 16, fontSize: '0.7rem', color: 'rgba(255,255,255,0.35)' }}>
-              {schedule.last_run_at && (
-                <span>Last: <span style={{ color: 'rgba(255,255,255,0.55)' }}>{formatRelativeTime(schedule.last_run_at)}</span></span>
-              )}
-              {schedule.next_run_at && schedule.enabled && (
-                <span>Next: <span style={{ color: '#006fee' }}>{formatRelativeTime(schedule.next_run_at)}</span></span>
-              )}
-            </div>
-          </div>
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <ToggleSwitch enabled={schedule.enabled} onChange={handleToggle} disabled={toggling} />
-
-          {/* Expand runs */}
-          <button
-            onClick={() => onExpand(schedule.id)}
-            style={{
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              color: 'rgba(255,255,255,0.4)',
-              fontSize: '0.75rem',
-              padding: '4px 6px',
-              borderRadius: 6,
-              transition: 'color 0.15s',
-              transform: expanded ? 'rotate(180deg)' : 'none',
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.color = 'rgba(255,255,255,0.8)'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.color = 'rgba(255,255,255,0.4)'; }}
-            title="View run history"
-          >
-            ▾
-          </button>
-
-          {/* Delete */}
-          <button
-            onClick={handleDelete}
-            disabled={deleting}
-            style={{
-              background: 'none',
-              border: 'none',
-              cursor: deleting ? 'not-allowed' : 'pointer',
-              color: 'rgba(255,255,255,0.2)',
-              fontSize: '0.75rem',
-              padding: '4px 6px',
-              borderRadius: 6,
-              opacity: deleting ? 0.5 : 1,
-              transition: 'color 0.15s',
-            }}
-            onMouseEnter={(e) => { if (!deleting) e.currentTarget.style.color = '#f31260'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.color = 'rgba(255,255,255,0.2)'; }}
-            title="Delete schedule"
-          >
-            ✕
-          </button>
-        </div>
-      </div>
-
-      {/* Expanded run history */}
-      {expanded && (
-        <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.05)' }}>
-          <div style={{ fontSize: '0.65rem', fontWeight: 700, color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>
-            Recent Runs
-          </div>
-          {loadingRuns ? (
-            <div style={{ textAlign: 'center', padding: '12px', color: 'rgba(255,255,255,0.25)', fontSize: '0.75rem' }}>Loading...</div>
-          ) : runs && runs.length > 0 ? (
+    <Card>
+      <CardContent className="pt-4 pb-4">
+        {/* Main row */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <StatusDot enabled={schedule.enabled} />
             <div>
-              {runs.map((run, idx) => (
-                <RunRow key={run.id || idx} run={run} fallbackTicker={schedule.ticker} />
-              ))}
+              <div className="flex items-center gap-2 mb-1">
+                <span className="font-data font-bold text-[0.9rem]" style={{ color: 'var(--text-primary)' }}>
+                  {schedule.ticker}
+                </span>
+                <Badge variant="secondary" className="text-[0.65rem] px-1.5 py-0">
+                  {formatIntervalLabel(schedule.interval_minutes)}
+                </Badge>
+              </div>
+              <div className="flex gap-4 text-[0.7rem]" style={{ color: 'var(--text-muted)' }}>
+                {schedule.last_run_at && (
+                  <span>Last: <span style={{ color: 'var(--text-secondary)' }}>{formatRelativeTime(schedule.last_run_at)}</span></span>
+                )}
+                {schedule.next_run_at && schedule.enabled && (
+                  <span>Next: <span style={{ color: 'var(--primary)' }}>{formatRelativeTime(schedule.next_run_at)}</span></span>
+                )}
+              </div>
             </div>
-          ) : (
-            <div style={{ textAlign: 'center', padding: '10px', color: 'rgba(255,255,255,0.2)', fontSize: '0.75rem' }}>No runs yet</div>
-          )}
+          </div>
+
+          <div className="flex items-center gap-2.5">
+            <ToggleSwitch enabled={schedule.enabled} onChange={handleToggle} disabled={toggling} />
+
+            {/* Expand runs */}
+            <button
+              onClick={() => onExpand(schedule.id)}
+              className="text-[0.75rem] px-1.5 py-1 rounded-md transition-colors"
+              style={{
+                color: 'var(--text-muted)',
+                transform: expanded ? 'rotate(180deg)' : 'none',
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text-primary)'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-muted)'; }}
+              title="View run history"
+            >
+              ▾
+            </button>
+
+            {/* Delete */}
+            <button
+              onClick={handleDelete}
+              disabled={deleting}
+              className="text-[0.75rem] px-1.5 py-1 rounded-md transition-colors"
+              style={{
+                color: 'var(--text-muted)',
+                background: 'none',
+                border: 'none',
+                cursor: deleting ? 'not-allowed' : 'pointer',
+                opacity: deleting ? 0.5 : 1,
+              }}
+              onMouseEnter={(e) => { if (!deleting) e.currentTarget.style.color = 'var(--danger)'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-muted)'; }}
+              title="Delete schedule"
+            >
+              ✕
+            </button>
+          </div>
         </div>
-      )}
-    </div>
+
+        {/* Expanded run history */}
+        {expanded && (
+          <div className="mt-3 pt-3 border-t border-white/[0.05]">
+            <div className="text-[0.65rem] font-bold uppercase tracking-widest mb-1.5" style={{ color: 'var(--text-muted)' }}>
+              Recent Runs
+            </div>
+            {loadingRuns ? (
+              <div className="text-center py-3 text-[0.75rem]" style={{ color: 'var(--text-muted)' }}>Loading...</div>
+            ) : runs && runs.length > 0 ? (
+              <div>
+                {runs.map((run, idx) => (
+                  <RunRow key={run.id || idx} run={run} fallbackTicker={schedule.ticker} />
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-2.5 text-[0.75rem]" style={{ color: 'var(--text-muted)' }}>No runs yet</div>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 };
 
@@ -368,7 +329,9 @@ const SchedulesView = () => {
     }
   };
 
-  const inputStyle = {
+  const activeCount = schedules.filter((s) => s.enabled).length;
+
+  const selectStyle = {
     background: 'rgba(255,255,255,0.04)',
     border: '1px solid rgba(255,255,255,0.06)',
     borderRadius: 8,
@@ -376,114 +339,88 @@ const SchedulesView = () => {
     fontSize: '0.82rem',
     color: 'rgba(255,255,255,0.9)',
     outline: 'none',
+    cursor: 'pointer',
+    appearance: 'none',
+    width: '100%',
   };
-
-  const activeCount = schedules.filter((s) => s.enabled).length;
 
   return (
     <div className="flex-1 p-6">
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-        <h2 className="text-lg font-bold text-white/90">Scheduled Analyses</h2>
-        <span style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)' }}>
+      <div className="flex items-center justify-between mb-5">
+        <h2 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>Scheduled Analyses</h2>
+        <span className="text-[0.75rem]" style={{ color: 'var(--text-muted)' }}>
           {activeCount} active / {schedules.length} total
         </span>
       </div>
 
       {/* Create form */}
-      <div style={{
-        background: 'rgba(255,255,255,0.02)',
-        border: '1px solid rgba(255,255,255,0.06)',
-        borderRadius: 12,
-        padding: '20px',
-        marginBottom: 24,
-      }}>
-        <div style={{ fontSize: '0.65rem', fontWeight: 700, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 12 }}>
-          New Schedule
-        </div>
-        <form onSubmit={handleCreate} style={{ display: 'flex', alignItems: 'flex-end', gap: 12 }}>
-          <div style={{ flex: '0 0 140px' }}>
-            <label style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.4)', display: 'block', marginBottom: 4, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-              Ticker
-            </label>
-            <input
-              type="text"
-              value={tickerInput}
-              onChange={(e) => setTickerInput(e.target.value.toUpperCase())}
-              placeholder="e.g. NVDA"
-              maxLength={5}
-              disabled={creating}
-              style={{ ...inputStyle, width: '100%', textTransform: 'uppercase' }}
-            />
-          </div>
-          <div style={{ flex: 1 }}>
-            <label style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.4)', display: 'block', marginBottom: 4, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-              Interval
-            </label>
-            <select
-              value={intervalValue}
-              onChange={(e) => setIntervalValue(Number(e.target.value))}
-              disabled={creating}
-              style={{
-                ...inputStyle,
-                width: '100%',
-                cursor: 'pointer',
-                appearance: 'none',
-              }}
+      <Card className="mb-6">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-xs uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
+            New Schedule
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pt-0">
+          <form onSubmit={handleCreate} className="flex items-end gap-3">
+            <div style={{ flex: '0 0 140px' }}>
+              <label className="text-[0.65rem] font-semibold uppercase tracking-wider block mb-1" style={{ color: 'var(--text-muted)' }}>
+                Ticker
+              </label>
+              <Input
+                type="text"
+                value={tickerInput}
+                onChange={(e) => setTickerInput(e.target.value.toUpperCase())}
+                placeholder="e.g. NVDA"
+                maxLength={5}
+                disabled={creating}
+                className="uppercase font-data"
+              />
+            </div>
+            <div className="flex-1">
+              <label className="text-[0.65rem] font-semibold uppercase tracking-wider block mb-1" style={{ color: 'var(--text-muted)' }}>
+                Interval
+              </label>
+              <select
+                value={intervalValue}
+                onChange={(e) => setIntervalValue(Number(e.target.value))}
+                disabled={creating}
+                style={selectStyle}
+              >
+                {INTERVAL_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value} style={{ background: '#1a1a1a' }}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <Button
+              type="submit"
+              disabled={creating || !tickerInput.trim()}
+              className="whitespace-nowrap"
             >
-              {INTERVAL_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value} style={{ background: '#1a1a1a' }}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <button
-            type="submit"
-            disabled={creating || !tickerInput.trim()}
-            style={{
-              background: creating || !tickerInput.trim() ? 'rgba(255,255,255,0.06)' : '#006fee',
-              color: creating || !tickerInput.trim() ? 'rgba(255,255,255,0.3)' : '#fff',
-              border: 'none',
-              borderRadius: 8,
-              padding: '9px 20px',
-              fontSize: '0.82rem',
-              fontWeight: 600,
-              cursor: creating || !tickerInput.trim() ? 'not-allowed' : 'pointer',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {creating ? 'Creating...' : 'Create'}
-          </button>
-        </form>
-      </div>
+              {creating ? 'Creating...' : 'Create'}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
 
       {/* Schedule list */}
       {loading && schedules.length === 0 ? (
-        <div style={{
-          background: 'rgba(255,255,255,0.02)',
-          border: '1px solid rgba(255,255,255,0.06)',
-          borderRadius: 12,
-          padding: '48px',
-          textAlign: 'center',
-          color: 'rgba(255,255,255,0.25)',
-          fontSize: '0.82rem',
-        }}>
-          Loading...
-        </div>
+        <Card>
+          <CardContent className="pt-12 pb-12 text-center text-[0.82rem]" style={{ color: 'var(--text-muted)' }}>
+            Loading...
+          </CardContent>
+        </Card>
       ) : schedules.length === 0 ? (
-        <div style={{
-          background: 'rgba(255,255,255,0.02)',
-          border: '1px solid rgba(255,255,255,0.06)',
-          borderRadius: 12,
-          padding: '48px',
-          textAlign: 'center',
-        }}>
-          <div style={{ fontSize: '2rem', marginBottom: 10 }}>🕐</div>
-          <div style={{ fontSize: '0.82rem', color: 'rgba(255,255,255,0.3)' }}>No scheduled analyses yet.</div>
-          <div style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.2)', marginTop: 4 }}>Create one above to get started.</div>
-        </div>
+        <Card>
+          <CardContent className="pt-12 pb-12 text-center">
+            <div className="text-2xl mb-2.5">🕐</div>
+            <div className="text-[0.82rem] mb-1" style={{ color: 'var(--text-muted)' }}>No scheduled analyses yet.</div>
+            <div className="text-[0.75rem]" style={{ color: 'var(--text-muted)' }}>Create one above to get started.</div>
+          </CardContent>
+        </Card>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div className="flex flex-col gap-2.5">
           {schedules.map((schedule) => (
             <ScheduleCard
               key={schedule.id}
@@ -501,15 +438,14 @@ const SchedulesView = () => {
 
       {/* Error */}
       {error && (
-        <div style={{
-          marginTop: 16,
-          padding: '10px 14px',
-          background: 'rgba(243,18,96,0.1)',
-          border: '1px solid rgba(243,18,96,0.3)',
-          borderRadius: 8,
-          color: '#f31260',
-          fontSize: '0.82rem',
-        }}>
+        <div
+          className="mt-4 px-3.5 py-2.5 rounded-lg text-[0.82rem]"
+          style={{
+            background: 'rgba(243,18,96,0.1)',
+            border: '1px solid rgba(243,18,96,0.3)',
+            color: 'var(--danger)',
+          }}
+        >
           {error}
         </div>
       )}

@@ -21,22 +21,30 @@ const InflectionView = () => {
 
   return (
     <div className="flex flex-col" style={{ height: 'calc(100vh - 64px)' }}>
-      <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800">
-        <h2 className="text-sm font-medium text-zinc-200">Inflection Radar</h2>
-        <select value={activeWatchlistId || ''} onChange={(e) => setActiveWatchlistId(Number(e.target.value))}
-          className="bg-zinc-800 text-zinc-300 text-xs rounded px-2 py-1 border border-zinc-700">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
+        <h2 className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Inflection Radar</h2>
+        <select
+          value={activeWatchlistId || ''}
+          onChange={(e) => setActiveWatchlistId(Number(e.target.value))}
+          className="text-xs rounded px-2 py-1"
+          style={{
+            background: 'var(--card)',
+            border: '1px solid var(--border)',
+            color: 'var(--text-secondary)',
+          }}
+        >
           {watchlists.map((wl) => (<option key={wl.id} value={wl.id}>{wl.name}</option>))}
         </select>
       </div>
       <div className="flex flex-1 min-h-0">
-        <div className="w-60 shrink-0 border-r border-zinc-800 overflow-y-auto p-2">
+        <div className="w-60 shrink-0 border-r border-[var(--border)] overflow-y-auto p-2">
           <InflectionHeatmap watchlistId={activeWatchlistId} selectedTicker={selectedTicker} onSelectTicker={setSelectedTicker} />
         </div>
         <div className="flex-1 min-w-0">
           <InflectionChart ticker={selectedTicker} />
         </div>
       </div>
-      <div className="h-48 shrink-0 border-t border-zinc-800 overflow-y-auto">
+      <div className="h-48 shrink-0 border-t border-[var(--border)] overflow-y-auto">
         <InflectionFeed watchlistId={activeWatchlistId} onSelectTicker={setSelectedTicker} />
       </div>
     </div>

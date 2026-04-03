@@ -5,6 +5,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion as Motion } from 'framer-motion';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 const fadeUp = {
   hidden: { opacity: 0, y: 12 },
@@ -12,17 +13,16 @@ const fadeUp = {
 };
 
 const MetricCard = ({ label, value }) => (
-  <div
-    className="bg-dark-inset rounded-lg border border-white/[0.04] hover:border-white/[0.08] transition-colors"
-    style={{ padding: 'var(--space-card-padding, 20px)' }}
-  >
-    <div className="text-[11px] uppercase tracking-wider font-medium" style={{ color: 'var(--text-muted)' }}>
-      {label}
-    </div>
-    <div className="text-lg font-bold mt-1 font-mono tabular-nums" style={{ color: 'var(--text-primary)' }}>
-      {value}
-    </div>
-  </div>
+  <Card>
+    <CardContent className="pt-5">
+      <div className="text-[11px] uppercase tracking-wider font-medium" style={{ color: 'var(--text-muted)' }}>
+        {label}
+      </div>
+      <div className="text-lg font-bold mt-1 font-data tabular-nums" style={{ color: 'var(--text-primary)' }}>
+        {value}
+      </div>
+    </CardContent>
+  </Card>
 );
 
 const MacroPage = () => {
@@ -64,9 +64,11 @@ const MacroPage = () => {
   if (error) {
     return (
       <div className="px-6 py-8">
-        <div className="glass-card rounded-xl p-6 text-center">
-          <p className="text-sm" style={{ color: 'var(--accent-red)' }}>{error}</p>
-        </div>
+        <Card>
+          <CardContent className="pt-5 text-center">
+            <p className="text-sm" style={{ color: 'var(--danger)' }}>{error}</p>
+          </CardContent>
+        </Card>
       </div>
     );
   }
@@ -114,14 +116,16 @@ const MacroPage = () => {
         </div>
 
         {summary && (
-          <div className="glass-card rounded-xl" style={{ padding: 'var(--space-card-padding, 20px)' }}>
-            <div className="text-sm font-semibold mb-3" style={{ color: 'var(--text-primary)' }}>
-              Analysis
-            </div>
-            <div className="text-[0.88rem] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-              {summary}
-            </div>
-          </div>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Analysis</CardTitle>
+            </CardHeader>
+            <CardContent className="pt-0">
+              <div className="text-[0.88rem] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+                {summary}
+              </div>
+            </CardContent>
+          </Card>
         )}
       </Motion.div>
     </div>

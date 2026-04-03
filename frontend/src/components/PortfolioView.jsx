@@ -10,6 +10,17 @@ import {
   updatePortfolioHolding,
   deletePortfolioHolding,
 } from '../utils/api';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableCell,
+  TableHead,
+} from '@/components/ui/table';
 
 const DEFAULT_PROFILE = {
   name: 'Primary',
@@ -49,30 +60,22 @@ const SummaryStrip = ({ snapshot }) => {
   const topSector = snapshot.by_sector?.[0]?.sector;
 
   return (
-    <div style={{
-      display: 'grid',
-      gridTemplateColumns: 'repeat(3, 1fr)',
-      gap: 12,
-      marginBottom: 24,
-    }}>
+    <div className="grid grid-cols-3 gap-3 mb-6">
       {[
         { label: 'Total Value', value: fmtCurrency(totalVal) },
         { label: 'Holdings', value: holdingsCount.toString() },
         { label: 'Top Sector', value: topSector || '—' },
       ].map(({ label, value }) => (
-        <div key={label} style={{
-          background: 'rgba(255,255,255,0.02)',
-          border: '1px solid rgba(255,255,255,0.06)',
-          borderRadius: 10,
-          padding: '14px 18px',
-        }}>
-          <div style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>
-            {label}
-          </div>
-          <div style={{ fontSize: '1.1rem', fontWeight: 700, color: 'rgba(255,255,255,0.9)', fontFamily: 'monospace' }}>
-            {value}
-          </div>
-        </div>
+        <Card key={label}>
+          <CardContent className="pt-4 pb-3">
+            <div className="text-[0.65rem] uppercase tracking-widest mb-1.5" style={{ color: 'var(--text-muted)' }}>
+              {label}
+            </div>
+            <div className="text-[1.1rem] font-bold font-data" style={{ color: 'var(--text-primary)' }}>
+              {value}
+            </div>
+          </CardContent>
+        </Card>
       ))}
     </div>
   );
@@ -85,85 +88,64 @@ const HoldingRow = ({ holding, onEdit, onDelete, onSelectTicker }) => {
     : null;
 
   return (
-    <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', transition: 'background 0.15s' }}
-      onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.02)'; }}
-      onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-    >
-      <td style={{ padding: '10px 14px' }}>
+    <TableRow>
+      <TableCell>
         <button
           onClick={() => onSelectTicker?.(holding.ticker)}
-          style={{
-            background: 'none',
-            border: 'none',
-            cursor: 'pointer',
-            fontFamily: 'monospace',
-            fontWeight: 700,
-            fontSize: '0.85rem',
-            color: '#006fee',
-            padding: 0,
-          }}
+          className="font-data font-bold text-[0.85rem] p-0 bg-transparent border-none cursor-pointer transition-colors"
+          style={{ color: 'var(--primary)' }}
         >
           {holding.ticker}
         </button>
-      </td>
-      <td style={{ padding: '10px 14px', fontSize: '0.82rem', color: 'rgba(255,255,255,0.7)', fontFamily: 'monospace' }}>
+      </TableCell>
+      <TableCell className="font-data text-[0.82rem]" style={{ color: 'var(--text-secondary)' }}>
         {Number(holding.shares || 0).toLocaleString(undefined, { maximumFractionDigits: 4 })}
-      </td>
-      <td style={{ padding: '10px 14px', fontSize: '0.82rem', color: 'rgba(255,255,255,0.7)', fontFamily: 'monospace' }}>
+      </TableCell>
+      <TableCell className="font-data text-[0.82rem]" style={{ color: 'var(--text-secondary)' }}>
         {fmtCurrency(holding.market_value)}
-      </td>
-      <td style={{ padding: '10px 14px', fontSize: '0.82rem', fontFamily: 'monospace' }}>
+      </TableCell>
+      <TableCell className="font-data text-[0.82rem]">
         {returnPct != null ? (
-          <span style={{ color: returnPct >= 0 ? '#17c964' : '#f31260', fontWeight: 600 }}>
+          <span style={{ color: returnPct >= 0 ? 'var(--success)' : 'var(--danger)', fontWeight: 600 }}>
             {returnPct >= 0 ? '+' : ''}{returnPct.toFixed(2)}%
           </span>
-        ) : <span style={{ color: 'rgba(255,255,255,0.25)' }}>—</span>}
-      </td>
-      <td style={{ padding: '10px 14px', fontSize: '0.75rem', color: 'rgba(255,255,255,0.5)' }}>
+        ) : <span style={{ color: 'var(--text-muted)' }}>—</span>}
+      </TableCell>
+      <TableCell className="text-[0.75rem]" style={{ color: 'var(--text-muted)' }}>
         {holding.sector || '—'}
-      </td>
-      <td style={{ padding: '10px 14px' }}>
-        <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-          <button
+      </TableCell>
+      <TableCell className="text-right">
+        <div className="flex gap-1.5 justify-end">
+          <Button
+            variant="secondary"
+            size="sm"
             onClick={() => onEdit(holding)}
-            style={{
-              background: 'rgba(255,255,255,0.04)',
-              border: '1px solid rgba(255,255,255,0.08)',
-              borderRadius: 6,
-              padding: '4px 10px',
-              fontSize: '0.72rem',
-              color: 'rgba(255,255,255,0.6)',
-              cursor: 'pointer',
-              transition: 'all 0.15s',
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.color = 'rgba(255,255,255,0.9)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.2)'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.color = 'rgba(255,255,255,0.6)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'; }}
+            className="h-7 px-2.5 text-[0.72rem]"
           >
             Edit
-          </button>
+          </Button>
           <button
             onClick={() => onDelete(holding.id)}
-            style={{
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              fontSize: '0.75rem',
-              color: 'rgba(255,255,255,0.2)',
-              padding: '4px 6px',
-              borderRadius: 6,
-              transition: 'color 0.15s',
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.color = '#f31260'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.color = 'rgba(255,255,255,0.2)'; }}
+            className="text-[0.75rem] px-1.5 py-1 rounded transition-colors"
+            style={{ color: 'var(--text-muted)' }}
+            onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--danger)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-muted)'; }}
             title="Delete holding"
           >
             ✕
           </button>
         </div>
-      </td>
-    </tr>
+      </TableCell>
+    </TableRow>
   );
 };
+
+/* ──────── Label style ──────── */
+const FieldLabel = ({ children }) => (
+  <label className="text-[0.65rem] font-semibold uppercase tracking-wider block mb-1" style={{ color: 'var(--text-muted)' }}>
+    {children}
+  </label>
+);
 
 /* ──────── Main PortfolioView component ──────── */
 const PortfolioView = ({ onSelectTicker }) => {
@@ -259,41 +241,12 @@ const PortfolioView = ({ onSelectTicker }) => {
     }
   };
 
-  const inputStyle = {
-    background: 'rgba(255,255,255,0.04)',
-    border: '1px solid rgba(255,255,255,0.06)',
-    borderRadius: 8,
-    padding: '8px 12px',
-    fontSize: '0.82rem',
-    color: 'rgba(255,255,255,0.9)',
-    outline: 'none',
-    width: '100%',
-  };
-
-  const labelStyle = {
-    fontSize: '0.65rem',
-    color: 'rgba(255,255,255,0.4)',
-    fontWeight: 600,
-    textTransform: 'uppercase',
-    letterSpacing: '0.06em',
-    display: 'block',
-    marginBottom: 4,
-  };
-
-  const cardStyle = {
-    background: 'rgba(255,255,255,0.02)',
-    border: '1px solid rgba(255,255,255,0.06)',
-    borderRadius: 12,
-    padding: '20px',
-    marginBottom: 20,
-  };
-
   return (
     <div className="flex-1 p-6">
-      <h2 className="text-lg font-bold text-white/90 mb-4">Portfolio</h2>
+      <h2 className="text-lg font-bold mb-4" style={{ color: 'var(--text-primary)' }}>Portfolio</h2>
 
       {loading && holdingsRows.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: '48px', color: 'rgba(255,255,255,0.3)', fontSize: '0.82rem' }}>
+        <div className="text-center py-12 text-[0.82rem]" style={{ color: 'var(--text-muted)' }}>
           Loading...
         </div>
       ) : (
@@ -302,166 +255,152 @@ const PortfolioView = ({ onSelectTicker }) => {
           <SummaryStrip snapshot={portfolio.snapshot} />
 
           {/* Add / Edit holding form */}
-          <div style={cardStyle}>
-            <div style={{ fontSize: '0.65rem', fontWeight: 700, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 14 }}>
-              {editingHoldingId ? 'Edit Holding' : 'Add Holding'}
-            </div>
-            <form onSubmit={handleHoldingSubmit}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr) auto', gap: 12, alignItems: 'end' }}>
-                <div>
-                  <label style={labelStyle}>Ticker</label>
-                  <input
-                    type="text"
-                    maxLength={5}
-                    value={holdingForm.ticker}
-                    onChange={(e) => setHoldingForm((prev) => ({ ...prev, ticker: e.target.value.toUpperCase() }))}
-                    style={{ ...inputStyle, textTransform: 'uppercase' }}
-                    placeholder="AAPL"
-                  />
-                </div>
-                <div>
-                  <label style={labelStyle}>Shares</label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.0001"
-                    value={holdingForm.shares}
-                    onChange={(e) => setHoldingForm((prev) => ({ ...prev, shares: e.target.value }))}
-                    style={inputStyle}
-                    placeholder="100"
-                  />
-                </div>
-                <div>
-                  <label style={labelStyle}>Avg Cost</label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={holdingForm.avg_cost}
-                    onChange={(e) => setHoldingForm((prev) => ({ ...prev, avg_cost: e.target.value }))}
-                    style={inputStyle}
-                    placeholder="150.00"
-                  />
-                </div>
-                <div>
-                  <label style={labelStyle}>Market Value</label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={holdingForm.market_value}
-                    onChange={(e) => setHoldingForm((prev) => ({ ...prev, market_value: e.target.value }))}
-                    style={inputStyle}
-                    placeholder="Optional"
-                  />
-                </div>
-                <div>
-                  <label style={labelStyle}>Sector</label>
-                  <input
-                    type="text"
-                    value={holdingForm.sector}
-                    onChange={(e) => setHoldingForm((prev) => ({ ...prev, sector: e.target.value }))}
-                    style={inputStyle}
-                    placeholder="Technology"
-                  />
-                </div>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <button
-                    type="submit"
-                    disabled={savingHolding || !holdingForm.ticker.trim()}
-                    style={{
-                      background: savingHolding || !holdingForm.ticker.trim() ? 'rgba(255,255,255,0.06)' : '#006fee',
-                      color: savingHolding || !holdingForm.ticker.trim() ? 'rgba(255,255,255,0.3)' : '#fff',
-                      border: 'none',
-                      borderRadius: 8,
-                      padding: '9px 16px',
-                      fontSize: '0.82rem',
-                      fontWeight: 600,
-                      cursor: savingHolding || !holdingForm.ticker.trim() ? 'not-allowed' : 'pointer',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {savingHolding ? 'Saving...' : editingHoldingId ? 'Update' : 'Add'}
-                  </button>
-                  {editingHoldingId && (
-                    <button
-                      type="button"
-                      onClick={resetHoldingForm}
-                      style={{
-                        background: 'rgba(255,255,255,0.04)',
-                        border: '1px solid rgba(255,255,255,0.08)',
-                        borderRadius: 8,
-                        padding: '9px 12px',
-                        fontSize: '0.82rem',
-                        color: 'rgba(255,255,255,0.6)',
-                        cursor: 'pointer',
-                        whiteSpace: 'nowrap',
-                      }}
+          <Card className="mb-5">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-xs uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
+                {editingHoldingId ? 'Edit Holding' : 'Add Holding'}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="pt-0">
+              <form onSubmit={handleHoldingSubmit}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr) auto', gap: 12, alignItems: 'end' }}>
+                  <div>
+                    <FieldLabel>Ticker</FieldLabel>
+                    <Input
+                      type="text"
+                      maxLength={5}
+                      value={holdingForm.ticker}
+                      onChange={(e) => setHoldingForm((prev) => ({ ...prev, ticker: e.target.value.toUpperCase() }))}
+                      className="uppercase font-data"
+                      placeholder="AAPL"
+                    />
+                  </div>
+                  <div>
+                    <FieldLabel>Shares</FieldLabel>
+                    <Input
+                      type="number"
+                      min="0"
+                      step="0.0001"
+                      value={holdingForm.shares}
+                      onChange={(e) => setHoldingForm((prev) => ({ ...prev, shares: e.target.value }))}
+                      className="font-data"
+                      placeholder="100"
+                    />
+                  </div>
+                  <div>
+                    <FieldLabel>Avg Cost</FieldLabel>
+                    <Input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={holdingForm.avg_cost}
+                      onChange={(e) => setHoldingForm((prev) => ({ ...prev, avg_cost: e.target.value }))}
+                      className="font-data"
+                      placeholder="150.00"
+                    />
+                  </div>
+                  <div>
+                    <FieldLabel>Market Value</FieldLabel>
+                    <Input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={holdingForm.market_value}
+                      onChange={(e) => setHoldingForm((prev) => ({ ...prev, market_value: e.target.value }))}
+                      className="font-data"
+                      placeholder="Optional"
+                    />
+                  </div>
+                  <div>
+                    <FieldLabel>Sector</FieldLabel>
+                    <Input
+                      type="text"
+                      value={holdingForm.sector}
+                      onChange={(e) => setHoldingForm((prev) => ({ ...prev, sector: e.target.value }))}
+                      placeholder="Technology"
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      type="submit"
+                      disabled={savingHolding || !holdingForm.ticker.trim()}
+                      className="whitespace-nowrap"
                     >
-                      Cancel
-                    </button>
-                  )}
+                      {savingHolding ? 'Saving...' : editingHoldingId ? 'Update' : 'Add'}
+                    </Button>
+                    {editingHoldingId && (
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        onClick={resetHoldingForm}
+                        className="whitespace-nowrap"
+                      >
+                        Cancel
+                      </Button>
+                    )}
+                  </div>
                 </div>
-              </div>
-            </form>
-          </div>
+              </form>
+            </CardContent>
+          </Card>
 
           {/* Holdings table */}
-          <div style={cardStyle}>
-            <div style={{ fontSize: '0.65rem', fontWeight: 700, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 14 }}>
-              Holdings
-            </div>
-            {holdingsRows.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '24px', color: 'rgba(255,255,255,0.25)', fontSize: '0.82rem' }}>
-                No holdings added yet.
-              </div>
-            ) : (
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                  <thead>
-                    <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-                      {['Ticker', 'Shares', 'Market Value', 'Return %', 'Sector', ''].map((h) => (
-                        <th key={h} style={{
-                          padding: '8px 14px',
-                          textAlign: h === '' ? 'right' : 'left',
-                          fontSize: '0.65rem',
-                          fontWeight: 700,
-                          color: 'rgba(255,255,255,0.35)',
-                          textTransform: 'uppercase',
-                          letterSpacing: '0.08em',
-                        }}>{h}</th>
+          <Card className="mb-5">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-xs uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
+                Holdings
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="pt-0">
+              {holdingsRows.length === 0 ? (
+                <div className="text-center py-6 text-[0.82rem]" style={{ color: 'var(--text-muted)' }}>
+                  No holdings added yet.
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        {['Ticker', 'Shares', 'Market Value', 'Return %', 'Sector', ''].map((h) => (
+                          <TableHead
+                            key={h}
+                            className={`text-[0.65rem] uppercase tracking-widest ${h === '' ? 'text-right' : ''}`}
+                            style={{ color: 'var(--text-muted)' }}
+                          >
+                            {h}
+                          </TableHead>
+                        ))}
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {holdingsRows.map((holding) => (
+                        <HoldingRow
+                          key={holding.id || holding.ticker}
+                          holding={holding}
+                          onEdit={startEditHolding}
+                          onDelete={handleDeleteHolding}
+                          onSelectTicker={onSelectTicker}
+                        />
                       ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {holdingsRows.map((holding) => (
-                      <HoldingRow
-                        key={holding.id || holding.ticker}
-                        holding={holding}
-                        onEdit={startEditHolding}
-                        onDelete={handleDeleteHolding}
-                        onSelectTicker={onSelectTicker}
-                      />
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </>
       )}
 
       {/* Error */}
       {error && (
-        <div style={{
-          marginTop: 16,
-          padding: '10px 14px',
-          background: 'rgba(243,18,96,0.1)',
-          border: '1px solid rgba(243,18,96,0.3)',
-          borderRadius: 8,
-          color: '#f31260',
-          fontSize: '0.82rem',
-        }}>
+        <div
+          className="mt-4 px-3.5 py-2.5 rounded-lg text-[0.82rem]"
+          style={{
+            background: 'rgba(243,18,96,0.1)',
+            border: '1px solid rgba(243,18,96,0.3)',
+            color: 'var(--danger)',
+          }}
+        >
           {error}
         </div>
       )}

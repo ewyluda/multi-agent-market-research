@@ -13,28 +13,18 @@ import {
   setWatchlistSchedule,
   API_BASE_URL,
 } from '../utils/api';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 
 /* ──────── Recommendation badge ──────── */
 const RecBadge = ({ rec }) => {
-  const colors = {
-    BUY: { bg: 'rgba(23,201,100,0.12)', color: '#17c964', border: 'rgba(23,201,100,0.25)' },
-    HOLD: { bg: 'rgba(245,165,36,0.12)', color: '#f5a524', border: 'rgba(245,165,36,0.25)' },
-    SELL: { bg: 'rgba(243,18,96,0.12)', color: '#f31260', border: 'rgba(243,18,96,0.25)' },
-  };
-  const s = colors[rec] || { bg: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.5)', border: 'rgba(255,255,255,0.1)' };
+  const variant = { BUY: 'success', HOLD: 'warning', SELL: 'danger' }[rec] || 'secondary';
   return (
-    <span style={{
-      fontSize: '0.7rem',
-      fontWeight: 700,
-      padding: '2px 8px',
-      borderRadius: 4,
-      background: s.bg,
-      color: s.color,
-      border: `1px solid ${s.border}`,
-      letterSpacing: '0.04em',
-    }}>
+    <Badge variant={variant} className="text-[0.65rem] px-1.5 py-0">
       {rec || '—'}
-    </span>
+    </Badge>
   );
 };
 
@@ -45,76 +35,55 @@ const MiniCard = ({ ticker, analysis, onRemove, onSelect }) => {
   const change = a?.market_data?.price_change_pct_1d;
 
   return (
-    <div
-      style={{
-        background: 'rgba(255,255,255,0.02)',
-        border: '1px solid rgba(255,255,255,0.06)',
-        borderRadius: 10,
-        padding: '14px',
-        cursor: 'pointer',
-        transition: 'border-color 0.15s, background 0.15s',
-        position: 'relative',
-      }}
+    <Card
+      className="relative cursor-pointer hover:border-white/[0.12] transition-colors"
       onClick={() => onSelect(ticker)}
-      onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)'; e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; }}
-      onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.06)'; e.currentTarget.style.background = 'rgba(255,255,255,0.02)'; }}
     >
-      {/* Remove button */}
-      <button
-        onClick={(e) => { e.stopPropagation(); onRemove(ticker); }}
-        style={{
-          position: 'absolute',
-          top: 8,
-          right: 8,
-          background: 'none',
-          border: 'none',
-          cursor: 'pointer',
-          color: 'rgba(255,255,255,0.2)',
-          fontSize: '0.75rem',
-          lineHeight: 1,
-          padding: '2px 4px',
-          borderRadius: 4,
-          transition: 'color 0.15s',
-        }}
-        onMouseEnter={(e) => { e.currentTarget.style.color = '#f31260'; }}
-        onMouseLeave={(e) => { e.currentTarget.style.color = 'rgba(255,255,255,0.2)'; }}
-        title="Remove from watchlist"
-      >
-        ✕
-      </button>
+      <CardContent className="pt-4 pb-3">
+        {/* Remove button */}
+        <button
+          onClick={(e) => { e.stopPropagation(); onRemove(ticker); }}
+          className="absolute top-2 right-2 p-0.5 text-[0.75rem] leading-none rounded transition-colors"
+          style={{ color: 'var(--text-muted)' }}
+          onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--danger)'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-muted)'; }}
+          title="Remove from watchlist"
+        >
+          ✕
+        </button>
 
-      {/* Ticker */}
-      <div style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '0.95rem', color: 'rgba(255,255,255,0.9)', marginBottom: 6 }}>
-        {ticker}
-      </div>
+        {/* Ticker */}
+        <div className="font-data font-bold text-[0.95rem] mb-1.5" style={{ color: 'var(--text-primary)' }}>
+          {ticker}
+        </div>
 
-      {/* Rec badge */}
-      <div style={{ marginBottom: 8 }}>
-        {a ? <RecBadge rec={a.recommendation} /> : (
-          <span style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.25)' }}>Not analyzed</span>
-        )}
-      </div>
+        {/* Rec badge */}
+        <div className="mb-2">
+          {a ? <RecBadge rec={a.recommendation} /> : (
+            <span className="text-[0.7rem]" style={{ color: 'var(--text-muted)' }}>Not analyzed</span>
+          )}
+        </div>
 
-      {/* Price row */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        {price != null ? (
-          <span style={{ fontSize: '0.82rem', fontFamily: 'monospace', color: 'rgba(255,255,255,0.7)' }}>
-            ${Number(price).toFixed(2)}
-          </span>
-        ) : (
-          <span style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.25)' }}>—</span>
-        )}
-        {change != null && (
-          <span style={{
-            fontSize: '0.72rem',
-            fontFamily: 'monospace',
-            color: change >= 0 ? '#17c964' : '#f31260',
-          }}>
-            {change >= 0 ? '+' : ''}{Number(change).toFixed(2)}%
-          </span>
-        )}
-      </div>
-    </div>
+        {/* Price row */}
+        <div className="flex items-center gap-1.5">
+          {price != null ? (
+            <span className="text-[0.82rem] font-data" style={{ color: 'var(--text-secondary)' }}>
+              ${Number(price).toFixed(2)}
+            </span>
+          ) : (
+            <span className="text-[0.75rem]" style={{ color: 'var(--text-muted)' }}>—</span>
+          )}
+          {change != null && (
+            <span
+              className="text-[0.72rem] font-data"
+              style={{ color: change >= 0 ? 'var(--success)' : 'var(--danger)' }}
+            >
+              {change >= 0 ? '+' : ''}{Number(change).toFixed(2)}%
+            </span>
+          )}
+        </div>
+      </CardContent>
+    </Card>
   );
 };
 
@@ -125,30 +94,23 @@ const BatchProgress = ({ results, total }) => {
   const pct = Math.round((done / total) * 100);
   const successes = results.filter((r) => r.success).length;
   return (
-    <div style={{
-      background: 'rgba(255,255,255,0.02)',
-      border: '1px solid rgba(255,255,255,0.06)',
-      borderRadius: 10,
-      padding: '14px 16px',
-      marginTop: 16,
-    }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-        <span style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.6)', fontWeight: 600 }}>Batch Analysis</span>
-        <span style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)' }}>{done}/{total}</span>
-      </div>
-      <div style={{ height: 4, background: 'rgba(255,255,255,0.06)', borderRadius: 2, overflow: 'hidden' }}>
-        <div style={{
-          height: '100%',
-          width: `${pct}%`,
-          background: 'linear-gradient(90deg, #006fee, #338ef7)',
-          borderRadius: 2,
-          transition: 'width 0.3s',
-        }} />
-      </div>
-      <div style={{ marginTop: 6, fontSize: '0.7rem', color: '#17c964' }}>
-        {successes} succeeded{done - successes > 0 && `, ${done - successes} failed`}
-      </div>
-    </div>
+    <Card className="mt-4">
+      <CardContent className="pt-4 pb-3">
+        <div className="flex justify-between mb-2">
+          <span className="text-[0.75rem] font-semibold" style={{ color: 'var(--text-secondary)' }}>Batch Analysis</span>
+          <span className="text-[0.75rem] font-data" style={{ color: 'var(--text-muted)' }}>{done}/{total}</span>
+        </div>
+        <div className="h-1 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.06)' }}>
+          <div
+            className="h-full rounded-full transition-all duration-300"
+            style={{ width: `${pct}%`, background: 'linear-gradient(90deg, var(--primary), color-mix(in srgb, var(--primary) 60%, white))' }}
+          />
+        </div>
+        <div className="mt-1.5 text-[0.7rem]" style={{ color: 'var(--success)' }}>
+          {successes} succeeded{done - successes > 0 && `, ${done - successes} failed`}
+        </div>
+      </CardContent>
+    </Card>
   );
 };
 
@@ -303,28 +265,6 @@ const WatchlistView = ({ onSelectTicker }) => {
     };
   };
 
-  const inputStyle = {
-    background: 'rgba(255,255,255,0.04)',
-    border: '1px solid rgba(255,255,255,0.06)',
-    borderRadius: 8,
-    padding: '8px 12px',
-    fontSize: '0.82rem',
-    color: 'rgba(255,255,255,0.9)',
-    outline: 'none',
-  };
-
-  const btnPrimary = {
-    background: '#006fee',
-    color: '#fff',
-    border: 'none',
-    borderRadius: 8,
-    padding: '8px 16px',
-    fontSize: '0.82rem',
-    fontWeight: 600,
-    cursor: 'pointer',
-    transition: 'opacity 0.15s',
-  };
-
   // Build analyses map from watchlistDetail
   const analysesMap = {};
   (watchlistDetail?.analyses || []).forEach((a) => {
@@ -334,93 +274,82 @@ const WatchlistView = ({ onSelectTicker }) => {
 
   return (
     <div className="flex-1 p-6">
-      <h2 className="text-lg font-bold text-white/90 mb-4">Watchlists</h2>
+      <h2 className="text-lg font-bold mb-4" style={{ color: 'var(--text-primary)' }}>Watchlists</h2>
 
       <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 24 }}>
         {/* Left: Watchlist list */}
         <div>
-          <div style={{
-            background: 'rgba(255,255,255,0.02)',
-            border: '1px solid rgba(255,255,255,0.06)',
-            borderRadius: 12,
-            padding: '16px',
-          }}>
-            <div style={{ fontSize: '0.65rem', fontWeight: 700, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>
-              My Watchlists
-            </div>
+          <Card>
+            <CardContent className="pt-4">
+              <div className="text-[0.65rem] font-bold uppercase tracking-widest mb-2.5" style={{ color: 'var(--text-muted)' }}>
+                My Watchlists
+              </div>
 
-            {/* Create form */}
-            <form onSubmit={handleCreateWatchlist} style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
-              <input
-                type="text"
-                value={newWatchlistName}
-                onChange={(e) => setNewWatchlistName(e.target.value)}
-                placeholder="New watchlist..."
-                maxLength={50}
-                disabled={creatingWatchlist}
-                style={{ ...inputStyle, flex: 1, minWidth: 0 }}
-              />
-              <button
-                type="submit"
-                disabled={creatingWatchlist || !newWatchlistName.trim()}
-                style={{ ...btnPrimary, padding: '8px 12px', opacity: (creatingWatchlist || !newWatchlistName.trim()) ? 0.4 : 1 }}
-              >
-                +
-              </button>
-            </form>
-
-            {/* Watchlist items */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              {loading && watchlists.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '16px 0', color: 'rgba(255,255,255,0.25)', fontSize: '0.75rem' }}>Loading...</div>
-              ) : watchlists.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '16px 0', color: 'rgba(255,255,255,0.25)', fontSize: '0.75rem' }}>No watchlists yet</div>
-              ) : watchlists.map((wl) => (
-                <div
-                  key={wl.id}
-                  onClick={() => setActiveWatchlist(wl.id)}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    padding: '8px 12px',
-                    borderRadius: 8,
-                    cursor: 'pointer',
-                    background: activeWatchlist === wl.id ? 'rgba(0,111,238,0.15)' : 'transparent',
-                    border: activeWatchlist === wl.id ? '1px solid rgba(0,111,238,0.3)' : '1px solid transparent',
-                    transition: 'all 0.15s',
-                  }}
+              {/* Create form */}
+              <form onSubmit={handleCreateWatchlist} className="flex gap-1.5 mb-3">
+                <Input
+                  type="text"
+                  value={newWatchlistName}
+                  onChange={(e) => setNewWatchlistName(e.target.value)}
+                  placeholder="New watchlist..."
+                  maxLength={50}
+                  disabled={creatingWatchlist}
+                  className="flex-1 min-w-0 h-8 text-xs"
+                />
+                <Button
+                  type="submit"
+                  size="sm"
+                  disabled={creatingWatchlist || !newWatchlistName.trim()}
+                  className="h-8 px-3"
                 >
-                  <div>
-                    <div style={{ fontSize: '0.82rem', fontWeight: 600, color: 'rgba(255,255,255,0.85)' }}>{wl.name}</div>
-                    <div style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.35)' }}>{wl.tickers?.length || 0} tickers</div>
-                  </div>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); handleDeleteWatchlist(wl.id); }}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.2)', fontSize: '0.75rem', padding: '2px 4px', borderRadius: 4 }}
-                    onMouseEnter={(e) => { e.currentTarget.style.color = '#f31260'; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.color = 'rgba(255,255,255,0.2)'; }}
+                  +
+                </Button>
+              </form>
+
+              {/* Watchlist items */}
+              <div className="flex flex-col gap-1">
+                {loading && watchlists.length === 0 ? (
+                  <div className="text-center py-4 text-[0.75rem]" style={{ color: 'var(--text-muted)' }}>Loading...</div>
+                ) : watchlists.length === 0 ? (
+                  <div className="text-center py-4 text-[0.75rem]" style={{ color: 'var(--text-muted)' }}>No watchlists yet</div>
+                ) : watchlists.map((wl) => (
+                  <div
+                    key={wl.id}
+                    onClick={() => setActiveWatchlist(wl.id)}
+                    className="flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer transition-all"
+                    style={{
+                      background: activeWatchlist === wl.id ? 'rgba(0,111,238,0.15)' : 'transparent',
+                      border: activeWatchlist === wl.id ? '1px solid rgba(0,111,238,0.3)' : '1px solid transparent',
+                    }}
                   >
-                    ✕
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
+                    <div>
+                      <div className="text-[0.82rem] font-semibold" style={{ color: 'var(--text-primary)' }}>{wl.name}</div>
+                      <div className="text-[0.65rem]" style={{ color: 'var(--text-muted)' }}>{wl.tickers?.length || 0} tickers</div>
+                    </div>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleDeleteWatchlist(wl.id); }}
+                      className="text-[0.75rem] p-1 rounded transition-colors"
+                      style={{ color: 'var(--text-muted)' }}
+                      onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--danger)'; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-muted)'; }}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
         </div>
 
         {/* Right: Watchlist detail */}
         <div>
           {!activeWatchlist ? (
-            <div style={{
-              background: 'rgba(255,255,255,0.02)',
-              border: '1px solid rgba(255,255,255,0.06)',
-              borderRadius: 12,
-              padding: '48px',
-              textAlign: 'center',
-            }}>
-              <div style={{ fontSize: '0.82rem', color: 'rgba(255,255,255,0.3)' }}>Select or create a watchlist to get started</div>
-            </div>
+            <Card>
+              <CardContent className="pt-12 pb-12 text-center">
+                <div className="text-[0.82rem]" style={{ color: 'var(--text-muted)' }}>Select or create a watchlist to get started</div>
+              </CardContent>
+            </Card>
           ) : (
             <div>
               {/* Auto-analyze schedule */}
@@ -446,57 +375,43 @@ const WatchlistView = ({ onSelectTicker }) => {
               </div>
 
               {/* Header: add ticker + batch analyze */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
-                <form onSubmit={handleAddTicker} style={{ display: 'flex', gap: 8, flex: 1 }}>
-                  <input
+              <div className="flex items-center gap-2.5 mb-4">
+                <form onSubmit={handleAddTicker} className="flex gap-2 flex-1">
+                  <Input
                     type="text"
                     value={addTickerInput}
                     onChange={(e) => setAddTickerInput(e.target.value.toUpperCase())}
                     placeholder="Add ticker (e.g. NVDA)"
                     maxLength={5}
-                    style={{ ...inputStyle, width: 160 }}
+                    className="w-40 h-9 text-xs font-data"
                   />
-                  <button
-                    type="submit"
-                    disabled={!addTickerInput.trim()}
-                    style={{ ...btnPrimary, opacity: !addTickerInput.trim() ? 0.4 : 1 }}
-                  >
+                  <Button type="submit" size="sm" disabled={!addTickerInput.trim()} className="h-9">
                     Add
-                  </button>
+                  </Button>
                 </form>
-                <button
+                <Button
+                  variant={batchRunning || allTickers.length === 0 ? 'secondary' : 'default'}
+                  size="sm"
                   onClick={handleBatchAnalyze}
                   disabled={batchRunning || allTickers.length === 0}
-                  style={{
-                    ...btnPrimary,
-                    background: batchRunning || allTickers.length === 0 ? 'rgba(255,255,255,0.06)' : '#006fee',
-                    color: batchRunning || allTickers.length === 0 ? 'rgba(255,255,255,0.3)' : '#fff',
-                    cursor: batchRunning || allTickers.length === 0 ? 'not-allowed' : 'pointer',
-                  }}
+                  className="h-9"
                 >
                   {batchRunning ? 'Analyzing...' : 'Analyze All'}
-                </button>
+                </Button>
               </div>
 
               {/* Ticker mini card grid */}
               {allTickers.length === 0 ? (
-                <div style={{
-                  background: 'rgba(255,255,255,0.02)',
-                  border: '1px solid rgba(255,255,255,0.06)',
-                  borderRadius: 12,
-                  padding: '32px',
-                  textAlign: 'center',
-                  color: 'rgba(255,255,255,0.3)',
-                  fontSize: '0.82rem',
-                }}>
-                  Add tickers above to start building your watchlist.
-                </div>
+                <Card>
+                  <CardContent className="pt-8 pb-8 text-center">
+                    <div className="text-[0.82rem]" style={{ color: 'var(--text-muted)' }}>
+                      Add tickers above to start building your watchlist.
+                    </div>
+                  </CardContent>
+                </Card>
               ) : (
-                <div style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(3, 1fr)',
-                  gap: 12,
-                }}
+                <div
+                  style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}
                   className="xl:grid-cols-4"
                 >
                   {allTickers.map(({ ticker }) => (
@@ -522,15 +437,14 @@ const WatchlistView = ({ onSelectTicker }) => {
 
       {/* Error */}
       {error && (
-        <div style={{
-          marginTop: 16,
-          padding: '10px 14px',
-          background: 'rgba(243,18,96,0.1)',
-          border: '1px solid rgba(243,18,96,0.3)',
-          borderRadius: 8,
-          color: '#f31260',
-          fontSize: '0.82rem',
-        }}>
+        <div
+          className="mt-4 px-3.5 py-2.5 rounded-lg text-[0.82rem]"
+          style={{
+            background: 'rgba(243,18,96,0.1)',
+            border: '1px solid rgba(243,18,96,0.3)',
+            color: 'var(--danger)',
+          }}
+        >
           {error}
         </div>
       )}
