@@ -227,3 +227,25 @@ body {
   background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
   animation: progressShine 1.5s ease-in-out infinite;
 }
+
+/* Slide-over panel */
+.slide-over-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.slide-over-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 480px;
+  max-width: 100vw;
+  z-index: 51;
+  background: var(--card);
+  border-left: 1px solid var(--border);
+  overflow-y: auto;
+  padding: 24px;
+}

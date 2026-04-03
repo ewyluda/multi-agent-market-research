@@ -27,7 +27,7 @@ const getGradeBadgeVariant = (grade) => {
 
 // Grade color mapping (for progress bar)
 const getGradeColor = (grade) => {
-  if (!grade) return { text: 'text-gray-400', bg: 'bg-gray-400/10', border: 'border-gray-400/25' };
+  if (!grade) return { text: 'text-[var(--text-muted)]', bg: 'bg-gray-400/10', border: 'border-gray-400/25' };
   const normalized = grade.toUpperCase();
   if (normalized.startsWith('A')) return { text: 'text-success-400', bg: 'bg-success/10', border: 'border-success/25' };
   if (normalized.startsWith('B')) return { text: 'text-accent-blue', bg: 'bg-accent-blue/10', border: 'border-accent-blue/25' };
@@ -113,7 +113,7 @@ const CapitalCard = ({ capital, config, isExpanded, onToggle }) => {
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center space-x-2">
               <span className="text-lg">{config.icon}</span>
-              <span className="text-xs font-medium text-gray-400 uppercase tracking-wider">{config.label}</span>
+              <span className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider">{config.label}</span>
             </div>
             <Badge variant={gradeBadgeVariant} className="text-[11px]">
               {capital?.grade || 'N/A'} {capital?.score ?? '-'}
@@ -126,7 +126,7 @@ const CapitalCard = ({ capital, config, isExpanded, onToggle }) => {
             ) : (
               <CheckCircleIcon className="w-3.5 h-3.5 text-success-400" />
             )}
-            <span className="text-xs text-gray-300 truncate">
+            <span className="text-xs text-[var(--text-secondary)] truncate">
               {firstInsight || (hasRedFlags ? 'Issues detected' : 'Assessment complete')}
             </span>
           </div>
@@ -142,9 +142,9 @@ const CapitalCard = ({ capital, config, isExpanded, onToggle }) => {
               >
                 {capital?.insights?.length > 1 && (
                   <div className="space-y-1.5 mb-3">
-                    <div className="text-[10px] text-gray-500 uppercase tracking-wider">Insights</div>
+                    <div className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider">Insights</div>
                     {capital.insights.slice(1).map((insight, idx) => (
-                      <div key={idx} className="text-xs text-gray-300 flex items-start">
+                      <div key={idx} className="text-xs text-[var(--text-secondary)] flex items-start">
                         <span className="text-accent-blue mr-1.5">•</span>
                         {insight}
                       </div>
@@ -183,10 +183,10 @@ const LeadershipPanel = ({ analysis }) => {
       <Card>
         <CardContent className="pt-5">
           <div className="flex items-center space-x-2 mb-2">
-            <UsersGroupIcon className="w-4 h-4 text-gray-500" />
-            <span className="text-sm text-gray-400">Leadership assessment unavailable</span>
+            <UsersGroupIcon className="w-4 h-4 text-[var(--text-muted)]" />
+            <span className="text-sm text-[var(--text-muted)]">Leadership assessment unavailable</span>
           </div>
-          <p className="text-xs text-gray-500">
+          <p className="text-xs text-[var(--text-muted)]">
             Run a fresh analysis to generate leadership quality assessment using the Four Capitals framework.
           </p>
         </CardContent>
@@ -221,7 +221,7 @@ const LeadershipPanel = ({ analysis }) => {
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center space-x-2">
               <UsersGroupIcon className="w-4 h-4 text-accent-blue" />
-              <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">
+              <h3 className="text-sm font-semibold text-[var(--text-secondary)] uppercase tracking-wider">
                 Leadership Assessment
               </h3>
             </div>
@@ -232,12 +232,12 @@ const LeadershipPanel = ({ analysis }) => {
 
           <div className="flex items-center justify-between mb-3">
             <div>
-              <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">Overall Score</div>
-              <div className="text-3xl font-bold font-data text-gray-200">{overall_score}/100</div>
+              <div className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider mb-1">Overall Score</div>
+              <div className="text-3xl font-bold font-data text-[var(--text-primary)]">{overall_score}/100</div>
             </div>
             <div className="text-right">
-              <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">Last Updated</div>
-              <div className="text-xs text-gray-400">{formatDate(assessment_date)}</div>
+              <div className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider mb-1">Last Updated</div>
+              <div className="text-xs text-[var(--text-muted)]">{formatDate(assessment_date)}</div>
             </div>
           </div>
 
@@ -278,11 +278,11 @@ const LeadershipPanel = ({ analysis }) => {
                           <Badge variant={getSeverityBadgeVariant(flag.severity)} className="text-[10px]">
                             {flag.severity?.toUpperCase() || 'MEDIUM'}
                           </Badge>
-                          <span className="text-[10px] text-gray-500">{flag.type}</span>
+                          <span className="text-[10px] text-[var(--text-muted)]">{flag.type}</span>
                         </div>
-                        <p className="text-xs text-gray-300">{flag.description}</p>
+                        <p className="text-xs text-[var(--text-secondary)]">{flag.description}</p>
                         {flag.source && (
-                          <p className="text-[10px] text-gray-500 mt-0.5">Source: {flag.source}</p>
+                          <p className="text-[10px] text-[var(--text-muted)] mt-0.5">Source: {flag.source}</p>
                         )}
                       </div>
                     </div>
@@ -297,7 +297,7 @@ const LeadershipPanel = ({ analysis }) => {
       {/* Four Capitals Grid */}
       <Card>
         <CardContent className="pt-5">
-          <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-4">
+          <h4 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-4">
             Four Capitals Framework
           </h4>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -317,37 +317,37 @@ const LeadershipPanel = ({ analysis }) => {
       {/* Key Metrics */}
       <Card>
         <CardContent className="pt-5">
-          <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-4">Key Metrics</h4>
+          <h4 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-4">Key Metrics</h4>
           <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
             <div className="p-3 bg-[var(--card-hover)] rounded border border-white/5">
-              <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">CEO Tenure</div>
-              <div className="text-lg font-semibold font-data text-gray-200">
+              <div className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider mb-1">CEO Tenure</div>
+              <div className="text-lg font-semibold font-data text-[var(--text-primary)]">
                 {key_metrics.ceo_tenure_years ? `${key_metrics.ceo_tenure_years.toFixed(1)} years` : 'N/A'}
               </div>
             </div>
             <div className="p-3 bg-[var(--card-hover)] rounded border border-white/5">
-              <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">C-Suite Turnover</div>
-              <div className="text-lg font-semibold font-data text-gray-200">
+              <div className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider mb-1">C-Suite Turnover</div>
+              <div className="text-lg font-semibold font-data text-[var(--text-primary)]">
                 {key_metrics.c_suite_turnover_12m !== undefined
                   ? `${key_metrics.c_suite_turnover_12m} (12m) / ${key_metrics.c_suite_turnover_24m ?? '-'} (24m)`
                   : 'N/A'}
               </div>
             </div>
             <div className="p-3 bg-[var(--card-hover)] rounded border border-white/5">
-              <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">Board Independence</div>
-              <div className="text-lg font-semibold font-data text-gray-200">
+              <div className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider mb-1">Board Independence</div>
+              <div className="text-lg font-semibold font-data text-[var(--text-primary)]">
                 {key_metrics.board_independence_pct ? `${key_metrics.board_independence_pct}%` : 'N/A'}
               </div>
             </div>
             <div className="p-3 bg-[var(--card-hover)] rounded border border-white/5">
-              <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">Avg Board Tenure</div>
-              <div className="text-lg font-semibold font-data text-gray-200">
+              <div className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider mb-1">Avg Board Tenure</div>
+              <div className="text-lg font-semibold font-data text-[var(--text-primary)]">
                 {key_metrics.avg_board_tenure_years ? `${key_metrics.avg_board_tenure_years.toFixed(1)} years` : 'N/A'}
               </div>
             </div>
             <div className="p-3 bg-[var(--card-hover)] rounded border border-white/5 lg:col-span-2">
-              <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">Institutional Ownership</div>
-              <div className="text-lg font-semibold font-data text-gray-200">
+              <div className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider mb-1">Institutional Ownership</div>
+              <div className="text-lg font-semibold font-data text-[var(--text-primary)]">
                 {key_metrics.institutional_ownership_pct ? `${key_metrics.institutional_ownership_pct}%` : 'N/A'}
               </div>
             </div>
@@ -363,9 +363,9 @@ const LeadershipPanel = ({ analysis }) => {
               onClick={() => setShowFullSummary(!showFullSummary)}
               className="flex items-center justify-between w-full text-left group"
             >
-              <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Executive Summary</h4>
+              <h4 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider">Executive Summary</h4>
               <ChevronDownIcon
-                className={`w-4 h-4 text-gray-500 transition-transform duration-200 ${showFullSummary ? 'rotate-180' : ''}`}
+                className={`w-4 h-4 text-[var(--text-muted)] transition-transform duration-200 ${showFullSummary ? 'rotate-180' : ''}`}
               />
             </button>
             <AnimatePresence>
@@ -377,14 +377,14 @@ const LeadershipPanel = ({ analysis }) => {
                   transition={{ duration: 0.2 }}
                   className="overflow-hidden"
                 >
-                  <p className="text-sm text-gray-300 leading-relaxed mt-3 pt-3 border-t border-white/5">
+                  <p className="text-sm text-[var(--text-secondary)] leading-relaxed mt-3 pt-3 border-t border-white/5">
                     {executive_summary}
                   </p>
                 </Motion.div>
               )}
             </AnimatePresence>
             {!showFullSummary && (
-              <p className="text-sm text-gray-400 leading-relaxed mt-2 line-clamp-2">
+              <p className="text-sm text-[var(--text-muted)] leading-relaxed mt-2 line-clamp-2">
                 {executive_summary}
               </p>
             )}

@@ -28,7 +28,7 @@ const TAG_BADGE_VARIANTS = {
 const DIRECTION_COLORS = {
   raised: 'text-success-400',
   lowered: 'text-danger-400',
-  maintained: 'text-gray-400',
+  maintained: 'text-[var(--text-muted)]',
   introduced: 'text-accent-blue',
   withdrawn: 'text-danger-400',
 };
@@ -185,7 +185,7 @@ const GuidanceCard = ({ guidance }) => {
           </thead>
           <tbody>
             {guidance.map((g, i) => {
-              const dirColor = DIRECTION_COLORS[g.direction] || 'text-gray-400';
+              const dirColor = DIRECTION_COLORS[g.direction] || 'text-[var(--text-muted)]';
               const arrow = DIRECTION_ARROWS[g.direction] || '—';
               return (
                 <tr key={i} className={i < guidance.length - 1 ? 'border-b border-white/[0.04]' : ''}>

@@ -99,7 +99,7 @@ const OptionsFlow = ({ analysis }) => {
               <div className="w-7 h-7 rounded-lg bg-accent-purple/15 flex items-center justify-center">
                 <OptionsIcon className="w-4 h-4 text-accent-purple" />
               </div>
-              <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">Options Flow</h3>
+              <h3 className="text-sm font-semibold text-[var(--text-secondary)] uppercase tracking-wider">Options Flow</h3>
             </div>
             <div className="flex items-center space-x-2">
               <Badge variant={signalBadgeVariant} className="font-semibold">
@@ -113,7 +113,7 @@ const OptionsFlow = ({ analysis }) => {
           <div className="grid grid-cols-3 mb-5" style={{ gap: 'var(--space-card-gap, 20px)' }}>
             {/* P/C Volume Ratio */}
             <div className="bg-[var(--card-hover)] rounded-lg border border-white/5" style={{ padding: 'var(--space-card-padding, 20px)' }}>
-              <div className="text-[11px] text-gray-500 uppercase tracking-wider mb-1.5">P/C Vol Ratio</div>
+              <div className="text-[11px] text-[var(--text-muted)] uppercase tracking-wider mb-1.5">P/C Vol Ratio</div>
               <div className="text-lg font-bold font-data">
                 {pcRatio != null ? pcRatio.toFixed(2) : 'N/A'}
               </div>
@@ -125,7 +125,7 @@ const OptionsFlow = ({ analysis }) => {
 
             {/* P/C OI Ratio */}
             <div className="bg-[var(--card-hover)] rounded-lg border border-white/5" style={{ padding: 'var(--space-card-padding, 20px)' }}>
-              <div className="text-[11px] text-gray-500 uppercase tracking-wider mb-1.5">P/C OI Ratio</div>
+              <div className="text-[11px] text-[var(--text-muted)] uppercase tracking-wider mb-1.5">P/C OI Ratio</div>
               <div className="text-lg font-bold font-data">
                 {pcOiRatio != null ? pcOiRatio.toFixed(2) : 'N/A'}
               </div>
@@ -137,11 +137,11 @@ const OptionsFlow = ({ analysis }) => {
 
             {/* Max Pain */}
             <div className="bg-[var(--card-hover)] rounded-lg border border-white/5" style={{ padding: 'var(--space-card-padding, 20px)' }}>
-              <div className="text-[11px] text-gray-500 uppercase tracking-wider mb-1.5">Max Pain</div>
+              <div className="text-[11px] text-[var(--text-muted)] uppercase tracking-wider mb-1.5">Max Pain</div>
               <div className="text-lg font-bold font-data">
                 {maxPain != null ? `$${maxPain.toFixed(2)}` : 'N/A'}
               </div>
-              <div className="text-[11px] text-gray-500 font-data">
+              <div className="text-[11px] text-[var(--text-muted)] font-data">
                 {optionsData.total_contracts?.toLocaleString()} contracts
               </div>
             </div>
@@ -150,7 +150,7 @@ const OptionsFlow = ({ analysis }) => {
           {/* Unusual Activity */}
           {unusualActivity.length > 0 && (
             <div className="mb-4 pt-4 border-t border-white/5">
-              <div className="text-[11px] text-gray-500 uppercase tracking-wider mb-2.5">Unusual Activity</div>
+              <div className="text-[11px] text-[var(--text-muted)] uppercase tracking-wider mb-2.5">Unusual Activity</div>
               <div className="space-y-2.5">
                 {unusualActivity.slice(0, 5).map((item, i) => (
                   <div
@@ -166,12 +166,12 @@ const OptionsFlow = ({ analysis }) => {
                       <span className={`font-semibold ${item.type === 'call' ? 'text-success-400' : 'text-danger-400'}`}>
                         {item.type.toUpperCase()}
                       </span>
-                      <span className="text-gray-300 font-data">${item.strike}</span>
-                      <span className="text-gray-500">{item.expiration}</span>
+                      <span className="text-[var(--text-secondary)] font-data">${item.strike}</span>
+                      <span className="text-[var(--text-muted)]">{item.expiration}</span>
                     </div>
                     <div className="flex items-center space-x-4 font-data">
-                      <span className="text-gray-400">Vol: {item.volume.toLocaleString()}</span>
-                      <span className="text-gray-500">OI: {item.open_interest.toLocaleString()}</span>
+                      <span className="text-[var(--text-muted)]">Vol: {item.volume.toLocaleString()}</span>
+                      <span className="text-[var(--text-muted)]">OI: {item.open_interest.toLocaleString()}</span>
                       <span className="text-warning-400 font-semibold">{item.vol_oi_ratio}x</span>
                     </div>
                   </div>
@@ -183,14 +183,14 @@ const OptionsFlow = ({ analysis }) => {
           {/* High IV Contracts */}
           {highestIv.length > 0 && (
             <div className="pt-4 border-t border-white/5">
-              <div className="text-[11px] text-gray-500 uppercase tracking-wider mb-2.5">Highest Implied Volatility</div>
+              <div className="text-[11px] text-[var(--text-muted)] uppercase tracking-wider mb-2.5">Highest Implied Volatility</div>
               <div className="flex flex-wrap gap-2.5">
                 {highestIv.slice(0, 5).map((c, i) => (
                   <div key={i} className="px-3 py-2 bg-[var(--card-hover)] rounded-md border border-white/5 text-xs">
                     <span className={`font-semibold ${c.type === 'call' ? 'text-success-400' : 'text-danger-400'}`}>
                       {c.type?.toUpperCase()}
                     </span>
-                    <span className="text-gray-400 ml-1.5 font-data">${c.strike}</span>
+                    <span className="text-[var(--text-muted)] ml-1.5 font-data">${c.strike}</span>
                     <span className="text-accent-purple ml-1.5 font-semibold font-data">{(c.implied_volatility * 100).toFixed(1)}%</span>
                   </div>
                 ))}

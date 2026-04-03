@@ -14,8 +14,8 @@ const NewsFeed = ({ analysis }) => {
       <Card>
         <CardContent className="pt-5">
           <div className="flex items-center space-x-2">
-            <NewspaperIcon className="w-4 h-4 text-gray-500" />
-            <span className="text-sm text-gray-500">No news data available</span>
+            <NewspaperIcon className="w-4 h-4 text-[var(--text-muted)]" />
+            <span className="text-sm text-[var(--text-muted)]">No news data available</span>
           </div>
         </CardContent>
       </Card>
@@ -38,8 +38,8 @@ const NewsFeed = ({ analysis }) => {
       <Card>
         <CardContent className="pt-5">
           <div className="flex items-center space-x-2">
-            <NewspaperIcon className="w-4 h-4 text-gray-500" />
-            <span className="text-sm text-gray-500">No news articles found</span>
+            <NewspaperIcon className="w-4 h-4 text-[var(--text-muted)]" />
+            <span className="text-sm text-[var(--text-muted)]">No news articles found</span>
           </div>
         </CardContent>
       </Card>
@@ -100,7 +100,7 @@ const NewsFeed = ({ analysis }) => {
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
-            <CardTitle className="text-sm font-semibold text-gray-300 uppercase tracking-wider flex items-center space-x-2">
+            <CardTitle className="text-sm font-semibold text-[var(--text-secondary)] uppercase tracking-wider flex items-center space-x-2">
               <NewspaperIcon className="w-4 h-4" />
               <span>News</span>
             </CardTitle>
@@ -122,12 +122,12 @@ const NewsFeed = ({ analysis }) => {
                       href={article.url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-gray-200 hover:text-accent-blue transition-colors"
+                      className="text-[var(--text-primary)] hover:text-accent-blue transition-colors"
                     >
                       {article.title}
                     </a>
                   ) : (
-                    <span className="text-gray-200">{article.title}</span>
+                    <span className="text-[var(--text-primary)]">{article.title}</span>
                   )}
                 </h4>
 
@@ -137,7 +137,7 @@ const NewsFeed = ({ analysis }) => {
                       {article.source}
                     </Badge>
                   )}
-                  <span className="text-gray-500">{formatDate(article.published_at)}</span>
+                  <span className="text-[var(--text-muted)]">{formatDate(article.published_at)}</span>
 
                   {/* Relevance score */}
                   {article.relevance_score != null && (
@@ -162,7 +162,7 @@ const NewsFeed = ({ analysis }) => {
                 </div>
 
                 {article.description && (
-                  <p className="mt-2 text-xs text-gray-400 line-clamp-2 leading-relaxed">
+                  <p className="mt-2 text-xs text-[var(--text-muted)] line-clamp-2 leading-relaxed">
                     {article.description}
                   </p>
                 )}
@@ -171,7 +171,7 @@ const NewsFeed = ({ analysis }) => {
           </div>
 
           {newsData.recent_count !== undefined && (
-            <div className="mt-3 pt-3 border-t border-white/5 text-[10px] text-gray-500 font-data">
+            <div className="mt-3 pt-3 border-t border-white/5 text-[10px] text-[var(--text-muted)] font-data">
               {newsData.recent_count} articles in the last 24 hours
             </div>
           )}

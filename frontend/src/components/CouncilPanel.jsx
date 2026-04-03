@@ -72,7 +72,7 @@ const healthConfig = {
 const scenarioTypeConfig = {
   macro:    { label: 'Macro',    cls: 'text-accent-cyan border-accent-cyan/30 bg-accent-cyan/8' },
   event:    { label: 'Event',    cls: 'text-accent-amber border-amber-500/30 bg-amber-500/8' },
-  price:    { label: 'Price',    cls: 'text-accent-blue border-accent-blue/30 bg-accent-blue/8' },
+  price:    { label: 'Price',    cls: 'text-[var(--primary)] border-[var(--primary)]/30 bg-[var(--primary)]/8' },
   catalyst: { label: 'Catalyst', cls: 'text-accent-purple border-accent-purple/30 bg-accent-purple/8' },
 };
 
@@ -347,7 +347,7 @@ const ThesisCardForm = ({ initial, onSave, saving }) => {
   const handleChange = (field) => (e) => setForm((p) => ({ ...p, [field]: e.target.value }));
 
   const inputCls =
-    'w-full rounded-lg bg-[var(--card-hover)] border border-white/8 px-3 py-2 text-xs text-gray-200 placeholder-gray-600 focus:outline-none focus:border-accent-blue/50 transition-colors resize-none';
+    'w-full rounded-lg bg-[var(--card-hover)] border border-white/8 px-3 py-2 text-xs text-gray-200 placeholder-gray-600 focus:outline-none focus:border-[var(--primary)]/50 transition-colors resize-none';
 
   return (
     <Motion.div
@@ -401,7 +401,7 @@ const ThesisCardForm = ({ initial, onSave, saving }) => {
                 disabled={saving}
                 variant="outline"
                 size="sm"
-                className="border-accent-blue/30 text-accent-cyan hover:bg-accent-blue/25"
+                className="border-[var(--primary)]/30 text-[var(--info)] hover:bg-[var(--primary)]/25"
               >
                 {saving ? 'Saving…' : 'Save Thesis Card'}
               </Button>
@@ -454,7 +454,7 @@ const AddVoiceModal = ({ selected, onToggle, onClose }) => {
                     disabled={wouldExceed && !isSelected}
                     className={`flex items-center gap-2.5 rounded-lg px-3 py-2.5 border text-left transition-all cursor-pointer ${
                       isSelected
-                        ? 'border-accent-blue/40 bg-accent-blue/10'
+                        ? 'border-[var(--primary)]/40 bg-[var(--primary)]/10'
                         : wouldExceed
                         ? 'border-white/5 opacity-40 cursor-not-allowed'
                         : 'border-white/8 hover:border-white/15 hover:bg-white/[0.03]'
@@ -463,8 +463,8 @@ const AddVoiceModal = ({ selected, onToggle, onClose }) => {
                     <div
                       className="w-7 h-7 rounded flex items-center justify-center text-[9px] font-bold flex-shrink-0"
                       style={{
-                        background: isSelected ? 'rgba(0,111,238,0.2)' : 'rgba(255,255,255,0.05)',
-                        color: isSelected ? '#338ef7' : '#71717a',
+                        background: isSelected ? 'rgba(232,134,12,0.2)' : 'rgba(255,255,255,0.05)',
+                        color: isSelected ? 'var(--info)' : '#71717a',
                         fontFamily: 'var(--font-mono)',
                       }}
                     >
@@ -484,7 +484,7 @@ const AddVoiceModal = ({ selected, onToggle, onClose }) => {
               onClick={onClose}
               variant="outline"
               size="sm"
-              className="border-accent-blue/30 text-accent-cyan hover:bg-accent-blue/25"
+              className="border-[var(--primary)]/30 text-[var(--info)] hover:bg-[var(--primary)]/25"
             >
               Done
             </Button>
@@ -761,14 +761,14 @@ const CouncilPanel = ({ analysis, ticker }) => {
           variant={hasAnalysis ? 'default' : 'secondary'}
           className={`flex items-center gap-2 text-xs font-bold ${
             hasAnalysis
-              ? 'bg-accent-blue/15 border border-accent-blue/35 text-accent-cyan hover:bg-accent-blue/25'
+              ? 'bg-[var(--primary)]/15 border border-[var(--primary)]/35 text-[var(--info)] hover:bg-[var(--primary)]/25'
               : 'opacity-60'
           } ${loading ? 'opacity-70' : ''}`}
           title={!hasAnalysis ? 'Run an analysis first to provide market data context' : ''}
         >
           {loading ? (
             <>
-              <span className="w-3 h-3 border border-accent-blue/60 border-t-accent-cyan rounded-full animate-spin" />
+              <span className="w-3 h-3 border border-[var(--primary)]/60 border-t-[var(--info)] rounded-full animate-spin" />
               Convening…
             </>
           ) : (
