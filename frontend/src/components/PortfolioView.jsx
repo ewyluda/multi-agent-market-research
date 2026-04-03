@@ -91,7 +91,7 @@ const HoldingRow = ({ holding, onEdit, onDelete, onSelectTicker }) => {
     >
       <td style={{ padding: '10px 14px' }}>
         <button
-          onClick={() => onSelectTicker(holding.ticker)}
+          onClick={() => onSelectTicker?.(holding.ticker)}
           style={{
             background: 'none',
             border: 'none',
