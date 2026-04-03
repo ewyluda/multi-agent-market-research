@@ -1,0 +1,111 @@
+# Curated RSS feed registry for financial news.
+#
+# Each feed has:
+#   - name: Human-readable source name
+#   - url: RSS/Atom feed URL
+#   - tier: Quality tier (1=premium press, 2=editorial/analyst)
+#   - sectors: List of sectors this feed covers, or [all] for general
+#
+# Sectors match yfinance sector names (lowercase):
+#   technology, healthcare, financial-services, consumer-cyclical,
+#   industrials, energy, consumer-defensive, real-estate,
+#   communication-services, utilities, basic-materials
+
+feeds:
+  # ── Tier 1 — Major wire services & premium financial press ──
+  - name: Reuters Business
+    url: https://www.reutersagency.com/feed/?best-topics=business-finance
+    tier: 1
+    sectors: [all]
+
+  - name: CNBC Finance
+    url: https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=10000664
+    tier: 1
+    sectors: [all]
+
+  - name: CNBC Earnings
+    url: https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=15839135
+    tier: 1
+    sectors: [all]
+
+  - name: WSJ Markets
+    url: https://feeds.content.dowjones.io/public/rss/RSSMarketsMain
+    tier: 1
+    sectors: [all]
+
+  - name: NYT Business
+    url: https://rss.nytimes.com/services/xml/rss/nyt/Business.xml
+    tier: 1
+    sectors: [all]
+
+  - name: AP Business
+    url: https://rsshub.app/apnews/topics/business
+    tier: 1
+    sectors: [all]
+
+  - name: FT Markets
+    url: https://www.ft.com/rss/markets
+    tier: 1
+    sectors: [all]
+
+  - name: Barrons
+    url: https://www.barrons.com/feed
+    tier: 1
+    sectors: [all]
+
+  # ── Tier 2 — Analyst/editorial sources ──
+  - name: Seeking Alpha Market News
+    url: https://seekingalpha.com/market_currents.xml
+    tier: 2
+    sectors: [all]
+
+  - name: MarketWatch Top Stories
+    url: https://feeds.marketwatch.com/marketwatch/topstories/
+    tier: 2
+    sectors: [all]
+
+  - name: Investopedia News
+    url: https://www.investopedia.com/feedbuilder/feed/getfeed?feedName=rss_headline
+    tier: 2
+    sectors: [all]
+
+  - name: Benzinga News
+    url: https://www.benzinga.com/feed
+    tier: 2
+    sectors: [all]
+
+  # ── Sector-specific ──
+  - name: TechCrunch
+    url: https://techcrunch.com/feed/
+    tier: 2
+    sectors: [technology]
+
+  - name: The Verge
+    url: https://www.theverge.com/rss/index.xml
+    tier: 2
+    sectors: [technology]
+
+  - name: Ars Technica
+    url: https://feeds.arstechnica.com/arstechnica/index
+    tier: 2
+    sectors: [technology]
+
+  - name: Fierce Pharma
+    url: https://www.fiercepharma.com/rss/xml
+    tier: 2
+    sectors: [healthcare]
+
+  - name: Fierce Biotech
+    url: https://www.fiercebiotech.com/rss/xml
+    tier: 2
+    sectors: [healthcare]
+
+  - name: E&E News Energy
+    url: https://www.eenews.net/feed/
+    tier: 2
+    sectors: [energy]
+
+  - name: American Banker
+    url: https://www.americanbanker.com/feed
+    tier: 2
+    sectors: [financial-services]
