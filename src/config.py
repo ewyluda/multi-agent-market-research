@@ -79,6 +79,14 @@ class Config:
     TAVILY_MAX_RESULTS = int(os.getenv("TAVILY_MAX_RESULTS", "20"))
     TAVILY_NEWS_DAYS = int(os.getenv("TAVILY_NEWS_DAYS", "7"))
     TAVILY_SEARCH_DEPTH = os.getenv("TAVILY_SEARCH_DEPTH", "advanced").split("#")[0].strip()
+
+    # RSS Feed Configuration
+    RSS_ENABLED = os.getenv("RSS_ENABLED", "true").lower() == "true"
+    RSS_CACHE_TTL = int(os.getenv("RSS_CACHE_TTL", "900"))
+
+    # News Quality Filter
+    NEWS_QUALITY_FILTER_ENABLED = os.getenv("NEWS_QUALITY_FILTER_ENABLED", "true").lower() == "true"
+
     # Rollout overrides for scheduled runs only (Phase 7 staged enablement).
     SCHEDULED_SIGNAL_CONTRACT_V2_ENABLED = os.getenv("SCHEDULED_SIGNAL_CONTRACT_V2_ENABLED", "true").lower() == "true"
     SCHEDULED_CALIBRATION_ECONOMICS_ENABLED = os.getenv("SCHEDULED_CALIBRATION_ECONOMICS_ENABLED", "true").lower() == "true"
