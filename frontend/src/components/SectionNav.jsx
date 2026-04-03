@@ -74,14 +74,14 @@ export default function SectionNav({ searchBarHeight = 49 }) {
             }}
             onMouseEnter={(e) => {
               if (!isActive) {
-                e.target.style.background = 'rgba(255,255,255,0.06)';
-                e.target.style.color = 'var(--text-secondary)';
+                e.currentTarget.style.background = 'rgba(255,255,255,0.06)';
+                e.currentTarget.style.color = 'var(--text-secondary)';
               }
             }}
             onMouseLeave={(e) => {
               if (!isActive) {
-                e.target.style.background = 'transparent';
-                e.target.style.color = 'var(--text-muted)';
+                e.currentTarget.style.background = 'transparent';
+                e.currentTarget.style.color = 'var(--text-muted)';
               }
             }}
           >
