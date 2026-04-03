@@ -77,7 +77,7 @@ const YearSections = ({ years }) => {
   if (!years?.length) return null;
 
   return (
-    <div className="flex flex-col gap-3 mb-4">
+    <div className="flex flex-col mb-4" style={{ gap: 'var(--space-card-gap, 20px)' }}>
       {years.map((year, i) => {
         const borderColor = getYearBorderColor(year);
         const inflections = year.quarterly_inflections || year.inflections || [];
@@ -85,8 +85,8 @@ const YearSections = ({ years }) => {
         return (
           <div
             key={i}
-            className="glass-card p-4"
-            style={{ borderLeft: `3px solid ${borderColor}` }}
+            className="glass-card"
+            style={{ borderLeft: `3px solid ${borderColor}`, padding: 'var(--space-card-padding, 20px)' }}
           >
             <div className="flex items-center justify-between mb-2">
               <div className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
@@ -168,14 +168,14 @@ const NarrativeChapters = ({ chapters }) => {
       <div className="text-sm font-semibold mb-3 px-1" style={{ color: 'var(--text-primary)' }}>
         Thematic Threads
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2" style={{ gap: 'var(--space-card-gap, 20px)' }}>
         {chapters.map((ch, i) => {
           const colorSet = CHAPTER_COLORS[i % CHAPTER_COLORS.length];
           return (
             <div
               key={i}
-              className="glass-card p-4"
-              style={{ borderLeft: `3px solid ${colorSet.border}`, background: colorSet.bg }}
+              className="glass-card"
+              style={{ borderLeft: `3px solid ${colorSet.border}`, background: colorSet.bg, padding: 'var(--space-card-padding, 20px)' }}
             >
               <div className="text-[13px] font-medium mb-1" style={{ color: 'var(--text-primary)' }}>
                 {ch.title || ch.theme}

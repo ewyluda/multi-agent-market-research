@@ -112,9 +112,9 @@ const OptionsFlow = ({ analysis }) => {
       </div>
 
       {/* Key Metrics */}
-      <div className="grid grid-cols-3 gap-4 mb-5">
+      <div className="grid grid-cols-3 mb-5" style={{ gap: 'var(--space-card-gap, 20px)' }}>
         {/* P/C Volume Ratio */}
-        <div className="bg-dark-inset rounded-lg p-4 border border-white/5">
+        <div className="bg-dark-inset rounded-lg border border-white/5" style={{ padding: 'var(--space-card-padding, 20px)' }}>
           <div className="text-[11px] text-gray-500 uppercase tracking-wider mb-1.5">P/C Vol Ratio</div>
           <div className="text-lg font-bold font-mono tabular-nums">
             {pcRatio != null ? pcRatio.toFixed(2) : 'N/A'}
@@ -126,7 +126,7 @@ const OptionsFlow = ({ analysis }) => {
         </div>
 
         {/* P/C OI Ratio */}
-        <div className="bg-dark-inset rounded-lg p-4 border border-white/5">
+        <div className="bg-dark-inset rounded-lg border border-white/5" style={{ padding: 'var(--space-card-padding, 20px)' }}>
           <div className="text-[11px] text-gray-500 uppercase tracking-wider mb-1.5">P/C OI Ratio</div>
           <div className="text-lg font-bold font-mono tabular-nums">
             {pcOiRatio != null ? pcOiRatio.toFixed(2) : 'N/A'}
@@ -138,7 +138,7 @@ const OptionsFlow = ({ analysis }) => {
         </div>
 
         {/* Max Pain */}
-        <div className="bg-dark-inset rounded-lg p-4 border border-white/5">
+        <div className="bg-dark-inset rounded-lg border border-white/5" style={{ padding: 'var(--space-card-padding, 20px)' }}>
           <div className="text-[11px] text-gray-500 uppercase tracking-wider mb-1.5">Max Pain</div>
           <div className="text-lg font-bold font-mono tabular-nums">
             {maxPain != null ? `$${maxPain.toFixed(2)}` : 'N/A'}

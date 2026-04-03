@@ -812,7 +812,7 @@ const CouncilPanel = ({ analysis, ticker }) => {
 
       {/* Loading skeleton */}
       {loading && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5" style={{ gap: 'var(--space-card-gap, 20px)' }}>
           {[...Array(PRIMARY_KEYS.length + additionalInvestors.size)].map((_, i) => (
             <div key={i} className="glass-card-elevated rounded-xl p-4 space-y-3 animate-pulse" style={{ animationDelay: `${i * 80}ms` }}>
               <div className="flex items-center gap-3">
@@ -834,7 +834,7 @@ const CouncilPanel = ({ analysis, ticker }) => {
 
       {/* Investor cards grid */}
       {!loading && hasResults && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5" style={{ gap: 'var(--space-card-gap, 20px)' }}>
           {results.map((result, i) => (
             <InvestorCard key={result.investor} result={result} idx={i} />
           ))}
