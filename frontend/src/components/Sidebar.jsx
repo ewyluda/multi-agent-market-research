@@ -7,22 +7,34 @@ const ActivityIcon = () => (
   </svg>
 );
 
+const MacroIcon = () => (
+  <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+    <path d="M1 12.5A4.5 4.5 0 005.5 17H15a4 4 0 001.866-7.539 3.504 3.504 0 00-4.504-4.272A4.5 4.5 0 004.06 8.235 4.502 4.502 0 001 12.5z" />
+  </svg>
+);
+
 const NAV_SECTIONS = [
   {
-    label: 'Analysis',
+    label: 'Research',
     items: [
       { key: 'analysis', label: 'Analysis', Icon: PulseIcon },
-      { key: 'history', label: 'History', Icon: HistoryIcon },
+      { key: 'macro', label: 'Macro', Icon: MacroIcon },
     ],
   },
   {
-    label: 'Portfolio',
+    label: 'Tools',
     items: [
       { key: 'watchlist', label: 'Watchlist', Icon: ChartBarIcon },
-      { key: 'inflections', label: 'Inflections', Icon: ActivityIcon },
       { key: 'portfolio', label: 'Holdings', Icon: BuildingIcon },
       { key: 'schedules', label: 'Schedules', Icon: ClockIcon },
       { key: 'alerts', label: 'Alerts', Icon: BellIcon },
+    ],
+  },
+  {
+    label: 'History',
+    items: [
+      { key: 'history', label: 'History', Icon: HistoryIcon },
+      { key: 'inflections', label: 'Inflections', Icon: ActivityIcon },
     ],
   },
 ];

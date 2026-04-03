@@ -24,6 +24,7 @@ import ThesisPanel from './ThesisPanel';
 import EarningsReviewPanel from './EarningsReviewPanel';
 import NarrativePanel from './NarrativePanel';
 import RiskDiffPanel from './RiskDiffPanel';
+import MacroPage from './MacroPage';
 import CompanyOverview from './CompanyOverview';
 import TechnicalsOptionsSection from './TechnicalsOptionsSection';
 import HistoryView from './HistoryView';
@@ -37,6 +38,7 @@ import { PulseIcon, SparklesIcon, ChartBarIcon, LoadingSpinner } from './Icons';
 /* ─── View modes ─── */
 const VIEW_MODES = {
   ANALYSIS: 'analysis',
+  MACRO: 'macro',
   HISTORY: 'history',
   WATCHLIST: 'watchlist',
   INFLECTIONS: 'inflections',
@@ -354,6 +356,7 @@ const Dashboard = () => {
         )}
 
         {/* ─── Non-analysis views ─── */}
+        {viewMode === VIEW_MODES.MACRO && <MacroPage />}
         {viewMode === VIEW_MODES.HISTORY && (
           <HistoryView onSelectAnalysis={handleSelectFromHistory} />
         )}
