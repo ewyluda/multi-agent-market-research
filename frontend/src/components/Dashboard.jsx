@@ -24,6 +24,8 @@ import ThesisPanel from './ThesisPanel';
 import EarningsReviewPanel from './EarningsReviewPanel';
 import NarrativePanel from './NarrativePanel';
 import RiskDiffPanel from './RiskDiffPanel';
+import CompanyOverview from './CompanyOverview';
+import TechnicalsOptionsSection from './TechnicalsOptionsSection';
 import HistoryView from './HistoryView';
 import WatchlistView from './WatchlistView';
 import PortfolioView from './PortfolioView';
@@ -180,17 +182,14 @@ function getAgentMetrics(agentKey, result) {
 
 /* ─── Section config ─── */
 const SECTION_ORDER = [
-  { key: 'fundamentals', name: 'Fundamentals', special: false },
+  { key: 'company_overview', name: 'Company Overview', special: 'company_overview' },
   { key: 'earnings', name: 'Earnings', special: 'earnings' },
   { key: 'earnings_review', name: 'Earnings Review', special: 'earnings_review' },
   { key: 'thesis', name: 'Thesis', special: 'thesis' },
-  { key: 'narrative', name: 'Narrative', special: 'narrative' },
   { key: 'risk_diff', name: 'Risk Analysis', special: 'risk_diff' },
-  { key: 'technical', name: 'Technical', special: false },
+  { key: 'technicals_options', name: 'Technicals & Options', special: 'technicals_options' },
   { key: 'sentiment', name: 'Sentiment', special: false },
-  { key: 'macro', name: 'Macro', special: false },
   { key: 'news', name: 'News', special: 'news' },
-  { key: 'options', name: 'Options', special: 'options' },
   { key: 'leadership', name: 'Leadership', special: 'leadership' },
   { key: 'council', name: 'Council', special: 'council' },
 ];
@@ -305,6 +304,10 @@ const Dashboard = () => {
         return <NarrativePanel analysis={analysis} />;
       case 'risk_diff':
         return <RiskDiffPanel analysis={analysis} />;
+      case 'company_overview':
+        return <CompanyOverview analysis={analysis} />;
+      case 'technicals_options':
+        return <TechnicalsOptionsSection analysis={analysis} />;
       default:
         return null;
     }
@@ -493,13 +496,32 @@ const Dashboard = () => {
                 <SectionNav />
 
                 {/* Narrative agent sections */}
-                <div className="px-6 pt-4 pb-8 flex flex-col gap-3">
+                <div className="px-6 pt-4 pb-8 flex flex-col" style={{ gap: 'var(--space-section-gap, 32px)' }}>
                   {SECTION_ORDER.map(({ key, name, special }) => {
-                    const result = agentResults[key]
-                      || (analysis?.analysis?.[key] ? { success: true, data: analysis.analysis[key] } : null);
-                    const stance = getAgentStance(key, result);
-                    const summary = getAgentSummary(result);
-                    const metrics = getAgentMetrics(key, result);
+                    let result;
+                    let stance;
+                    let summary;
+                    let metrics;
+
+                    if (key === 'company_overview') {
+                      result = agentResults.fundamentals
+                        || (analysis?.analysis?.fundamentals ? { success: true, data: analysis.analysis.fundamentals } : null);
+                      stance = getAgentStance('fundamentals', result);
+                      summary = null;
+                      metrics = [];
+                    } else if (key === 'technicals_options') {
+                      result = agentResults.technical
+                        || (analysis?.analysis?.technical ? { success: true, data: analysis.analysis.technical } : null);
+                      stance = getAgentStance('technical', result);
+                      summary = null;
+                      metrics = [];
+                    } else {
+                      result = agentResults[key]
+                        || (analysis?.analysis?.[key] ? { success: true, data: analysis.analysis[key] } : null);
+                      stance = getAgentStance(key, result);
+                      summary = getAgentSummary(result);
+                      metrics = getAgentMetrics(key, result);
+                    }
 
                     return (
                       <AnalysisSection
