@@ -155,7 +155,6 @@ const ScenarioPill = ({ scenario, idx }) => {
 };
 
 const InvestorCard = ({ result, idx }) => {
-  const [expanded, setExpanded] = useState(false);
   const meta = ALL_INVESTORS[result.investor] || {};
   const stance = result.stance || 'PASS';
   const cfg = stanceConfig[stance] || stanceConfig.PASS;
@@ -223,40 +222,17 @@ const InvestorCard = ({ result, idx }) => {
         </div>
       )}
 
-      {/* Scenarios toggle */}
+      {/* Scenarios — always visible */}
       {scenarios.length > 0 && (
-        <div className="border-t border-white/5">
-          <button
-            onClick={() => setExpanded((p) => !p)}
-            className="w-full flex items-center justify-between px-4 py-2.5 text-[11px] text-gray-500 hover:text-gray-300 transition-colors cursor-pointer"
-          >
-            <span className="font-semibold uppercase tracking-wider">
-              {scenarios.length} If-Then Scenario{scenarios.length !== 1 ? 's' : ''}
-            </span>
-            <span
-              className="transition-transform duration-200"
-              style={{ transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)' }}
-            >
-              ▾
-            </span>
-          </button>
-          <AnimatePresence>
-            {expanded && (
-              <Motion.div
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: 'auto', opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-                transition={{ duration: 0.22 }}
-                className="overflow-hidden"
-              >
-                <div className="px-4 pb-4 space-y-2">
-                  {scenarios.map((s, i) => (
-                    <ScenarioPill key={i} scenario={s} idx={i} />
-                  ))}
-                </div>
-              </Motion.div>
-            )}
-          </AnimatePresence>
+        <div className="border-t border-white/5 px-4 py-3">
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-2">
+            If-Then Scenarios
+          </div>
+          <div className="space-y-2">
+            {scenarios.map((s, i) => (
+              <ScenarioPill key={i} scenario={s} idx={i} />
+            ))}
+          </div>
         </div>
       )}
 
