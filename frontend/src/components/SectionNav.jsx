@@ -1,17 +1,14 @@
 import { useState, useEffect, useCallback } from 'react';
 
 const SECTIONS = [
-  { id: 'section-fundamentals', label: 'Fundamentals' },
+  { id: 'section-company_overview', label: 'Company Overview' },
   { id: 'section-earnings', label: 'Earnings' },
-  { id: 'section-earnings_review', label: 'Review' },
+  { id: 'section-earnings_review', label: 'Earnings Review' },
   { id: 'section-thesis', label: 'Thesis' },
-  { id: 'section-narrative', label: 'Narrative' },
-  { id: 'section-risk_diff', label: 'Risk' },
-  { id: 'section-technical', label: 'Technical' },
+  { id: 'section-risk_diff', label: 'Risk Analysis' },
+  { id: 'section-technicals_options', label: 'Technicals & Options' },
   { id: 'section-sentiment', label: 'Sentiment' },
-  { id: 'section-macro', label: 'Macro' },
   { id: 'section-news', label: 'News' },
-  { id: 'section-options', label: 'Options' },
   { id: 'section-leadership', label: 'Leadership' },
   { id: 'section-council', label: 'Council' },
 ];
@@ -50,12 +47,13 @@ export default function SectionNav({ searchBarHeight = 49 }) {
 
   return (
     <div
-      className="sticky z-[35] flex gap-1 px-6 py-2"
+      className="sticky z-[35] flex px-6 py-3 overflow-x-auto"
       style={{
         top: `${searchBarHeight}px`,
         background: 'rgba(9,9,11,0.9)',
         backdropFilter: 'blur(8px)',
         borderBottom: '1px solid rgba(255,255,255,0.04)',
+        gap: '16px',
       }}
     >
       {SECTIONS.map(({ id, label }) => {
@@ -64,11 +62,28 @@ export default function SectionNav({ searchBarHeight = 49 }) {
           <button
             key={id}
             onClick={() => handleClick(id)}
-            className={`px-3.5 py-1.5 rounded-md text-[0.75rem] font-medium transition-colors border-none cursor-pointer ${
-              isActive
-                ? 'text-[#006fee] bg-[rgba(0,111,238,0.08)]'
-                : 'text-white/35 bg-transparent hover:text-white/55 hover:bg-white/[0.03]'
-            }`}
+            className="border-none cursor-pointer whitespace-nowrap transition-all duration-150"
+            style={{
+              padding: '10px 20px',
+              borderRadius: '9999px',
+              fontSize: '0.8rem',
+              fontWeight: 500,
+              background: isActive ? 'var(--accent-blue)' : 'transparent',
+              color: isActive ? '#ffffff' : 'var(--text-muted)',
+              border: isActive ? 'none' : '1px solid rgba(255,255,255,0.06)',
+            }}
+            onMouseEnter={(e) => {
+              if (!isActive) {
+                e.target.style.background = 'rgba(255,255,255,0.06)';
+                e.target.style.color = 'var(--text-secondary)';
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (!isActive) {
+                e.target.style.background = 'transparent';
+                e.target.style.color = 'var(--text-muted)';
+              }
+            }}
           >
             {label}
           </button>
