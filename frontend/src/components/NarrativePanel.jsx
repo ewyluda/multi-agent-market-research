@@ -77,78 +77,93 @@ const YearSections = ({ years }) => {
   if (!years?.length) return null;
 
   return (
-    <div className="flex flex-col mb-4" style={{ gap: 'var(--space-card-gap, 20px)' }}>
-      {years.map((year, i) => {
-        const borderColor = getYearBorderColor(year);
-        const inflections = year.quarterly_inflections || year.inflections || [];
+    <div className="mb-4">
+      <div className="text-sm font-semibold mb-3 px-1" style={{ color: 'var(--text-primary)' }}>
+        Year-by-Year Performance
+      </div>
+      <div className="flex flex-col gap-0 rounded-xl overflow-hidden border border-white/[0.06]">
+        {years.map((year, i) => {
+          const borderColor = getYearBorderColor(year);
+          const inflections = year.quarterly_inflections || year.inflections || [];
 
-        return (
-          <div
-            key={i}
-            className="glass-card"
-            style={{ borderLeft: `3px solid ${borderColor}`, padding: 'var(--space-card-padding, 20px)' }}
-          >
-            <div className="flex items-center justify-between mb-2">
-              <div className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
-                {year.year || year.period}
+          // Collect detail fields — try multiple key patterns
+          const details = [
+            { label: 'Revenue', value: year.revenue },
+            { label: 'Margins', value: year.margins },
+            { label: 'Strategy', value: year.strategy },
+            { label: 'Capital', value: year.capital_allocation },
+          ].filter((d) => d.value);
+
+          // Fallback: if no structured details, use headline or summary
+          const headline = year.headline || year.summary || year.description || null;
+
+          return (
+            <div
+              key={i}
+              className="px-5 py-4"
+              style={{
+                borderLeft: `3px solid ${borderColor}`,
+                background: i % 2 === 0 ? 'rgba(255,255,255,0.02)' : 'transparent',
+                borderBottom: i < years.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none',
+              }}
+            >
+              <div className="flex items-start gap-4">
+                {/* Year badge */}
+                <div
+                  className="text-base font-bold font-mono tabular-nums flex-shrink-0 w-12"
+                  style={{ color: borderColor }}
+                >
+                  {year.year || year.period}
+                </div>
+
+                {/* Content */}
+                <div className="flex-1 min-w-0">
+                  {headline && (
+                    <p className="text-[13px] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+                      {headline}
+                    </p>
+                  )}
+
+                  {details.length > 0 && (
+                    <div className="grid grid-cols-2 gap-x-6 gap-y-2 mt-2">
+                      {details.map((d, j) => (
+                        <div key={j}>
+                          <span className="text-[10px] uppercase tracking-wider font-medium" style={{ color: 'var(--text-muted)' }}>
+                            {d.label}
+                          </span>
+                          <span className="text-[12px] ml-2" style={{ color: 'var(--text-secondary)' }}>
+                            {d.value}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Quarterly inflections */}
+                  {inflections.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mt-2">
+                      {inflections.map((inf, j) => {
+                        const type = inf.type?.toLowerCase() || 'pivotal';
+                        const colors = INFLECTION_COLORS[type] || INFLECTION_COLORS.pivotal;
+                        return (
+                          <span
+                            key={j}
+                            className="text-[10px] px-2 py-0.5 rounded border"
+                            style={{ background: colors.bg, color: colors.text, borderColor: colors.border }}
+                          >
+                            {inf.quarter && `${inf.quarter}: `}{inf.description || inf.event}
+                            {inf.impact && ` (${inf.impact})`}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
               </div>
-              {year.headline && (
-                <div className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
-                  {year.headline}
-                </div>
-              )}
             </div>
-
-            {/* 2x2 grid: revenue, margins, strategy, capital */}
-            <div className="grid grid-cols-2 gap-3 mb-2">
-              {year.revenue && (
-                <div>
-                  <div className="text-[10px] uppercase tracking-wider mb-0.5" style={{ color: 'var(--text-muted)' }}>Revenue</div>
-                  <div className="text-[12px]" style={{ color: 'var(--text-secondary)' }}>{year.revenue}</div>
-                </div>
-              )}
-              {year.margins && (
-                <div>
-                  <div className="text-[10px] uppercase tracking-wider mb-0.5" style={{ color: 'var(--text-muted)' }}>Margins</div>
-                  <div className="text-[12px]" style={{ color: 'var(--text-secondary)' }}>{year.margins}</div>
-                </div>
-              )}
-              {year.strategy && (
-                <div>
-                  <div className="text-[10px] uppercase tracking-wider mb-0.5" style={{ color: 'var(--text-muted)' }}>Strategy</div>
-                  <div className="text-[12px]" style={{ color: 'var(--text-secondary)' }}>{year.strategy}</div>
-                </div>
-              )}
-              {year.capital_allocation && (
-                <div>
-                  <div className="text-[10px] uppercase tracking-wider mb-0.5" style={{ color: 'var(--text-muted)' }}>Capital</div>
-                  <div className="text-[12px]" style={{ color: 'var(--text-secondary)' }}>{year.capital_allocation}</div>
-                </div>
-              )}
-            </div>
-
-            {/* Quarterly inflections */}
-            {inflections.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 mt-2 pt-2 border-t border-white/[0.06]">
-                {inflections.map((inf, j) => {
-                  const type = inf.type?.toLowerCase() || 'pivotal';
-                  const colors = INFLECTION_COLORS[type] || INFLECTION_COLORS.pivotal;
-                  return (
-                    <span
-                      key={j}
-                      className="text-[10px] px-2 py-0.5 rounded border"
-                      style={{ background: colors.bg, color: colors.text, borderColor: colors.border }}
-                    >
-                      {inf.quarter && `${inf.quarter}: `}{inf.description || inf.event}
-                      {inf.impact && ` (${inf.impact})`}
-                    </span>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
     </div>
   );
 };
