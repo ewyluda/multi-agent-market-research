@@ -7,6 +7,8 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
 from .base_agent import BaseAgent
 from ..tavily_client import get_tavily_client
+from ..rss_client import RSSClient
+from ..news_quality_filter import run_quality_filter
 
 
 class NewsAgent(BaseAgent):
@@ -580,111 +582,113 @@ class NewsAgent(BaseAgent):
 
     async def fetch_data(self) -> Dict[str, Any]:
         """
-        Fetch news articles and supplementary Twitter/X posts.
+        Fetch news articles from multiple sources concurrently.
 
-        News: Tries Tavily first, then OpenBB Platform.
-        Twitter: Always fetched concurrently when TWITTER_BEARER_TOKEN is set.
+        Sources (all concurrent):
+            1. Tavily AI Search (primary)
+            2. RSS feeds (supplementary)
+            3. Twitter/X posts (supplementary)
+
+        Fallback: OpenBB Platform if Tavily + RSS both return nothing.
 
         Returns:
             Dictionary with news articles, twitter posts, and company info
         """
         articles = []
         twitter_posts = []
-        source = "unknown"
+        sources = []
         tavily_summary = None
 
         max_articles = self.config.get("MAX_NEWS_ARTICLES", 20)
+        rss_enabled = self.config.get("RSS_ENABLED", True)
 
-        # ── Launch Twitter fetch concurrently (supplementary, never blocks) ──
-        twitter_task = asyncio.create_task(self._fetch_twitter_posts())
-
-        # ── Try Tavily AI Search first (Phase 1) ──
-        try:
-            tavily_result = await self._fetch_tavily_news()
-            if tavily_result and tavily_result.get("articles"):
-                articles.extend(tavily_result["articles"])
-                source = "tavily"
-                tavily_summary = tavily_result.get("ai_summary")
-                self.logger.info(f"Tavily returned {len(articles)} articles for {self.ticker}")
-
-                # Await Twitter results
-                twitter_posts = await twitter_task
-
-                return {
-                    "articles": articles,
-                    "ticker": self.ticker,
-                    "total_count": len(articles),
-                    "company_info": getattr(self, "_company_info", {}),
-                    "source": source,
-                    "twitter_posts": twitter_posts,
-                    "tavily_summary": tavily_summary,
-                }
-            else:
-                self.logger.info(f"Tavily returned no news for {self.ticker}, falling back to OpenBB")
-        except Exception as e:
-            self.logger.warning(f"Tavily search failed: {e}, falling back to OpenBB")
-
-        # ── Try OpenBB Platform second ──
-        data_provider = getattr(self, "_data_provider", None)
-        if data_provider:
-            self.logger.info(f"Fetching {self.ticker} news from OpenBB Platform")
-            try:
-                obb_articles = await data_provider.get_news(self.ticker, limit=max_articles)
-                if obb_articles and len(obb_articles) > 0:
-                    articles.extend(obb_articles)
-                    source = "openbb"
-                    self.logger.info(f"OpenBB returned {len(obb_articles)} news articles for {self.ticker}")
-
-                    # Look up company info for category/relevance scoring
-                    company_info = await self._get_company_info()
-                    self._company_info = company_info
-
-                    # Await Twitter results
-                    twitter_posts = await twitter_task
-
-                    return {
-                        "articles": articles,
-                        "ticker": self.ticker,
-                        "total_count": len(articles),
-                        "company_info": company_info,
-                        "source": source,
-                        "twitter_posts": twitter_posts,
-                        "tavily_summary": tavily_summary,
-                    }
-                else:
-                    self.logger.info(f"OpenBB returned no news for {self.ticker}")
-            except Exception as e:
-                self.logger.warning(f"OpenBB news fetch failed for {self.ticker}: {e}")
-
-        # ── No news sources returned articles — return what we have ──
+        # ── Resolve company info first (needed for RSS sector matching) ──
         company_info = await self._get_company_info()
         self._company_info = company_info
+        sector = company_info.get("sector", "")
 
-        # Await Twitter results
-        twitter_posts = await twitter_task
+        # ── Launch concurrent fetches ──
+        twitter_task = asyncio.create_task(self._fetch_twitter_posts())
+        tavily_task = asyncio.create_task(self._fetch_tavily_news())
+
+        rss_task = None
+        if rss_enabled:
+            rss_client = RSSClient(cache_ttl=self.config.get("RSS_CACHE_TTL", 900))
+            rss_task = asyncio.create_task(rss_client.fetch_feeds(
+                ticker=self.ticker,
+                sector=sector,
+                max_age_days=self.config.get("NEWS_LOOKBACK_DAYS", 7),
+            ))
+
+        # ── Await Tavily ──
+        try:
+            tavily_result = await tavily_task
+            if tavily_result and tavily_result.get("articles"):
+                articles.extend(tavily_result["articles"])
+                sources.append("tavily")
+                tavily_summary = tavily_result.get("ai_summary")
+                self.logger.info(f"Tavily returned {len(tavily_result['articles'])} articles for {self.ticker}")
+        except Exception as e:
+            self.logger.warning(f"Tavily search failed: {e}")
+
+        # ── Await RSS ──
+        if rss_task:
+            try:
+                rss_articles = await rss_task
+                if rss_articles:
+                    articles.extend(rss_articles)
+                    sources.append("rss")
+                    self.logger.info(f"RSS returned {len(rss_articles)} articles for {self.ticker}")
+            except Exception as e:
+                self.logger.warning(f"RSS fetch failed: {e}")
+
+        # ── Fallback to OpenBB if no articles yet ──
+        if not articles:
+            data_provider = getattr(self, "_data_provider", None)
+            if data_provider:
+                self.logger.info(f"Fetching {self.ticker} news from OpenBB Platform (fallback)")
+                try:
+                    obb_articles = await data_provider.get_news(self.ticker, limit=max_articles)
+                    if obb_articles and len(obb_articles) > 0:
+                        articles.extend(obb_articles)
+                        sources.append("openbb")
+                        self.logger.info(f"OpenBB returned {len(obb_articles)} news articles for {self.ticker}")
+                except Exception as e:
+                    self.logger.warning(f"OpenBB news fetch failed for {self.ticker}: {e}")
+
+        # ── Await Twitter ──
+        try:
+            twitter_posts = await twitter_task
+        except Exception as e:
+            self.logger.warning(f"Twitter fetch failed: {e}")
+            twitter_posts = []
+
+        source_str = ",".join(sources) if sources else "none"
 
         return {
             "articles": articles,
             "ticker": self.ticker,
             "total_count": len(articles),
             "company_info": company_info,
-            "source": source,
+            "source": source_str,
             "twitter_posts": twitter_posts,
             "tavily_summary": tavily_summary,
         }
 
     async def analyze(self, raw_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Analyze news articles with relevance filtering and categorization.
+        Analyze news articles with relevance filtering, quality filtering, and categorization.
 
-        For Tavily and OpenBB-sourced articles, relevance scores are pre-computed.
-        For other sources, our relevance scoring applies to filter irrelevant articles.
+        Pipeline:
+            1. Relevance scoring (existing)
+            2. Quality filter — tier gate, heuristics, deduplication (new)
+            3. Categorization (existing)
 
         Args:
             raw_data: Raw news data from fetch_data()
 
         Returns:
-            Analyzed news data with relevance-filtered articles
+            Analyzed news data with filtered articles and diagnostics
         """
         articles = raw_data.get("articles", [])
         company_info = getattr(self, "_company_info", None) or raw_data.get("company_info", {})
@@ -697,74 +701,85 @@ class NewsAgent(BaseAgent):
                 "filtered_count": 0,
                 "categories": {},
                 "recent_count": 0,
+                "quality_filter": {},
                 "summary": "No news articles found for this ticker."
             }
 
-        # Score and filter articles for relevance
+        # ── Stage 1: Relevance scoring ──
         scored_articles = []
         for article in articles:
-            # Tavily and OpenBB articles already have relevance_score pre-set
-            if data_source in ("alpha_vantage", "openbb", "tavily") and "relevance_score" in article:
+            if "relevance_score" in article:
                 scored_articles.append(article)
             else:
                 relevance = self._score_article_relevance(article, company_info)
                 article_with_score = {**article, "relevance_score": round(relevance, 3)}
                 scored_articles.append(article_with_score)
 
-        # Sort by relevance descending
         scored_articles.sort(key=lambda a: a["relevance_score"], reverse=True)
 
-        # Filter out articles below threshold
-        filtered_articles = [
+        # Filter out articles below relevance threshold
+        relevance_filtered = [
             a for a in scored_articles if a["relevance_score"] >= self.RELEVANCE_THRESHOLD
         ]
-
-        removed_count = len(articles) - len(filtered_articles)
-        if removed_count > 0:
+        relevance_removed = len(articles) - len(relevance_filtered)
+        if relevance_removed > 0:
             self.logger.info(
-                f"Relevance filter: kept {len(filtered_articles)}/{len(articles)} articles "
-                f"for {self.ticker} (removed {removed_count} below {self.RELEVANCE_THRESHOLD} threshold)"
+                f"Relevance filter: kept {len(relevance_filtered)}/{len(articles)} articles "
+                f"for {self.ticker} (removed {relevance_removed} below {self.RELEVANCE_THRESHOLD} threshold)"
             )
 
-        # If all articles were filtered out, return empty with honest message
+        # ── Stage 2: Quality filter ──
+        quality_diagnostics = {}
+        if self.config.get("NEWS_QUALITY_FILTER_ENABLED", True) and relevance_filtered:
+            filter_result = run_quality_filter(relevance_filtered)
+            filtered_articles = filter_result.passed
+            quality_diagnostics = {
+                "total_input": filter_result.diagnostics.total_input,
+                "total_passed": filter_result.diagnostics.total_passed,
+                "removed_listicle": filter_result.diagnostics.removed_listicle,
+                "removed_affiliate": filter_result.diagnostics.removed_affiliate,
+                "removed_press_release": filter_result.diagnostics.removed_press_release,
+                "removed_duplicate": filter_result.diagnostics.removed_duplicate,
+            }
+        else:
+            filtered_articles = relevance_filtered
+
         if not filtered_articles:
+            total_removed = relevance_removed + (len(relevance_filtered) - len(filtered_articles))
             return {
                 "articles": [],
                 "total_count": 0,
-                "filtered_count": removed_count,
+                "filtered_count": total_removed,
                 "categories": {},
                 "recent_count": 0,
+                "quality_filter": quality_diagnostics,
                 "summary": f"No relevant news articles found for {self.ticker}. "
-                           f"{removed_count} articles were removed as irrelevant."
+                           f"{total_removed} articles were removed by filters."
             }
 
-        # Categorize filtered articles
+        # ── Stage 3: Categorization and summary (existing logic) ──
         categorized = self._categorize_articles(filtered_articles)
-
-        # Count recent articles (last 24 hours)
         recent_count = self._count_recent_articles(filtered_articles, hours=24)
-
-        # Extract key headlines (from filtered, relevance-sorted list)
         key_headlines = self._extract_key_headlines(filtered_articles, limit=5)
 
-        # Build Twitter/X social buzz summary
         twitter_posts = raw_data.get("twitter_posts", [])
         twitter_buzz = self._build_twitter_buzz(twitter_posts)
-
-        # Include Tavily AI summary if available
         tavily_summary = raw_data.get("tavily_summary")
+
+        total_removed = relevance_removed + (len(relevance_filtered) - len(filtered_articles))
 
         analysis = {
             "articles": filtered_articles,
             "total_count": len(filtered_articles),
-            "filtered_count": removed_count,
+            "filtered_count": total_removed,
             "categories": categorized,
             "recent_count": recent_count,
             "key_headlines": key_headlines,
             "twitter_posts": twitter_posts,
             "twitter_buzz": twitter_buzz,
             "tavily_summary": tavily_summary,
-            "summary": self._generate_summary(filtered_articles, recent_count, removed_count, twitter_buzz, tavily_summary)
+            "quality_filter": quality_diagnostics,
+            "summary": self._generate_summary(filtered_articles, recent_count, total_removed, twitter_buzz, tavily_summary)
         }
 
         return analysis
