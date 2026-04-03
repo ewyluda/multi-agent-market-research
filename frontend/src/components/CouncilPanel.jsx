@@ -9,6 +9,9 @@
 
 import React, { useState, useCallback, useEffect } from 'react';
 import { motion as Motion, AnimatePresence } from 'framer-motion';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import {
   runCouncilAPI,
   getCouncilResultsAPI,
@@ -52,18 +55,18 @@ const PRIMARY_KEYS = Object.keys(ALL_INVESTORS).filter((k) => ALL_INVESTORS[k].p
 // ── Color helpers ────────────────────────────────────────────────────────────
 
 const stanceConfig = {
-  BULLISH:      { label: 'Bullish',      color: '#17c964', bg: 'rgba(23,201,100,0.10)', border: 'rgba(23,201,100,0.30)', dim: 'rgba(23,201,100,0.50)' },
-  CAUTIOUS:     { label: 'Cautious',     color: '#f5a524', bg: 'rgba(245,165,36,0.10)', border: 'rgba(245,165,36,0.30)', dim: 'rgba(245,165,36,0.50)' },
-  BEARISH:      { label: 'Bearish',      color: '#f31260', bg: 'rgba(243,18,96,0.10)',  border: 'rgba(243,18,96,0.30)',  dim: 'rgba(243,18,96,0.50)' },
-  PASS:         { label: 'Pass',         color: '#52525b', bg: 'rgba(82,82,91,0.10)',   border: 'rgba(82,82,91,0.30)',   dim: 'rgba(82,82,91,0.50)' },
+  BULLISH:      { label: 'Bullish',      color: 'var(--success)', bg: 'rgba(23,201,100,0.10)', border: 'rgba(23,201,100,0.30)', dim: 'rgba(23,201,100,0.50)' },
+  CAUTIOUS:     { label: 'Cautious',     color: 'var(--warning)', bg: 'rgba(245,165,36,0.10)', border: 'rgba(245,165,36,0.30)', dim: 'rgba(245,165,36,0.50)' },
+  BEARISH:      { label: 'Bearish',      color: 'var(--danger)',  bg: 'rgba(243,18,96,0.10)',  border: 'rgba(243,18,96,0.30)',  dim: 'rgba(243,18,96,0.50)' },
+  PASS:         { label: 'Pass',         color: '#52525b',        bg: 'rgba(82,82,91,0.10)',   border: 'rgba(82,82,91,0.30)',   dim: 'rgba(82,82,91,0.50)' },
 };
 
 const healthConfig = {
-  INTACT:       { label: 'Intact',        cls: 'text-success-400 bg-success/10 border-success/25',  color: '#17c964', bg: 'rgba(23,201,100,0.10)' },
-  WATCHING:     { label: 'Watching',      cls: 'text-warning-400 bg-warning/10 border-warning/25',  color: '#f5a524', bg: 'rgba(245,165,36,0.10)' },
-  DETERIORATING:{ label: 'Deteriorating', cls: 'text-danger-400 bg-danger/20 border-danger/40',     color: '#f31260', bg: 'rgba(243,18,96,0.18)'  },
-  BROKEN:       { label: 'Broken',        cls: 'text-danger-400 bg-danger/10 border-danger/25',     color: '#f31260', bg: 'rgba(243,18,96,0.10)'  },
-  UNKNOWN:      { label: 'No thesis',     cls: 'text-zinc-500 bg-zinc-800/50 border-zinc-700/30',   color: '#71717a', bg: 'rgba(82,82,91,0.20)'   },
+  INTACT:       { label: 'Intact',        cls: 'text-success-400 bg-success/10 border-success/25',  color: 'var(--success)', bg: 'rgba(23,201,100,0.10)' },
+  WATCHING:     { label: 'Watching',      cls: 'text-warning-400 bg-warning/10 border-warning/25',  color: 'var(--warning)', bg: 'rgba(245,165,36,0.10)' },
+  DETERIORATING:{ label: 'Deteriorating', cls: 'text-danger-400 bg-danger/20 border-danger/40',     color: 'var(--danger)',  bg: 'rgba(243,18,96,0.18)'  },
+  BROKEN:       { label: 'Broken',        cls: 'text-danger-400 bg-danger/10 border-danger/25',     color: 'var(--danger)',  bg: 'rgba(243,18,96,0.10)'  },
+  UNKNOWN:      { label: 'No thesis',     cls: 'text-zinc-500 bg-zinc-800/50 border-zinc-700/30',   color: '#71717a',        bg: 'rgba(82,82,91,0.20)'   },
 };
 
 const scenarioTypeConfig = {
@@ -87,13 +90,11 @@ const StanceDot = ({ stance }) => {
 
 const StanceBadge = ({ stance }) => {
   const cfg = stanceConfig[stance] || stanceConfig.PASS;
+  const badgeVariant = stance === 'BULLISH' ? 'success' : stance === 'BEARISH' ? 'danger' : stance === 'CAUTIOUS' ? 'warning' : 'secondary';
   return (
-    <span
-      className="text-[11px] font-bold px-2.5 py-0.5 rounded-full tracking-wider uppercase"
-      style={{ color: cfg.color, background: cfg.bg, border: `1px solid ${cfg.border}` }}
-    >
+    <Badge variant={badgeVariant} className="text-[11px] rounded-full tracking-wider uppercase">
       {cfg.label}
-    </span>
+    </Badge>
   );
 };
 
@@ -135,13 +136,13 @@ const ScenarioPill = ({ scenario, idx }) => {
       initial={{ opacity: 0, x: -6 }}
       animate={{ opacity: 1, x: 0 }}
       transition={{ delay: idx * 0.06, duration: 0.2 }}
-      className="rounded-lg border border-white/5 bg-dark-inset/60 p-3 space-y-1.5"
+      className="rounded-lg border border-white/5 bg-[var(--card-hover)] p-3 space-y-1.5"
     >
       <div className="flex items-center gap-2">
         <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border uppercase tracking-widest ${typeCfg.cls}`}>
           {typeCfg.label}
         </span>
-        <span className="text-[9px] text-gray-600 font-mono tracking-widest ml-auto" title={`Conviction: ${conviction}`}>
+        <span className="text-[9px] text-gray-600 font-data tracking-widest ml-auto" title={`Conviction: ${conviction}`}>
           {convictionMap[conviction] || '●●○'}
         </span>
       </div>
@@ -166,82 +167,82 @@ const InvestorCard = ({ result, idx }) => {
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: idx * 0.07, duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
-      className="glass-card-elevated rounded-xl overflow-hidden flex flex-col"
-      style={{ borderLeft: `3px solid ${cfg.color}` }}
     >
-      {/* Card header */}
-      <div className="px-4 pt-4 pb-3 border-b border-white/5">
-        <div className="flex items-start gap-3">
-          <InvestorAvatar investorKey={result.investor} stance={stance} />
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-sm font-semibold text-white truncate">{result.investor_name}</span>
-              <StanceBadge stance={stance} />
-            </div>
-            <div className="flex items-center gap-2 mt-1 flex-wrap">
-              <span className="text-[10px] text-gray-500 leading-none">{meta.role}</span>
-              {result.thesis_health && result.thesis_health !== 'UNKNOWN' && (
-                <>
-                  <span className="text-gray-700 text-[10px]">·</span>
-                  <HealthBadge health={result.thesis_health} />
-                </>
-              )}
+      <Card className="overflow-hidden flex flex-col h-full" style={{ borderLeft: `3px solid ${cfg.color}` }}>
+        {/* Card header */}
+        <div className="px-4 pt-4 pb-3 border-b border-white/5">
+          <div className="flex items-start gap-3">
+            <InvestorAvatar investorKey={result.investor} stance={stance} />
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-sm font-semibold text-white truncate">{result.investor_name}</span>
+                <StanceBadge stance={stance} />
+              </div>
+              <div className="flex items-center gap-2 mt-1 flex-wrap">
+                <span className="text-[10px] text-gray-500 leading-none">{meta.role}</span>
+                {result.thesis_health && result.thesis_health !== 'UNKNOWN' && (
+                  <>
+                    <span className="text-gray-700 text-[10px]">·</span>
+                    <HealthBadge health={result.thesis_health} />
+                  </>
+                )}
+              </div>
             </div>
           </div>
         </div>
-      </div>
 
-      {/* Primary question answered */}
-      {result.primary_question_answered && (
-        <div className="px-4 py-2.5 border-b border-white/5">
-          <p
-            className="text-[11px] font-semibold leading-relaxed"
-            style={{ color: cfg.color, opacity: 0.9 }}
-          >
-            {result.primary_question_answered}
+        {/* Primary question answered */}
+        {result.primary_question_answered && (
+          <div className="px-4 py-2.5 border-b border-white/5">
+            <p
+              className="text-[11px] font-semibold leading-relaxed"
+              style={{ color: cfg.color, opacity: 0.9 }}
+            >
+              {result.primary_question_answered}
+            </p>
+          </div>
+        )}
+
+        {/* Qualitative analysis */}
+        <div className="px-4 py-3 flex-1">
+          <p className="text-xs text-gray-300 leading-relaxed">
+            {result.qualitative_analysis || (result.error ? `Error: ${result.error}` : '—')}
           </p>
         </div>
-      )}
 
-      {/* Qualitative analysis */}
-      <div className="px-4 py-3 flex-1">
-        <p className="text-xs text-gray-300 leading-relaxed">
-          {result.qualitative_analysis || (result.error ? `Error: ${result.error}` : '—')}
-        </p>
-      </div>
-
-      {/* Key observations */}
-      {observations.length > 0 && (
-        <div className="px-4 pb-3 space-y-1">
-          {observations.slice(0, 3).map((obs, i) => (
-            <div key={i} className="flex items-start gap-2">
-              <span className="text-[9px] mt-0.5 flex-shrink-0" style={{ color: cfg.dim }}>▸</span>
-              <span className="text-[11px] text-gray-400 leading-relaxed">{obs}</span>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Scenarios — always visible */}
-      {scenarios.length > 0 && (
-        <div className="border-t border-white/5 px-4 py-3">
-          <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-2">
-            If-Then Scenarios
-          </div>
-          <div className="space-y-2">
-            {scenarios.map((s, i) => (
-              <ScenarioPill key={i} scenario={s} idx={i} />
+        {/* Key observations */}
+        {observations.length > 0 && (
+          <div className="px-4 pb-3 space-y-1">
+            {observations.slice(0, 3).map((obs, i) => (
+              <div key={i} className="flex items-start gap-2">
+                <span className="text-[9px] mt-0.5 flex-shrink-0" style={{ color: cfg.dim }}>▸</span>
+                <span className="text-[11px] text-gray-400 leading-relaxed">{obs}</span>
+              </div>
             ))}
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Disagreement flag */}
-      {result.disagreement_flag && (
-        <div className="px-4 py-2 border-t border-white/5">
-          <p className="text-[10px] text-warning-400 leading-relaxed italic">{result.disagreement_flag}</p>
-        </div>
-      )}
+        {/* Scenarios — always visible */}
+        {scenarios.length > 0 && (
+          <div className="border-t border-white/5 px-4 py-3">
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-2">
+              If-Then Scenarios
+            </div>
+            <div className="space-y-2">
+              {scenarios.map((s, i) => (
+                <ScenarioPill key={i} scenario={s} idx={i} />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Disagreement flag */}
+        {result.disagreement_flag && (
+          <div className="px-4 py-2 border-t border-white/5">
+            <p className="text-[10px] text-warning-400 leading-relaxed italic">{result.disagreement_flag}</p>
+          </div>
+        )}
+      </Card>
     </Motion.div>
   );
 };
@@ -293,39 +294,42 @@ const PlaybookSection = ({ results }) => {
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3, delay: 0.2 }}
-      className="glass-card-elevated rounded-xl overflow-hidden"
     >
-      <div className="px-5 py-4 border-b border-white/5 flex items-center gap-2">
-        <span className="text-[10px] font-bold uppercase tracking-widest text-gray-500">Position Playbook</span>
-        <span className="text-[10px] text-gray-700">·</span>
-        <span className="text-[10px] text-gray-600">
-          {allScenarios.length} pre-committed conditional rules across {results.length} investors
-        </span>
-      </div>
-      <div className="p-4 grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-4 gap-4">
-        {sortedTypes.map((type) => {
-          const typeCfg = scenarioTypeConfig[type] || scenarioTypeConfig.event;
-          return (
-            <div key={type} className="space-y-2">
-              <div className={`text-[9px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded border w-fit ${typeCfg.cls}`}>
-                {typeCfg.label}
-              </div>
-              {grouped[type].map((s, i) => (
-                <div key={i} className="rounded-lg bg-dark-inset/50 border border-white/5 p-3 space-y-1">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[9px] font-mono text-gray-600">{s.investor?.split(' ').pop()}</span>
+      <Card className="overflow-hidden">
+        <div className="px-5 py-4 border-b border-white/5 flex items-center gap-2">
+          <span className="text-[10px] font-bold uppercase tracking-widest text-gray-500">Position Playbook</span>
+          <span className="text-[10px] text-gray-700">·</span>
+          <span className="text-[10px] text-gray-600">
+            {allScenarios.length} pre-committed conditional rules across {results.length} investors
+          </span>
+        </div>
+        <CardContent className="pt-4">
+          <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-4 gap-4">
+            {sortedTypes.map((type) => {
+              const typeCfg = scenarioTypeConfig[type] || scenarioTypeConfig.event;
+              return (
+                <div key={type} className="space-y-2">
+                  <div className={`text-[9px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded border w-fit ${typeCfg.cls}`}>
+                    {typeCfg.label}
                   </div>
-                  <p className="text-[11px] text-gray-300 leading-relaxed">
-                    <span className="text-accent-amber font-medium">{s.condition}</span>
-                    {' '}
-                    <span className="text-gray-500">{s.action}</span>
-                  </p>
+                  {grouped[type].map((s, i) => (
+                    <div key={i} className="rounded-lg bg-[var(--card-hover)] border border-white/5 p-3 space-y-1">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[9px] font-data text-gray-600">{s.investor?.split(' ').pop()}</span>
+                      </div>
+                      <p className="text-[11px] text-gray-300 leading-relaxed">
+                        <span className="text-accent-amber font-medium">{s.condition}</span>
+                        {' '}
+                        <span className="text-gray-500">{s.action}</span>
+                      </p>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          );
-        })}
-      </div>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
     </Motion.div>
   );
 };
@@ -343,7 +347,7 @@ const ThesisCardForm = ({ initial, onSave, saving }) => {
   const handleChange = (field) => (e) => setForm((p) => ({ ...p, [field]: e.target.value }));
 
   const inputCls =
-    'w-full rounded-lg bg-dark-inset border border-white/8 px-3 py-2 text-xs text-gray-200 placeholder-gray-600 focus:outline-none focus:border-accent-blue/50 transition-colors resize-none';
+    'w-full rounded-lg bg-[var(--card-hover)] border border-white/8 px-3 py-2 text-xs text-gray-200 placeholder-gray-600 focus:outline-none focus:border-accent-blue/50 transition-colors resize-none';
 
   return (
     <Motion.div
@@ -351,55 +355,60 @@ const ThesisCardForm = ({ initial, onSave, saving }) => {
       animate={{ opacity: 1, height: 'auto' }}
       exit={{ opacity: 0, height: 0 }}
       transition={{ duration: 0.25 }}
-      className="glass-card-elevated rounded-xl overflow-hidden"
     >
-      <div className="px-5 py-4 border-b border-white/5">
-        <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">Thesis Card</p>
-        <p className="text-[11px] text-gray-600 mt-0.5">Context passed to each investor. Enables thesis health assessment.</p>
-      </div>
-      <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-3">
-        <div className="md:col-span-2">
-          <label className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 block mb-1">Structural Thesis</label>
-          <textarea className={inputCls} rows={2} placeholder="Why is this a great business long-term?" value={form.structural_thesis} onChange={handleChange('structural_thesis')} />
+      <Card className="overflow-hidden">
+        <div className="px-5 py-4 border-b border-white/5">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">Thesis Card</p>
+          <p className="text-[11px] text-gray-600 mt-0.5">Context passed to each investor. Enables thesis health assessment.</p>
         </div>
-        <div className="md:col-span-2">
-          <label className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 block mb-1">Near-Term Thesis</label>
-          <textarea className={inputCls} rows={2} placeholder="Why now, sized this way?" value={form.near_term_thesis} onChange={handleChange('near_term_thesis')} />
-        </div>
-        <div className="md:col-span-2">
-          <label className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 block mb-1">Load-Bearing Assumption</label>
-          <input className={inputCls} placeholder="The single thing that must remain true" value={form.load_bearing_assumption} onChange={handleChange('load_bearing_assumption')} />
-        </div>
-        <div className="md:col-span-2">
-          <label className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 block mb-1">Pre-Defined Exit Conditions</label>
-          <input className={inputCls} placeholder="e.g. BTC -30% in 30 days AND ETH fails $3k retest" value={form.exit_conditions} onChange={handleChange('exit_conditions')} />
-        </div>
-        <div>
-          <label className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 block mb-1">Time Horizon</label>
-          <select className={inputCls} value={form.time_horizon} onChange={handleChange('time_horizon')}>
-            <option value="SHORT_TERM">Short-Term</option>
-            <option value="MEDIUM_TERM">Medium-Term</option>
-            <option value="LONG_TERM">Long-Term</option>
-          </select>
-        </div>
-        <div>
-          <label className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 block mb-1">Position Type</label>
-          <select className={inputCls} value={form.sizing_class} onChange={handleChange('sizing_class')}>
-            <option value="TRADE">Near-Term Trade</option>
-            <option value="COMPOUNDER">Long-Term Compounder</option>
-            <option value="SPECULATIVE">Speculative</option>
-          </select>
-        </div>
-        <div className="md:col-span-2 flex justify-end">
-          <button
-            onClick={() => onSave(form)}
-            disabled={saving}
-            className="text-xs font-semibold px-4 py-2 rounded-lg bg-accent-blue/15 border border-accent-blue/30 text-accent-cyan hover:bg-accent-blue/25 transition-colors disabled:opacity-40 cursor-pointer"
-          >
-            {saving ? 'Saving…' : 'Save Thesis Card'}
-          </button>
-        </div>
-      </div>
+        <CardContent className="pt-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="md:col-span-2">
+              <label className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 block mb-1">Structural Thesis</label>
+              <textarea className={inputCls} rows={2} placeholder="Why is this a great business long-term?" value={form.structural_thesis} onChange={handleChange('structural_thesis')} />
+            </div>
+            <div className="md:col-span-2">
+              <label className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 block mb-1">Near-Term Thesis</label>
+              <textarea className={inputCls} rows={2} placeholder="Why now, sized this way?" value={form.near_term_thesis} onChange={handleChange('near_term_thesis')} />
+            </div>
+            <div className="md:col-span-2">
+              <label className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 block mb-1">Load-Bearing Assumption</label>
+              <input className={inputCls} placeholder="The single thing that must remain true" value={form.load_bearing_assumption} onChange={handleChange('load_bearing_assumption')} />
+            </div>
+            <div className="md:col-span-2">
+              <label className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 block mb-1">Pre-Defined Exit Conditions</label>
+              <input className={inputCls} placeholder="e.g. BTC -30% in 30 days AND ETH fails $3k retest" value={form.exit_conditions} onChange={handleChange('exit_conditions')} />
+            </div>
+            <div>
+              <label className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 block mb-1">Time Horizon</label>
+              <select className={inputCls} value={form.time_horizon} onChange={handleChange('time_horizon')}>
+                <option value="SHORT_TERM">Short-Term</option>
+                <option value="MEDIUM_TERM">Medium-Term</option>
+                <option value="LONG_TERM">Long-Term</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 block mb-1">Position Type</label>
+              <select className={inputCls} value={form.sizing_class} onChange={handleChange('sizing_class')}>
+                <option value="TRADE">Near-Term Trade</option>
+                <option value="COMPOUNDER">Long-Term Compounder</option>
+                <option value="SPECULATIVE">Speculative</option>
+              </select>
+            </div>
+            <div className="md:col-span-2 flex justify-end">
+              <Button
+                onClick={() => onSave(form)}
+                disabled={saving}
+                variant="outline"
+                size="sm"
+                className="border-accent-blue/30 text-accent-cyan hover:bg-accent-blue/25"
+              >
+                {saving ? 'Saving…' : 'Save Thesis Card'}
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
     </Motion.div>
   );
 };
@@ -421,61 +430,66 @@ const AddVoiceModal = ({ selected, onToggle, onClose }) => {
         exit={{ scale: 0.94, opacity: 0 }}
         transition={{ duration: 0.18 }}
         onClick={(e) => e.stopPropagation()}
-        className="glass-card-elevated rounded-xl w-full max-w-2xl overflow-hidden"
-        style={{ border: '1px solid rgba(255,255,255,0.08)' }}
+        className="w-full max-w-2xl overflow-hidden"
       >
-        <div className="px-5 py-4 border-b border-white/5 flex items-center justify-between">
-          <div>
-            <p className="text-sm font-semibold text-white">Add Voice</p>
-            <p className="text-[11px] text-gray-500 mt-0.5">Select up to 2 additional investors. Cap: 7 total.</p>
+        <Card>
+          <div className="px-5 py-4 border-b border-white/5 flex items-center justify-between">
+            <div>
+              <p className="text-sm font-semibold text-white">Add Voice</p>
+              <p className="text-[11px] text-gray-500 mt-0.5">Select up to 2 additional investors. Cap: 7 total.</p>
+            </div>
+            <button onClick={onClose} className="text-gray-600 hover:text-gray-300 transition-colors text-lg leading-none cursor-pointer">✕</button>
           </div>
-          <button onClick={onClose} className="text-gray-600 hover:text-gray-300 transition-colors text-lg leading-none cursor-pointer">✕</button>
-        </div>
-        <div className="p-4 grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-[60vh] overflow-y-auto">
-          {secondary.map(([key, meta]) => {
-            const isSelected = selected.has(key);
-            const primaryCount = PRIMARY_KEYS.length;
-            const totalSelected = selected.size;
-            const wouldExceed = !isSelected && (totalSelected + primaryCount) >= 7;
-            return (
-              <button
-                key={key}
-                onClick={() => !wouldExceed && onToggle(key)}
-                disabled={wouldExceed && !isSelected}
-                className={`flex items-center gap-2.5 rounded-lg px-3 py-2.5 border text-left transition-all cursor-pointer ${
-                  isSelected
-                    ? 'border-accent-blue/40 bg-accent-blue/10'
-                    : wouldExceed
-                    ? 'border-white/5 opacity-40 cursor-not-allowed'
-                    : 'border-white/8 hover:border-white/15 hover:bg-white/[0.03]'
-                }`}
-              >
-                <div
-                  className="w-7 h-7 rounded flex items-center justify-center text-[9px] font-bold flex-shrink-0"
-                  style={{
-                    background: isSelected ? 'rgba(0,111,238,0.2)' : 'rgba(255,255,255,0.05)',
-                    color: isSelected ? '#338ef7' : '#71717a',
-                    fontFamily: 'var(--font-mono)',
-                  }}
-                >
-                  {meta.initials}
-                </div>
-                <div className="min-w-0">
-                  <p className="text-[11px] font-medium text-gray-200 truncate">{meta.name.split(' ').slice(-1)[0]}</p>
-                  <p className="text-[9px] text-gray-600 truncate">{meta.role.split('·')[0].trim()}</p>
-                </div>
-              </button>
-            );
-          })}
-        </div>
-        <div className="px-5 py-3 border-t border-white/5 flex justify-end">
-          <button
-            onClick={onClose}
-            className="text-xs font-semibold px-4 py-2 rounded-lg bg-accent-blue/15 border border-accent-blue/30 text-accent-cyan hover:bg-accent-blue/25 transition-colors cursor-pointer"
-          >
-            Done
-          </button>
-        </div>
+          <CardContent className="pt-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-[60vh] overflow-y-auto">
+              {secondary.map(([key, meta]) => {
+                const isSelected = selected.has(key);
+                const primaryCount = PRIMARY_KEYS.length;
+                const totalSelected = selected.size;
+                const wouldExceed = !isSelected && (totalSelected + primaryCount) >= 7;
+                return (
+                  <button
+                    key={key}
+                    onClick={() => !wouldExceed && onToggle(key)}
+                    disabled={wouldExceed && !isSelected}
+                    className={`flex items-center gap-2.5 rounded-lg px-3 py-2.5 border text-left transition-all cursor-pointer ${
+                      isSelected
+                        ? 'border-accent-blue/40 bg-accent-blue/10'
+                        : wouldExceed
+                        ? 'border-white/5 opacity-40 cursor-not-allowed'
+                        : 'border-white/8 hover:border-white/15 hover:bg-white/[0.03]'
+                    }`}
+                  >
+                    <div
+                      className="w-7 h-7 rounded flex items-center justify-center text-[9px] font-bold flex-shrink-0"
+                      style={{
+                        background: isSelected ? 'rgba(0,111,238,0.2)' : 'rgba(255,255,255,0.05)',
+                        color: isSelected ? '#338ef7' : '#71717a',
+                        fontFamily: 'var(--font-mono)',
+                      }}
+                    >
+                      {meta.initials}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-[11px] font-medium text-gray-200 truncate">{meta.name.split(' ').slice(-1)[0]}</p>
+                      <p className="text-[9px] text-gray-600 truncate">{meta.role.split('·')[0].trim()}</p>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </CardContent>
+          <div className="px-5 py-3 border-t border-white/5 flex justify-end">
+            <Button
+              onClick={onClose}
+              variant="outline"
+              size="sm"
+              className="border-accent-blue/30 text-accent-cyan hover:bg-accent-blue/25"
+            >
+              Done
+            </Button>
+          </div>
+        </Card>
       </Motion.div>
     </Motion.div>
   );
@@ -497,96 +511,97 @@ const SynthesisCard = ({ synthesis, thesisHealth }) => {
   const healthColor = healthConfig[healthConsensus]?.color || healthConfig.UNKNOWN.color;
   const healthBg = healthConfig[healthConsensus]?.bg || healthConfig.UNKNOWN.bg;
   const majorityConfig = stanceConfig[majority] || stanceConfig.PASS;
+  const majorityBadgeVariant = majority === 'BULLISH' ? 'success' : majority === 'BEARISH' ? 'danger' : majority === 'CAUTIOUS' ? 'warning' : 'secondary';
 
   return (
     <Motion.div
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
-      className="glass-card-elevated rounded-xl p-5 space-y-4"
     >
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div className="flex items-center gap-3">
-          <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">Council Synthesis</p>
-          <span
-            className="text-[10px] font-bold px-2.5 py-0.5 rounded-full"
-            style={{ color: majorityConfig.color, background: majorityConfig.bg, border: `1px solid ${majorityConfig.border}` }}
-          >
-            {majority} ({conviction}% conviction)
-          </span>
-          {healthConsensus !== 'UNKNOWN' && (
-            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full" style={{ color: healthColor, background: healthBg }}>
-              Thesis: {healthConsensus}
-            </span>
-          )}
-        </div>
-      </div>
-
-      {/* Stance distribution bar */}
-      {total > 0 && (
-        <div className="flex rounded-full overflow-hidden h-2.5" style={{ background: 'rgba(255,255,255,0.04)' }}>
-          {dist.bullish > 0 && (
-            <div style={{ width: `${(dist.bullish / total) * 100}%`, background: stanceConfig.BULLISH.color }} className="transition-all duration-500" />
-          )}
-          {dist.cautious > 0 && (
-            <div style={{ width: `${(dist.cautious / total) * 100}%`, background: stanceConfig.CAUTIOUS.color }} className="transition-all duration-500" />
-          )}
-          {dist.bearish > 0 && (
-            <div style={{ width: `${(dist.bearish / total) * 100}%`, background: stanceConfig.BEARISH.color }} className="transition-all duration-500" />
-          )}
-        </div>
-      )}
-
-      {/* Disagreements */}
-      {disagreements.length > 0 && (
-        <div className="space-y-1.5">
-          {disagreements.map((d, i) => (
-            <div key={i} className="flex items-start gap-2 text-[11px]">
-              <span className="text-amber-400 mt-0.5 shrink-0">⚡</span>
-              <span className="text-gray-400"><span className="text-gray-200 font-medium">{d.investor_name || d.investor}</span>: {d.flag}</span>
+      <Card>
+        <CardContent className="pt-5 space-y-4">
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <div className="flex items-center gap-3">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">Council Synthesis</p>
+              <Badge variant={majorityBadgeVariant} className="text-[10px] rounded-full font-data">
+                {majority} ({conviction}% conviction)
+              </Badge>
+              {healthConsensus !== 'UNKNOWN' && (
+                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full" style={{ color: healthColor, background: healthBg }}>
+                  Thesis: {healthConsensus}
+                </span>
+              )}
             </div>
-          ))}
-        </div>
-      )}
+          </div>
 
-      {/* Top if-then scenarios */}
-      {topScenarios.length > 0 && (
-        <div className="space-y-1.5">
-          <p className="text-[10px] font-bold uppercase tracking-widest text-gray-600">Top Scenarios</p>
-          {topScenarios.map((s, i) => (
-            <div key={i} className="text-[11px] text-gray-400 flex items-start gap-2">
-              <span className="text-accent-cyan shrink-0 mt-0.5">→</span>
-              <span><span className="text-gray-300">{s.condition}</span> {s.action}</span>
-              <span className="text-[9px] text-gray-600 ml-auto shrink-0">{s.investor}</span>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* LLM Narrative */}
-      {narrative?.narrative && !narrative.fallback_used && (
-        <div className="space-y-2 pt-2 border-t border-white/5">
-          <p className="text-[11px] text-gray-300 leading-relaxed">{narrative.narrative}</p>
-          {narrative.position_implication && (
-            <div className="flex items-center gap-2 text-[11px]">
-              <span className="text-accent-cyan font-bold">▸</span>
-              <span className="text-gray-200 font-medium">{narrative.position_implication}</span>
+          {/* Stance distribution bar */}
+          {total > 0 && (
+            <div className="flex rounded-full overflow-hidden h-2.5" style={{ background: 'rgba(255,255,255,0.04)' }}>
+              {dist.bullish > 0 && (
+                <div style={{ width: `${(dist.bullish / total) * 100}%`, background: stanceConfig.BULLISH.color }} className="transition-all duration-500" />
+              )}
+              {dist.cautious > 0 && (
+                <div style={{ width: `${(dist.cautious / total) * 100}%`, background: stanceConfig.CAUTIOUS.color }} className="transition-all duration-500" />
+              )}
+              {dist.bearish > 0 && (
+                <div style={{ width: `${(dist.bearish / total) * 100}%`, background: stanceConfig.BEARISH.color }} className="transition-all duration-500" />
+              )}
             </div>
           )}
-          {narrative.watch_item && (
-            <div className="flex items-center gap-2 text-[10px] text-gray-500">
-              <span>👁</span>
-              <span>Watch: {narrative.watch_item}</span>
+
+          {/* Disagreements */}
+          {disagreements.length > 0 && (
+            <div className="space-y-1.5">
+              {disagreements.map((d, i) => (
+                <div key={i} className="flex items-start gap-2 text-[11px]">
+                  <span className="text-amber-400 mt-0.5 shrink-0">⚡</span>
+                  <span className="text-gray-400"><span className="text-gray-200 font-medium">{d.investor_name || d.investor}</span>: {d.flag}</span>
+                </div>
+              ))}
             </div>
           )}
-        </div>
-      )}
+
+          {/* Top if-then scenarios */}
+          {topScenarios.length > 0 && (
+            <div className="space-y-1.5">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-gray-600">Top Scenarios</p>
+              {topScenarios.map((s, i) => (
+                <div key={i} className="text-[11px] text-gray-400 flex items-start gap-2">
+                  <span className="text-accent-cyan shrink-0 mt-0.5">→</span>
+                  <span><span className="text-gray-300">{s.condition}</span> {s.action}</span>
+                  <span className="text-[9px] text-gray-600 font-data ml-auto shrink-0">{s.investor}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* LLM Narrative */}
+          {narrative?.narrative && !narrative.fallback_used && (
+            <div className="space-y-2 pt-2 border-t border-white/5">
+              <p className="text-[11px] text-gray-300 leading-relaxed">{narrative.narrative}</p>
+              {narrative.position_implication && (
+                <div className="flex items-center gap-2 text-[11px]">
+                  <span className="text-accent-cyan font-bold">▸</span>
+                  <span className="text-gray-200 font-medium">{narrative.position_implication}</span>
+                </div>
+              )}
+              {narrative.watch_item && (
+                <div className="flex items-center gap-2 text-[10px] text-gray-500">
+                  <span>👁</span>
+                  <span>Watch: {narrative.watch_item}</span>
+                </div>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </Motion.div>
   );
 };
 
 // ── Health Indicator Strip ───────────────────────────────────────────────────
 
-const statusDot = { stable: '#17c964', drifting: '#f5a524', breached: '#f31260' };
+const statusDot = { stable: 'var(--success)', drifting: 'var(--warning)', breached: 'var(--danger)' };
 
 const HealthIndicatorStrip = ({ thesisHealth }) => {
   const [expanded, setExpanded] = React.useState(null);
@@ -605,9 +620,9 @@ const HealthIndicatorStrip = ({ thesisHealth }) => {
           >
             <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: statusDot[ind.status] || statusDot.stable }} />
             <span className="text-gray-400">{ind.name}</span>
-            <span className="text-gray-200 font-medium">{ind.current_value}</span>
+            <span className="text-gray-200 font-medium font-data">{ind.current_value}</span>
             {isExpanded && ind.baseline_value && (
-              <span className="text-gray-600 ml-1">
+              <span className="text-gray-600 ml-1 font-data">
                 baseline: {ind.baseline_value}
                 {ind.drift_pct != null && ` (${ind.drift_pct.toFixed(1)}%)`}
               </span>
@@ -704,49 +719,50 @@ const CouncilPanel = ({ analysis, ticker }) => {
           {hasResults && (
             <div className="flex items-center gap-1.5">
               {Object.entries(stanceCounts).map(([stance, count]) => {
-                const cfg = stanceConfig[stance] || stanceConfig.PASS;
+                const badgeVariant = stance === 'BULLISH' ? 'success' : stance === 'BEARISH' ? 'danger' : stance === 'CAUTIOUS' ? 'warning' : 'secondary';
                 return (
-                  <span
-                    key={stance}
-                    className="text-[10px] font-semibold px-2 py-0.5 rounded-full"
-                    style={{ color: cfg.color, background: cfg.bg, border: `1px solid ${cfg.border}` }}
-                  >
-                    {count} {cfg.label}
-                  </span>
+                  <Badge key={stance} variant={badgeVariant} className="text-[10px] rounded-full">
+                    {count} {stanceConfig[stance]?.label || stance}
+                  </Badge>
                 );
               })}
             </div>
           )}
 
           {/* Thesis card toggle */}
-          <button
+          <Button
             onClick={() => setShowThesisForm((p) => !p)}
-            className="text-[11px] font-medium px-3 py-1.5 rounded-lg border border-white/8 text-gray-400 hover:text-gray-200 hover:border-white/15 transition-colors cursor-pointer flex items-center gap-1.5"
+            variant="outline"
+            size="sm"
+            className="text-[11px] h-auto py-1.5 border-white/8 text-gray-400 hover:text-gray-200 hover:border-white/15"
           >
             {thesisCard ? '✓ Thesis Card' : '+ Add Thesis'}
             {showThesisForm ? ' ▴' : ' ▾'}
-          </button>
+          </Button>
 
           {/* Add voice */}
-          <button
+          <Button
             onClick={() => setShowAddVoice(true)}
-            className="text-[11px] font-medium px-3 py-1.5 rounded-lg border border-white/8 text-gray-400 hover:text-gray-200 hover:border-white/15 transition-colors cursor-pointer flex items-center gap-1.5"
+            variant="outline"
+            size="sm"
+            className="text-[11px] h-auto py-1.5 border-white/8 text-gray-400 hover:text-gray-200 hover:border-white/15"
           >
             + Add Voice
             {additionalInvestors.size > 0 && (
-              <span className="text-[10px] font-bold text-accent-cyan">({additionalInvestors.size})</span>
+              <span className="text-[10px] font-bold text-accent-cyan ml-1">({additionalInvestors.size})</span>
             )}
-          </button>
+          </Button>
         </div>
 
         {/* Run Council button */}
-        <button
+        <Button
           onClick={handleRunCouncil}
           disabled={loading || !hasAnalysis}
-          className={`flex items-center gap-2 text-xs font-bold px-4 py-2 rounded-lg transition-all cursor-pointer ${
+          variant={hasAnalysis ? 'default' : 'secondary'}
+          className={`flex items-center gap-2 text-xs font-bold ${
             hasAnalysis
               ? 'bg-accent-blue/15 border border-accent-blue/35 text-accent-cyan hover:bg-accent-blue/25'
-              : 'bg-white/5 border border-white/8 text-gray-600 cursor-not-allowed'
+              : 'opacity-60'
           } ${loading ? 'opacity-70' : ''}`}
           title={!hasAnalysis ? 'Run an analysis first to provide market data context' : ''}
         >
@@ -761,7 +777,7 @@ const CouncilPanel = ({ analysis, ticker }) => {
               Convene Council
             </>
           )}
-        </button>
+        </Button>
       </div>
 
       {/* Thesis card form */}
@@ -784,10 +800,12 @@ const CouncilPanel = ({ analysis, ticker }) => {
 
       {/* No analysis warning */}
       {!hasAnalysis && !loading && (
-        <div className="glass-card-elevated rounded-xl px-5 py-8 text-center">
-          <p className="text-sm font-semibold text-gray-400 mb-1">No analysis data yet</p>
-          <p className="text-xs text-gray-600">Run an analysis for {ticker || 'this ticker'} first, then convene the council.</p>
-        </div>
+        <Card>
+          <CardContent className="pt-8 pb-8 text-center">
+            <p className="text-sm font-semibold text-gray-400 mb-1">No analysis data yet</p>
+            <p className="text-xs text-gray-600">Run an analysis for {ticker || 'this ticker'} first, then convene the council.</p>
+          </CardContent>
+        </Card>
       )}
 
       {/* Synthesis card */}
@@ -814,20 +832,22 @@ const CouncilPanel = ({ analysis, ticker }) => {
       {loading && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5" style={{ gap: 'var(--space-card-gap, 20px)' }}>
           {[...Array(PRIMARY_KEYS.length + additionalInvestors.size)].map((_, i) => (
-            <div key={i} className="glass-card-elevated rounded-xl p-4 space-y-3 animate-pulse" style={{ animationDelay: `${i * 80}ms` }}>
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-lg bg-white/5" />
-                <div className="flex-1 space-y-1.5">
-                  <div className="h-3 bg-white/5 rounded w-3/4" />
-                  <div className="h-2 bg-white/5 rounded w-1/2" />
+            <Card key={i} className="animate-pulse" style={{ animationDelay: `${i * 80}ms` }}>
+              <CardContent className="pt-4 space-y-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-lg bg-white/5" />
+                  <div className="flex-1 space-y-1.5">
+                    <div className="h-3 bg-white/5 rounded w-3/4" />
+                    <div className="h-2 bg-white/5 rounded w-1/2" />
+                  </div>
                 </div>
-              </div>
-              <div className="space-y-2">
-                <div className="h-2 bg-white/5 rounded" />
-                <div className="h-2 bg-white/5 rounded w-4/5" />
-                <div className="h-2 bg-white/5 rounded w-3/5" />
-              </div>
-            </div>
+                <div className="space-y-2">
+                  <div className="h-2 bg-white/5 rounded" />
+                  <div className="h-2 bg-white/5 rounded w-4/5" />
+                  <div className="h-2 bg-white/5 rounded w-3/5" />
+                </div>
+              </CardContent>
+            </Card>
           ))}
         </div>
       )}

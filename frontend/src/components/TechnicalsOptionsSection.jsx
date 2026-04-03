@@ -1,10 +1,12 @@
 /**
  * TechnicalsOptionsSection - Combined Technical Indicators + Options Flow
- * in two stacked glass cards under one section.
+ * in two stacked shadcn Cards under one section.
  */
 
 import React from 'react';
 import { motion as Motion } from 'framer-motion';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import OptionsFlow from './OptionsFlow';
 
 const fadeUp = {
@@ -16,7 +18,7 @@ const fadeUp = {
 
 const TechMetricCard = ({ label, value, badge, badgeColor }) => (
   <div
-    className="bg-dark-inset rounded-lg border border-white/[0.04] hover:border-white/[0.08] transition-colors"
+    className="bg-[var(--card-hover)] rounded-lg border border-white/[0.04] hover:border-white/[0.08] transition-colors"
     style={{ padding: 'var(--space-card-padding, 20px)' }}
   >
     <div className="flex justify-between items-center mb-1.5">
@@ -30,7 +32,7 @@ const TechMetricCard = ({ label, value, badge, badgeColor }) => (
         </span>
       )}
     </div>
-    <div className="text-lg font-bold font-mono tabular-nums" style={{ color: 'var(--text-primary)' }}>
+    <div className="text-lg font-bold font-data" style={{ color: 'var(--text-primary)' }}>
       {value}
     </div>
   </div>
@@ -39,8 +41,8 @@ const TechMetricCard = ({ label, value, badge, badgeColor }) => (
 // ─── RSI color helper ───────────────────────────────────────────────────────
 
 function getRsiColor(value) {
-  if (value > 70) return 'var(--accent-red)';
-  if (value < 30) return 'var(--accent-green)';
+  if (value > 70) return 'var(--danger)';
+  if (value < 30) return 'var(--success)';
   return 'var(--text-muted)';
 }
 
@@ -65,59 +67,62 @@ const TechnicalCard = ({ data }) => {
   const overall = signals.overall;
 
   return (
-    <div className="glass-card rounded-xl" style={{ padding: 'var(--space-card-padding, 20px)' }}>
-      <div className="text-sm font-semibold mb-4 flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
-        <span style={{ color: 'var(--accent-blue)' }}>◆</span> Technical Indicators
-      </div>
-
-      <div
-        className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4"
-        style={{ gap: 'var(--space-metrics-gap, 16px)' }}
-      >
-        {rsi && (
-          <TechMetricCard
-            label="RSI"
-            value={rsi.value?.toFixed(1) ?? 'N/A'}
-            badge={getRsiLabel(rsi.value)}
-            badgeColor={getRsiColor(rsi.value)}
-          />
-        )}
-        {macd && (
-          <TechMetricCard
-            label="MACD"
-            value={macd.macd_line?.toFixed(2) ?? macd.value?.toFixed(2) ?? 'N/A'}
-            badge={macd.interpretation || null}
-            badgeColor={macd.interpretation?.includes('bullish') ? 'var(--accent-green)' : 'var(--accent-red)'}
-          />
-        )}
-        {strength != null && (
-          <TechMetricCard
-            label="Signal Strength"
-            value={`${(strength * 100).toFixed(0)}%`}
-            badge={overall || null}
-            badgeColor={
-              overall === 'bullish' ? 'var(--accent-green)' :
-              overall === 'bearish' ? 'var(--accent-red)' :
-              'var(--accent-amber)'
-            }
-          />
-        )}
-        {indicators.bollinger_bands && (
-          <TechMetricCard
-            label="Bollinger"
-            value={indicators.bollinger_bands.interpretation || 'N/A'}
-            badge="Band"
-            badgeColor="var(--accent-purple)"
-          />
-        )}
-      </div>
-
-      {summary && (
-        <div className="mt-4 text-[0.88rem] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-          {summary}
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-sm flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
+          <span style={{ color: 'var(--primary)' }}>◆</span> Technical Indicators
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div
+          className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4"
+          style={{ gap: 'var(--space-metrics-gap, 16px)' }}
+        >
+          {rsi && (
+            <TechMetricCard
+              label="RSI"
+              value={rsi.value?.toFixed(1) ?? 'N/A'}
+              badge={getRsiLabel(rsi.value)}
+              badgeColor={getRsiColor(rsi.value)}
+            />
+          )}
+          {macd && (
+            <TechMetricCard
+              label="MACD"
+              value={macd.macd_line?.toFixed(2) ?? macd.value?.toFixed(2) ?? 'N/A'}
+              badge={macd.interpretation || null}
+              badgeColor={macd.interpretation?.includes('bullish') ? 'var(--success)' : 'var(--danger)'}
+            />
+          )}
+          {strength != null && (
+            <TechMetricCard
+              label="Signal Strength"
+              value={`${(strength * 100).toFixed(0)}%`}
+              badge={overall || null}
+              badgeColor={
+                overall === 'bullish' ? 'var(--success)' :
+                overall === 'bearish' ? 'var(--danger)' :
+                'var(--warning)'
+              }
+            />
+          )}
+          {indicators.bollinger_bands && (
+            <TechMetricCard
+              label="Bollinger"
+              value={indicators.bollinger_bands.interpretation || 'N/A'}
+              badge="Band"
+              badgeColor="var(--chart-5)"
+            />
+          )}
         </div>
-      )}
-    </div>
+
+        {summary && (
+          <div className="mt-4 text-[0.88rem] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+            {summary}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 };
 

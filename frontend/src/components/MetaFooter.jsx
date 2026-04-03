@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { Card, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 
 function DiagnosticsSlideOver({ analysis, onClose }) {
   const payload = analysis?.analysis || analysis || {};
@@ -35,10 +37,10 @@ function DiagnosticsSlideOver({ analysis, onClose }) {
             {Object.entries(agentResults).map(([key, result]) => (
               <div key={key} className="flex items-center justify-between py-1.5 px-3 rounded-md" style={{ background: 'rgba(255,255,255,0.02)' }}>
                 <div className="flex items-center gap-2">
-                  <div className="w-1.5 h-1.5 rounded-full" style={{ background: result?.success ? '#17c964' : '#f31260' }} />
+                  <div className="w-1.5 h-1.5 rounded-full" style={{ background: result?.success ? 'var(--success)' : 'var(--danger)' }} />
                   <span className="text-[0.78rem] text-white/70 capitalize">{key}</span>
                 </div>
-                <span className="text-[0.72rem] text-white/40 tabular-nums">
+                <span className="text-[0.72rem] text-white/40 font-data">
                   {result?.duration_seconds != null ? `${result.duration_seconds.toFixed(1)}s` : '—'}
                 </span>
               </div>
@@ -51,12 +53,12 @@ function DiagnosticsSlideOver({ analysis, onClose }) {
             <h4 className="text-[0.8rem] font-semibold text-white/60 mb-3">Data Quality</h4>
             <div className="flex gap-4 text-[0.75rem]">
               <div><span className="text-white/30">Level</span>{' '}<span className="text-white/70 font-medium capitalize">{dataQuality.quality_level}</span></div>
-              <div><span className="text-white/30">Success Rate</span>{' '}<span className="text-white/70 font-medium">{((dataQuality.agent_success_rate || 0) * 100).toFixed(0)}%</span></div>
+              <div><span className="text-white/30">Success Rate</span>{' '}<span className="text-white/70 font-medium font-data">{((dataQuality.agent_success_rate || 0) * 100).toFixed(0)}%</span></div>
             </div>
             {dataQuality.warnings?.length > 0 && (
               <div className="mt-2 flex flex-col gap-1">
                 {dataQuality.warnings.map((w, i) => (
-                  <div key={i} className="text-[0.72rem] text-[#f5a524]/70">⚠ {w}</div>
+                  <div key={i} className="text-[0.72rem]" style={{ color: 'rgba(245,165,36,0.7)' }}>⚠ {w}</div>
                 ))}
               </div>
             )}
@@ -67,9 +69,9 @@ function DiagnosticsSlideOver({ analysis, onClose }) {
           <div className="mb-6">
             <h4 className="text-[0.8rem] font-semibold text-white/60 mb-3">Signal Disagreement</h4>
             <div className="flex gap-3 text-[0.75rem] mb-2">
-              <span className="text-[#17c964]">▲ {disagreement.bullish_count || 0} bullish</span>
-              <span className="text-[#f5a524]">● {disagreement.neutral_count || 0} neutral</span>
-              <span className="text-[#f31260]">▼ {disagreement.bearish_count || 0} bearish</span>
+              <span style={{ color: 'var(--success)' }}>▲ {disagreement.bullish_count || 0} bullish</span>
+              <span style={{ color: 'var(--warning)' }}>● {disagreement.neutral_count || 0} neutral</span>
+              <span style={{ color: 'var(--danger)' }}>▼ {disagreement.bearish_count || 0} bearish</span>
             </div>
             {disagreement.agent_directions && (
               <div className="flex flex-wrap gap-2">
@@ -87,7 +89,7 @@ function DiagnosticsSlideOver({ analysis, onClose }) {
           <div className="mb-6">
             <h4 className="text-[0.8rem] font-semibold text-white/60 mb-3">Guardrail Warnings</h4>
             {payload.guardrail_warnings.map((w, i) => (
-              <div key={i} className="text-[0.72rem] text-[#f5a524]/70 mb-1">⚠ {w}</div>
+              <div key={i} className="text-[0.72rem] mb-1" style={{ color: 'rgba(245,165,36,0.7)' }}>⚠ {w}</div>
             ))}
           </div>
         )}
@@ -115,18 +117,26 @@ export default function MetaFooter({ analysis }) {
 
   return (
     <>
-      <div className="mx-6 mb-6 px-5 py-4 rounded-[10px] flex items-center gap-6"
-        style={{ background: 'rgba(255,255,255,0.015)', border: '1px solid rgba(255,255,255,0.04)' }}>
-        <span className="text-[0.72rem] text-white/30">Analyzed <span className="text-white/50 font-medium">{formatDate(timestamp)}</span></span>
-        <span className="text-[0.72rem] text-white/30">Duration <span className="text-white/50 font-medium">{totalDuration.toFixed(1)}s</span></span>
-        <span className="text-[0.72rem] text-white/30">Agents <span className="text-white/50 font-medium">{successCount}/{agentCount} succeeded</span></span>
-        <button onClick={() => setShowDiagnostics(true)} className="ml-auto text-[0.72rem] font-medium bg-transparent border-none cursor-pointer"
-          style={{ color: 'rgba(0,111,238,0.5)' }}
-          onMouseEnter={(e) => (e.target.style.color = '#006fee')}
-          onMouseLeave={(e) => (e.target.style.color = 'rgba(0,111,238,0.5)')}>
-          View Diagnostics →
-        </button>
-      </div>
+      <Card className="mx-6 mb-6">
+        <CardContent className="px-5 py-4">
+          <div className="flex items-center gap-6 flex-wrap">
+            <span className="text-[0.72rem] text-white/30">Analyzed <span className="text-white/50 font-medium">{formatDate(timestamp)}</span></span>
+            <span className="text-[0.72rem] text-white/30">Duration <span className="text-white/50 font-medium font-data">{totalDuration.toFixed(1)}s</span></span>
+            <span className="text-[0.72rem] text-white/30">Agents <span className="text-white/50 font-medium font-data">{successCount}/{agentCount} succeeded</span></span>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowDiagnostics(true)}
+              className="ml-auto text-[0.72rem] font-medium h-auto p-0"
+              style={{ color: 'rgba(0,111,238,0.5)' }}
+              onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--primary)')}
+              onMouseLeave={(e) => (e.currentTarget.style.color = 'rgba(0,111,238,0.5)')}
+            >
+              View Diagnostics →
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
       <AnimatePresence>
         {showDiagnostics && <DiagnosticsSlideOver analysis={analysis} onClose={() => setShowDiagnostics(false)} />}
       </AnimatePresence>

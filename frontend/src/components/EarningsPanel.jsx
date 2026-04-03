@@ -5,6 +5,8 @@
 
 import React from 'react';
 import { motion as Motion } from 'framer-motion';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 
 const fadeUp = {
   hidden: { opacity: 0, y: 12 },
@@ -16,11 +18,11 @@ const fadeUp = {
 const getEarningsData = (analysis) =>
   analysis?.agent_results?.earnings?.data || null;
 
-const TAG_COLORS = {
-  BEAT: { text: 'text-success-400', bg: 'bg-success/10' },
-  MISS: { text: 'text-danger-400', bg: 'bg-danger/10' },
-  NEW: { text: 'text-accent-blue', bg: 'bg-accent-blue/10' },
-  WATCH: { text: 'text-warning-400', bg: 'bg-warning/10' },
+const TAG_BADGE_VARIANTS = {
+  BEAT: 'success',
+  MISS: 'danger',
+  NEW: 'default',
+  WATCH: 'warning',
 };
 
 const DIRECTION_COLORS = {
@@ -39,20 +41,20 @@ const DIRECTION_ARROWS = {
   withdrawn: '✕',
 };
 
-const TONE_COLORS = {
-  confident: { text: 'text-success-400', bg: 'bg-success/10', border: 'border-success/25' },
-  optimistic: { text: 'text-success-400', bg: 'bg-success/10', border: 'border-success/25' },
-  cautious: { text: 'text-warning-400', bg: 'bg-warning/10', border: 'border-warning/25' },
-  defensive: { text: 'text-danger-400', bg: 'bg-danger/10', border: 'border-danger/25' },
-  evasive: { text: 'text-danger-400', bg: 'bg-danger/10', border: 'border-danger/25' },
-  neutral: { text: 'text-gray-400', bg: 'bg-gray-400/10', border: 'border-gray-400/25' },
+const TONE_BADGE_VARIANTS = {
+  confident: 'success',
+  optimistic: 'success',
+  cautious: 'warning',
+  defensive: 'danger',
+  evasive: 'danger',
+  neutral: 'secondary',
 };
 
-const GUIDANCE_DIR_STYLES = {
-  raised: { text: 'text-success-400', bg: 'bg-success/10', border: 'border-success/25' },
-  lowered: { text: 'text-danger-400', bg: 'bg-danger/10', border: 'border-danger/25' },
-  maintained: { text: 'text-gray-400', bg: 'bg-gray-400/10', border: 'border-gray-400/25' },
-  mixed: { text: 'text-warning-400', bg: 'bg-warning/10', border: 'border-warning/25' },
+const GUIDANCE_BADGE_VARIANTS = {
+  raised: 'success',
+  lowered: 'danger',
+  maintained: 'secondary',
+  mixed: 'warning',
 };
 
 const TOPIC_COLORS = [
@@ -104,26 +106,32 @@ const HeaderRow = ({ data }) => {
   const meta = data.call_metadata || {};
   const tone = data.tone || 'neutral';
   const guidanceDir = data.guidance_direction || 'maintained';
-  const toneStyle = TONE_COLORS[tone] || TONE_COLORS.neutral;
-  const gdStyle = GUIDANCE_DIR_STYLES[guidanceDir] || GUIDANCE_DIR_STYLES.maintained;
+  const toneBadgeVariant = TONE_BADGE_VARIANTS[tone] || 'secondary';
+  const guidanceBadgeVariant = GUIDANCE_BADGE_VARIANTS[guidanceDir] || 'secondary';
 
   return (
     <div className="flex gap-3 mb-4">
-      <div className="glass-card flex-1 px-4 py-3" style={{ borderLeft: '3px solid var(--accent-blue)' }}>
-        <div className="text-[11px] uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Latest Call</div>
-        <div className="text-base font-semibold mt-1" style={{ color: 'var(--text-primary)' }}>
-          Q{meta.quarter} {meta.year} Earnings Call
-        </div>
-        <div className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>{formatDate(meta.date)}</div>
-      </div>
-      <div className={`glass-card px-4 py-3 text-center min-w-[100px] ${toneStyle.bg} border ${toneStyle.border}`}>
-        <div className="text-[11px] uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Tone</div>
-        <div className={`text-lg font-bold mt-1 capitalize ${toneStyle.text}`}>{tone}</div>
-      </div>
-      <div className={`glass-card px-4 py-3 text-center min-w-[100px] ${gdStyle.bg} border ${gdStyle.border}`}>
-        <div className="text-[11px] uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Guidance</div>
-        <div className={`text-lg font-bold mt-1 capitalize ${gdStyle.text}`}>{guidanceDir}</div>
-      </div>
+      <Card className="flex-1" style={{ borderLeft: '3px solid var(--primary)' }}>
+        <CardContent className="px-4 py-3 pt-3">
+          <div className="text-[11px] uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Latest Call</div>
+          <div className="text-base font-semibold mt-1" style={{ color: 'var(--text-primary)' }}>
+            Q{meta.quarter} {meta.year} Earnings Call
+          </div>
+          <div className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>{formatDate(meta.date)}</div>
+        </CardContent>
+      </Card>
+      <Card className="px-4 py-3 text-center min-w-[100px]">
+        <CardContent className="px-4 py-3 pt-3">
+          <div className="text-[11px] uppercase tracking-wider mb-1" style={{ color: 'var(--text-muted)' }}>Tone</div>
+          <Badge variant={toneBadgeVariant} className="capitalize">{tone}</Badge>
+        </CardContent>
+      </Card>
+      <Card className="px-4 py-3 text-center min-w-[100px]">
+        <CardContent className="px-4 py-3 pt-3">
+          <div className="text-[11px] uppercase tracking-wider mb-1" style={{ color: 'var(--text-muted)' }}>Guidance</div>
+          <Badge variant={guidanceBadgeVariant} className="capitalize">{guidanceDir}</Badge>
+        </CardContent>
+      </Card>
     </div>
   );
 };
@@ -131,93 +139,105 @@ const HeaderRow = ({ data }) => {
 const HighlightsCard = ({ highlights }) => {
   if (!highlights?.length) return null;
   return (
-    <div className="glass-card p-4">
-      <div className="text-sm font-semibold mb-3 flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
-        <span style={{ color: 'var(--accent-blue)' }}>✦</span> Key Highlights
-      </div>
-      <div className="flex flex-col gap-2.5">
-        {highlights.map((h, i) => {
-          const tagStyle = TAG_COLORS[h.tag] || TAG_COLORS.WATCH;
-          return (
-            <div key={i} className="flex gap-2 items-start">
-              <span className={`${tagStyle.bg} ${tagStyle.text} text-[10px] px-1.5 py-0.5 rounded font-medium whitespace-nowrap mt-0.5`}>
-                {h.tag}
-              </span>
-              <span className="text-[13px] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>{h.text}</span>
-            </div>
-          );
-        })}
-      </div>
-    </div>
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
+          <span style={{ color: 'var(--primary)' }}>✦</span> Key Highlights
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="flex flex-col gap-2.5">
+          {highlights.map((h, i) => {
+            const badgeVariant = TAG_BADGE_VARIANTS[h.tag] || 'warning';
+            return (
+              <div key={i} className="flex gap-2 items-start">
+                <Badge variant={badgeVariant} className="text-[10px] whitespace-nowrap mt-0.5 shrink-0">
+                  {h.tag}
+                </Badge>
+                <span className="text-[13px] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>{h.text}</span>
+              </div>
+            );
+          })}
+        </div>
+      </CardContent>
+    </Card>
   );
 };
 
 const GuidanceCard = ({ guidance }) => {
   if (!guidance?.length) return null;
   return (
-    <div className="glass-card p-4">
-      <div className="text-sm font-semibold mb-3 flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
-        <span style={{ color: 'var(--accent-amber)' }}>⬥</span> Guidance Breakdown
-      </div>
-      <table className="w-full">
-        <thead>
-          <tr className="border-b border-white/[0.08]">
-            <th className="text-left text-[11px] font-medium pb-1.5 pr-2" style={{ color: 'var(--text-muted)' }}>Metric</th>
-            <th className="text-right text-[11px] font-medium pb-1.5 px-2" style={{ color: 'var(--text-muted)' }}>Prior</th>
-            <th className="text-right text-[11px] font-medium pb-1.5 px-2" style={{ color: 'var(--text-muted)' }}>Current</th>
-            <th className="text-right text-[11px] font-medium pb-1.5 pl-2" style={{ color: 'var(--text-muted)' }}>Change</th>
-          </tr>
-        </thead>
-        <tbody>
-          {guidance.map((g, i) => {
-            const dirColor = DIRECTION_COLORS[g.direction] || 'text-gray-400';
-            const arrow = DIRECTION_ARROWS[g.direction] || '—';
-            return (
-              <tr key={i} className={i < guidance.length - 1 ? 'border-b border-white/[0.04]' : ''}>
-                <td className="text-[13px] py-2 pr-2" style={{ color: 'var(--text-secondary)' }}>{g.metric}</td>
-                <td className="text-right text-[13px] py-2 px-2 font-mono" style={{ color: 'var(--text-muted)' }}>{g.prior}</td>
-                <td className="text-right text-[13px] py-2 px-2 font-mono" style={{ color: 'var(--text-primary)' }}>{g.current}</td>
-                <td className={`text-right text-[13px] py-2 pl-2 font-mono capitalize ${dirColor}`}>{arrow} {g.direction}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
+          <span style={{ color: 'var(--warning)' }}>⬥</span> Guidance Breakdown
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <table className="w-full">
+          <thead>
+            <tr className="border-b border-white/[0.08]">
+              <th className="text-left text-[11px] font-medium pb-1.5 pr-2" style={{ color: 'var(--text-muted)' }}>Metric</th>
+              <th className="text-right text-[11px] font-medium pb-1.5 px-2" style={{ color: 'var(--text-muted)' }}>Prior</th>
+              <th className="text-right text-[11px] font-medium pb-1.5 px-2" style={{ color: 'var(--text-muted)' }}>Current</th>
+              <th className="text-right text-[11px] font-medium pb-1.5 pl-2" style={{ color: 'var(--text-muted)' }}>Change</th>
+            </tr>
+          </thead>
+          <tbody>
+            {guidance.map((g, i) => {
+              const dirColor = DIRECTION_COLORS[g.direction] || 'text-gray-400';
+              const arrow = DIRECTION_ARROWS[g.direction] || '—';
+              return (
+                <tr key={i} className={i < guidance.length - 1 ? 'border-b border-white/[0.04]' : ''}>
+                  <td className="text-[13px] py-2 pr-2" style={{ color: 'var(--text-secondary)' }}>{g.metric}</td>
+                  <td className="text-right text-[13px] py-2 px-2 font-data" style={{ color: 'var(--text-muted)' }}>{g.prior}</td>
+                  <td className="text-right text-[13px] py-2 px-2 font-data" style={{ color: 'var(--text-primary)' }}>{g.current}</td>
+                  <td className={`text-right text-[13px] py-2 pl-2 font-data capitalize ${dirColor}`}>{arrow} {g.direction}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </CardContent>
+    </Card>
   );
 };
 
 const QACard = ({ qaHighlights }) => {
   if (!qaHighlights?.length) return null;
   return (
-    <div className="glass-card p-4">
-      <div className="text-sm font-semibold mb-3 flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
-        <span className="text-purple-400">◈</span> Q&A Session Highlights
-      </div>
-      <div className="flex flex-col gap-3">
-        {qaHighlights.map((qa, i) => {
-          const topicClass = TOPIC_COLORS[i % TOPIC_COLORS.length];
-          return (
-            <div key={i} className="border-l-2 border-purple-500/40 pl-3">
-              <div className="flex justify-between items-center mb-1">
-                <span className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
-                  {qa.firm} — {qa.analyst}
-                </span>
-                <span className={`text-[10px] px-1.5 py-0.5 rounded border ${topicClass}`}>
-                  {qa.topic}
-                </span>
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
+          <span className="text-purple-400">◈</span> Q&A Session Highlights
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="flex flex-col gap-3">
+          {qaHighlights.map((qa, i) => {
+            const topicClass = TOPIC_COLORS[i % TOPIC_COLORS.length];
+            return (
+              <div key={i} className="border-l-2 border-purple-500/40 pl-3">
+                <div className="flex justify-between items-center mb-1">
+                  <span className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+                    {qa.firm} — {qa.analyst}
+                  </span>
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded border ${topicClass}`}>
+                    {qa.topic}
+                  </span>
+                </div>
+                <div className="text-xs italic mb-1" style={{ color: 'var(--text-muted)' }}>
+                  Q: {qa.question}
+                </div>
+                <div className="text-[13px] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+                  {qa.answer}
+                </div>
               </div>
-              <div className="text-xs italic mb-1" style={{ color: 'var(--text-muted)' }}>
-                Q: {qa.question}
-              </div>
-              <div className="text-[13px] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-                {qa.answer}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
+            );
+          })}
+        </div>
+      </CardContent>
+    </Card>
   );
 };
 
@@ -226,59 +246,63 @@ const EPSChart = ({ epsHistory }) => {
   const maxVal = Math.max(...epsHistory.map((e) => Math.max(e.actual, e.estimate)));
 
   return (
-    <div className="glass-card p-4">
-      <div className="text-sm font-semibold mb-3" style={{ color: 'var(--text-primary)' }}>
-        EPS: Actual vs. Estimate
-      </div>
-      <div className="flex flex-col gap-1.5">
-        {epsHistory.map((e, i) => {
-          const beat = e.actual >= e.estimate;
-          const actualPct = maxVal > 0 ? (e.actual / maxVal) * 100 : 0;
-          const estPct = maxVal > 0 ? (e.estimate / maxVal) * 100 : 0;
-          return (
-            <div key={i} className="flex items-center gap-2">
-              <div className="text-[11px] w-[50px] font-mono" style={{ color: 'var(--text-muted)' }}>{e.quarter}</div>
-              <div className="flex-1 flex gap-0.5 items-center">
-                <div
-                  className="h-5 rounded-sm flex items-center justify-end pr-1.5"
-                  style={{
-                    width: `${actualPct}%`,
-                    background: beat
-                      ? 'linear-gradient(90deg, rgba(23,201,100,0.3), rgba(23,201,100,0.5))'
-                      : 'linear-gradient(90deg, rgba(243,18,96,0.3), rgba(243,18,96,0.5))',
-                  }}
-                >
-                  <span className={`text-[11px] font-mono ${beat ? 'text-success-400' : 'text-danger-400'}`}>
-                    ${e.actual.toFixed(2)}
-                  </span>
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm" style={{ color: 'var(--text-primary)' }}>
+          EPS: Actual vs. Estimate
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="flex flex-col gap-1.5">
+          {epsHistory.map((e, i) => {
+            const beat = e.actual >= e.estimate;
+            const actualPct = maxVal > 0 ? (e.actual / maxVal) * 100 : 0;
+            const estPct = maxVal > 0 ? (e.estimate / maxVal) * 100 : 0;
+            return (
+              <div key={i} className="flex items-center gap-2">
+                <div className="text-[11px] w-[50px] font-data" style={{ color: 'var(--text-muted)' }}>{e.quarter}</div>
+                <div className="flex-1 flex gap-0.5 items-center">
+                  <div
+                    className="h-5 rounded-sm flex items-center justify-end pr-1.5"
+                    style={{
+                      width: `${actualPct}%`,
+                      background: beat
+                        ? 'linear-gradient(90deg, rgba(23,201,100,0.3), rgba(23,201,100,0.5))'
+                        : 'linear-gradient(90deg, rgba(243,18,96,0.3), rgba(243,18,96,0.5))',
+                    }}
+                  >
+                    <span className={`text-[11px] font-data ${beat ? 'text-success-400' : 'text-danger-400'}`}>
+                      ${e.actual.toFixed(2)}
+                    </span>
+                  </div>
+                  <div
+                    className="h-5 rounded-sm flex items-center justify-end pr-1.5"
+                    style={{ width: `${estPct}%`, background: 'rgba(255,255,255,0.08)' }}
+                  >
+                    <span className="text-[11px] font-data" style={{ color: 'var(--text-muted)' }}>
+                      ${e.estimate.toFixed(2)}
+                    </span>
+                  </div>
                 </div>
-                <div
-                  className="h-5 rounded-sm flex items-center justify-end pr-1.5"
-                  style={{ width: `${estPct}%`, background: 'rgba(255,255,255,0.08)' }}
-                >
-                  <span className="text-[11px] font-mono" style={{ color: 'var(--text-muted)' }}>
-                    ${e.estimate.toFixed(2)}
-                  </span>
+                <div className={`text-[11px] w-[45px] text-right font-data ${beat ? 'text-success-400' : 'text-danger-400'}`}>
+                  {e.surprise_pct >= 0 ? '+' : ''}{e.surprise_pct.toFixed(1)}%
                 </div>
               </div>
-              <div className={`text-[11px] w-[45px] text-right font-mono ${beat ? 'text-success-400' : 'text-danger-400'}`}>
-                {e.surprise_pct >= 0 ? '+' : ''}{e.surprise_pct.toFixed(1)}%
-              </div>
-            </div>
-          );
-        })}
-      </div>
-      <div className="flex gap-3 mt-2 pt-2 border-t border-white/[0.06]">
-        <div className="flex items-center gap-1">
-          <div className="w-3 h-3 rounded-sm" style={{ background: 'rgba(23,201,100,0.4)' }} />
-          <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>Actual</span>
+            );
+          })}
         </div>
-        <div className="flex items-center gap-1">
-          <div className="w-3 h-3 rounded-sm" style={{ background: 'rgba(255,255,255,0.1)' }} />
-          <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>Estimate</span>
+        <div className="flex gap-3 mt-2 pt-2 border-t border-white/[0.06]">
+          <div className="flex items-center gap-1">
+            <div className="w-3 h-3 rounded-sm" style={{ background: 'rgba(23,201,100,0.4)' }} />
+            <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>Actual</span>
+          </div>
+          <div className="flex items-center gap-1">
+            <div className="w-3 h-3 rounded-sm" style={{ background: 'rgba(255,255,255,0.1)' }} />
+            <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>Estimate</span>
+          </div>
         </div>
-      </div>
-    </div>
+      </CardContent>
+    </Card>
   );
 };
 
@@ -293,32 +317,36 @@ const ToneChart = ({ toneAnalysis }) => {
   ];
 
   return (
-    <div className="glass-card p-4">
-      <div className="text-sm font-semibold mb-3" style={{ color: 'var(--text-primary)' }}>
-        Management Tone Analysis
-      </div>
-      <div className="flex flex-col gap-2">
-        {dimensions.map(({ key, label }) => {
-          const value = toneAnalysis[key] ?? 50;
-          const barColor = getToneBarColor(key, value);
-          const valueLabel = getToneLabel(key, value);
-          return (
-            <div key={key}>
-              <div className="flex justify-between mb-1">
-                <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>{label}</span>
-                <span className={`text-xs font-mono ${barColor.replace('bg-', 'text-')}`}>{valueLabel}</span>
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm" style={{ color: 'var(--text-primary)' }}>
+          Management Tone Analysis
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="flex flex-col gap-2">
+          {dimensions.map(({ key, label }) => {
+            const value = toneAnalysis[key] ?? 50;
+            const barColor = getToneBarColor(key, value);
+            const valueLabel = getToneLabel(key, value);
+            return (
+              <div key={key}>
+                <div className="flex justify-between mb-1">
+                  <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>{label}</span>
+                  <span className={`text-xs font-data ${barColor.replace('bg-', 'text-')}`}>{valueLabel}</span>
+                </div>
+                <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.06)' }}>
+                  <div
+                    className={`h-full rounded-full ${barColor}`}
+                    style={{ width: `${value}%`, opacity: 0.8 }}
+                  />
+                </div>
               </div>
-              <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.06)' }}>
-                <div
-                  className={`h-full rounded-full ${barColor}`}
-                  style={{ width: `${value}%`, opacity: 0.8 }}
-                />
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
+            );
+          })}
+        </div>
+      </CardContent>
+    </Card>
   );
 };
 
@@ -393,9 +421,11 @@ const EarningsPanel = ({ analysis }) => {
 
       {/* Summary — hybrid format: paragraph + bullets */}
       {data.summary && (
-        <div className="glass-card" style={{ padding: 'var(--space-card-padding, 20px)' }}>
-          <EarningsSummary text={data.summary} />
-        </div>
+        <Card>
+          <CardContent className="pt-5">
+            <EarningsSummary text={data.summary} />
+          </CardContent>
+        </Card>
       )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2" style={{ gap: 'var(--space-card-gap, 20px)' }}>

@@ -11,6 +11,8 @@ import {
   HistogramSeries,
   LineSeries,
 } from 'lightweight-charts';
+import { Card, CardContent } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 
 const EMPTY_ARRAY = [];
 
@@ -99,7 +101,7 @@ const BollingerRange = ({ lower, upper, current }) => {
   const pct = Math.max(0, Math.min(100, ((current - lower) / range) * 100));
 
   return (
-    <div className="relative w-full h-3 bg-dark-inset rounded-full overflow-hidden mt-1">
+    <div className="relative w-full h-3 bg-[var(--card-hover)] rounded-full overflow-hidden mt-1">
       {/* Band fill */}
       <div className="absolute inset-0 rounded-full"
         style={{ background: 'linear-gradient(90deg, rgba(23,201,100,0.25), rgba(113,113,122,0.15), rgba(243,18,96,0.25))' }}
@@ -117,16 +119,16 @@ const BollingerRange = ({ lower, upper, current }) => {
 const SignalBar = ({ strength, overall }) => {
   const pct = Math.max(0, Math.min(100, (strength || 0) * 100));
   const color =
-    overall === 'bullish' ? '#17c964' :
-    overall === 'bearish' ? '#f31260' :
-    '#f5a524';
+    overall === 'bullish' ? 'var(--success)' :
+    overall === 'bearish' ? 'var(--danger)' :
+    'var(--warning)';
   const glowColor =
     overall === 'bullish' ? 'rgba(23,201,100,0.4)' :
     overall === 'bearish' ? 'rgba(243,18,96,0.4)' :
     'rgba(245,165,36,0.4)';
 
   return (
-    <div className="relative w-full h-2 bg-dark-inset rounded-full overflow-hidden mt-1.5">
+    <div className="relative w-full h-2 bg-[var(--card-hover)] rounded-full overflow-hidden mt-1.5">
       <div
         className="h-full rounded-full transition-all duration-700 ease-out"
         style={{
@@ -225,14 +227,14 @@ const PriceChart = ({ analysis }) => {
         width: container.clientWidth,
         height: 400,
         layout: {
-          background: { type: ColorType.Solid, color: 'transparent' },
-          textColor: '#71717a',
+          background: { type: ColorType.Solid, color: '#141414' },
+          textColor: 'rgba(255, 255, 255, 0.6)',
           fontFamily: "'JetBrains Mono', monospace",
           fontSize: 10,
         },
         grid: {
-          vertLines: { color: 'rgba(63, 63, 70, 0.3)' },
-          horzLines: { color: 'rgba(63, 63, 70, 0.3)' },
+          vertLines: { color: 'rgba(255, 255, 255, 0.04)' },
+          horzLines: { color: 'rgba(255, 255, 255, 0.04)' },
         },
         crosshair: {
           mode: CrosshairMode.Normal,
@@ -350,205 +352,205 @@ const PriceChart = ({ analysis }) => {
   // ── Skeleton state ──
   if (!analysis) {
     return (
-      <div className="glass-card-elevated rounded-xl p-5">
-        <div className="skeleton h-[400px] w-full mb-5 rounded-lg" />
-        <div className="grid grid-cols-4 gap-3">
-          <div className="skeleton h-20 rounded-lg" />
-          <div className="skeleton h-20 rounded-lg" />
-          <div className="skeleton h-20 rounded-lg" />
-          <div className="skeleton h-20 rounded-lg" />
-        </div>
-      </div>
+      <Card>
+        <CardContent className="pt-5">
+          <div className="skeleton h-[400px] w-full mb-5 rounded-lg" />
+          <div className="grid grid-cols-4 gap-3">
+            <div className="skeleton h-20 rounded-lg" />
+            <div className="skeleton h-20 rounded-lg" />
+            <div className="skeleton h-20 rounded-lg" />
+            <div className="skeleton h-20 rounded-lg" />
+          </div>
+        </CardContent>
+      </Card>
     );
   }
 
   return (
-    <div className="glass-card-elevated rounded-xl p-5 animate-fade-in">
-      {/* ── Chart area ── */}
-      {hasChartData ? (
-        <div
-          ref={chartContainerRef}
-          className="w-full rounded-lg overflow-hidden border border-dark-border"
-          style={{ height: 400 }}
-        />
-      ) : (
-        <div className="w-full h-[400px] rounded-lg border border-dark-border mb-5 flex items-center justify-center">
-          <div className="text-center">
-            <svg width="40" height="40" viewBox="0 0 40 40" fill="none" className="mx-auto mb-3 opacity-40">
-              {/* Grid lines */}
-              <line x1="8" y1="32" x2="34" y2="32" stroke="#3f3f46" strokeWidth="0.75" />
-              <line x1="8" y1="24" x2="34" y2="24" stroke="#3f3f46" strokeWidth="0.5" strokeDasharray="2 2" />
-              <line x1="8" y1="16" x2="34" y2="16" stroke="#3f3f46" strokeWidth="0.5" strokeDasharray="2 2" />
-              {/* Candlestick wicks */}
-              <line x1="13" y1="10" x2="13" y2="28" stroke="#52525b" strokeWidth="1" />
-              <line x1="20" y1="14" x2="20" y2="30" stroke="#52525b" strokeWidth="1" />
-              <line x1="27" y1="8" x2="27" y2="26" stroke="#52525b" strokeWidth="1" />
-              {/* Candlestick bodies */}
-              <rect x="11" y="14" width="4" height="10" rx="0.5" fill="#52525b" />
-              <rect x="18" y="20" width="4" height="6" rx="0.5" fill="#3f3f46" stroke="#52525b" strokeWidth="0.5" />
-              <rect x="25" y="12" width="4" height="10" rx="0.5" fill="#52525b" />
-            </svg>
-            <p className="text-sm text-gray-500">Chart data unavailable</p>
-            <p className="text-[10px] text-gray-600 mt-1">Price history not returned by data agents</p>
-          </div>
-        </div>
-      )}
-
-      {/* ── SMA legend ── */}
-      {hasChartData && (
-        <div className="flex gap-3.5 mt-2.5 pt-2.5 mb-5" style={{ borderTop: '1px solid rgba(255,255,255,0.04)' }}>
-          {SMA_CONFIG.map(({ period, color, label }) => (
-            <button
-              key={period}
-              onClick={() => toggleSMA(period)}
-              className="flex items-center gap-1.5 text-[0.65rem] border-none bg-transparent cursor-pointer transition-opacity"
-              style={{ color: smaVisibility[period] ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.2)', opacity: smaVisibility[period] ? 1 : 0.5 }}
-            >
-              <div className="rounded-sm" style={{ width: 8, height: 2, background: color }} />
-              {label}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* ── Technical indicator metric cards ── */}
-      <div className="grid grid-cols-4 gap-4">
-        {/* RSI Card */}
-        <div className="bg-dark-inset rounded-lg p-3.5 border border-white/[0.04] hover:border-white/[0.08] transition-colors">
-          <div className="flex justify-between items-center mb-1.5">
-            <span className="text-[11px] text-gray-500 uppercase tracking-wider font-medium">RSI</span>
-            {indicators.rsi && (
-              <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
-                indicators.rsi.value > 70 ? 'bg-danger/15 text-danger-400' :
-                indicators.rsi.value < 30 ? 'bg-success/15 text-success-400' :
-                'bg-gray-500/15 text-gray-400'
-              }`}>
-                {indicators.rsi.interpretation || (
-                  indicators.rsi.value > 70 ? 'overbought' :
-                  indicators.rsi.value < 30 ? 'oversold' : 'neutral'
-                )}
-              </span>
-            )}
-          </div>
-          {indicators.rsi ? (
-            <div className="flex items-end gap-2">
-              <RsiGauge value={indicators.rsi.value} />
-              <span className="text-lg font-bold font-mono tabular-nums leading-none mb-0.5">
-                {indicators.rsi.value?.toFixed(1)}
-              </span>
+    <Card className="animate-fade-in">
+      <CardContent className="pt-5">
+        {/* ── Chart area ── */}
+        {hasChartData ? (
+          <div
+            ref={chartContainerRef}
+            className="w-full rounded-lg overflow-hidden border border-[var(--border)]"
+            style={{ height: 400 }}
+          />
+        ) : (
+          <div className="w-full h-[400px] rounded-lg border border-[var(--border)] mb-5 flex items-center justify-center">
+            <div className="text-center">
+              <svg width="40" height="40" viewBox="0 0 40 40" fill="none" className="mx-auto mb-3 opacity-40">
+                {/* Grid lines */}
+                <line x1="8" y1="32" x2="34" y2="32" stroke="#3f3f46" strokeWidth="0.75" />
+                <line x1="8" y1="24" x2="34" y2="24" stroke="#3f3f46" strokeWidth="0.5" strokeDasharray="2 2" />
+                <line x1="8" y1="16" x2="34" y2="16" stroke="#3f3f46" strokeWidth="0.5" strokeDasharray="2 2" />
+                {/* Candlestick wicks */}
+                <line x1="13" y1="10" x2="13" y2="28" stroke="#52525b" strokeWidth="1" />
+                <line x1="20" y1="14" x2="20" y2="30" stroke="#52525b" strokeWidth="1" />
+                <line x1="27" y1="8" x2="27" y2="26" stroke="#52525b" strokeWidth="1" />
+                {/* Candlestick bodies */}
+                <rect x="11" y="14" width="4" height="10" rx="0.5" fill="#52525b" />
+                <rect x="18" y="20" width="4" height="6" rx="0.5" fill="#3f3f46" stroke="#52525b" strokeWidth="0.5" />
+                <rect x="25" y="12" width="4" height="10" rx="0.5" fill="#52525b" />
+              </svg>
+              <p className="text-sm text-gray-500">Chart data unavailable</p>
+              <p className="text-[10px] text-gray-600 mt-1">Price history not returned by data agents</p>
             </div>
-          ) : (
-            <span className="text-sm text-gray-600">N/A</span>
-          )}
-        </div>
-
-        {/* MACD Card */}
-        <div className="bg-dark-inset rounded-lg p-3.5 border border-white/[0.04] hover:border-white/[0.08] transition-colors">
-          <div className="flex justify-between items-center mb-1.5">
-            <span className="text-[11px] text-gray-500 uppercase tracking-wider font-medium">MACD</span>
-            {indicators.macd && (
-              <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
-                indicators.macd.interpretation?.includes('bullish')
-                  ? 'bg-success/15 text-success-400'
-                  : 'bg-danger/15 text-danger-400'
-              }`}>
-                {indicators.macd.interpretation || 'N/A'}
-              </span>
-            )}
           </div>
-          {indicators.macd ? (
-            <div className="flex items-end gap-2">
-              <MacdBar value={indicators.macd.histogram} />
-              <div className="flex flex-col gap-0.5">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[9px] text-gray-500 w-3">M</span>
-                  <span className="text-xs font-mono tabular-nums text-gray-300">
-                    {indicators.macd.macd_line?.toFixed(2) ?? indicators.macd.value?.toFixed(2) ?? '--'}
-                  </span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[9px] text-gray-500 w-3">S</span>
-                  <span className="text-xs font-mono tabular-nums text-gray-300">
-                    {indicators.macd.signal_line?.toFixed(2) ?? '--'}
-                  </span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[9px] text-gray-500 w-3">H</span>
-                  <span className={`text-xs font-mono tabular-nums ${
-                    (indicators.macd.histogram || 0) >= 0 ? 'text-success-400' : 'text-danger-400'
-                  }`}>
-                    {indicators.macd.histogram?.toFixed(2) ?? '--'}
-                  </span>
-                </div>
-              </div>
-            </div>
-          ) : (
-            <span className="text-sm text-gray-600">N/A</span>
-          )}
-        </div>
+        )}
 
-        {/* Bollinger Bands Card */}
-        <div className="bg-dark-inset rounded-lg p-3.5 border border-white/[0.04] hover:border-white/[0.08] transition-colors">
-          <div className="flex justify-between items-center mb-1.5">
-            <span className="text-[11px] text-gray-500 uppercase tracking-wider font-medium">Bollinger</span>
-            {indicators.bollinger_bands && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-accent-purple/15 text-accent-purple">
-                {indicators.bollinger_bands.interpretation || 'band'}
-              </span>
-            )}
+        {/* ── SMA legend ── */}
+        {hasChartData && (
+          <div className="flex gap-3.5 mt-2.5 pt-2.5 mb-5 border-t border-white/[0.04]">
+            {SMA_CONFIG.map(({ period, color, label }) => (
+              <button
+                key={period}
+                onClick={() => toggleSMA(period)}
+                className="flex items-center gap-1.5 text-[0.65rem] border-none bg-transparent cursor-pointer transition-opacity"
+                style={{ color: smaVisibility[period] ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.2)', opacity: smaVisibility[period] ? 1 : 0.5 }}
+              >
+                <div className="rounded-sm" style={{ width: 8, height: 2, background: color }} />
+                {label}
+              </button>
+            ))}
           </div>
-          {indicators.bollinger_bands ? (
-            <div>
-              <div className="flex justify-between text-[10px] font-mono tabular-nums text-gray-400 mb-0.5">
-                <span>{indicators.bollinger_bands.lower_band?.toFixed(1)}</span>
-                <span className="text-gray-200 font-semibold">
-                  {marketData.current_price?.toFixed(1)}
-                </span>
-                <span>{indicators.bollinger_bands.upper_band?.toFixed(1)}</span>
-              </div>
-              <BollingerRange
-                lower={indicators.bollinger_bands.lower_band}
-                upper={indicators.bollinger_bands.upper_band}
-                current={marketData.current_price}
-              />
-              {indicators.bollinger_bands.middle_band != null && (
-                <div className="text-[9px] text-gray-500 mt-1 text-center font-mono">
-                  SMA {indicators.bollinger_bands.middle_band.toFixed(1)}
-                </div>
+        )}
+
+        {/* ── Technical indicator metric cards ── */}
+        <div className="grid grid-cols-4 gap-4">
+          {/* RSI Card */}
+          <div className="bg-[var(--card-hover)] rounded-lg p-3.5 border border-white/[0.04] hover:border-white/[0.08] transition-colors">
+            <div className="flex justify-between items-center mb-1.5">
+              <span className="text-[11px] text-gray-500 uppercase tracking-wider font-medium">RSI</span>
+              {indicators.rsi && (
+                <Badge variant={
+                  indicators.rsi.value > 70 ? 'danger' :
+                  indicators.rsi.value < 30 ? 'success' :
+                  'secondary'
+                } className="text-[10px]">
+                  {indicators.rsi.interpretation || (
+                    indicators.rsi.value > 70 ? 'overbought' :
+                    indicators.rsi.value < 30 ? 'oversold' : 'neutral'
+                  )}
+                </Badge>
               )}
             </div>
-          ) : (
-            <span className="text-sm text-gray-600">N/A</span>
-          )}
-        </div>
-
-        {/* Signal Strength Card */}
-        <div className="bg-dark-inset rounded-lg p-3.5 border border-white/[0.04] hover:border-white/[0.08] transition-colors">
-          <div className="flex justify-between items-center mb-1.5">
-            <span className="text-[11px] text-gray-500 uppercase tracking-wider font-medium">Signal</span>
-            {signals.overall && (
-              <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
-                signals.overall === 'bullish' ? 'bg-success/15 text-success-400' :
-                signals.overall === 'bearish' ? 'bg-danger/15 text-danger-400' :
-                'bg-warning/15 text-warning-400'
-              }`}>
-                {signals.overall}
-              </span>
+            {indicators.rsi ? (
+              <div className="flex items-end gap-2">
+                <RsiGauge value={indicators.rsi.value} />
+                <span className="text-lg font-bold font-data leading-none mb-0.5">
+                  {indicators.rsi.value?.toFixed(1)}
+                </span>
+              </div>
+            ) : (
+              <span className="text-sm text-gray-600">N/A</span>
             )}
           </div>
-          {signals.strength != null ? (
-            <div>
-              <span className="text-lg font-bold font-mono tabular-nums">
-                {(signals.strength * 100).toFixed(0)}%
-              </span>
-              <SignalBar strength={signals.strength} overall={signals.overall} />
+
+          {/* MACD Card */}
+          <div className="bg-[var(--card-hover)] rounded-lg p-3.5 border border-white/[0.04] hover:border-white/[0.08] transition-colors">
+            <div className="flex justify-between items-center mb-1.5">
+              <span className="text-[11px] text-gray-500 uppercase tracking-wider font-medium">MACD</span>
+              {indicators.macd && (
+                <Badge variant={indicators.macd.interpretation?.includes('bullish') ? 'success' : 'danger'} className="text-[10px]">
+                  {indicators.macd.interpretation || 'N/A'}
+                </Badge>
+              )}
             </div>
-          ) : (
-            <span className="text-sm text-gray-600">N/A</span>
-          )}
+            {indicators.macd ? (
+              <div className="flex items-end gap-2">
+                <MacdBar value={indicators.macd.histogram} />
+                <div className="flex flex-col gap-0.5">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[9px] text-gray-500 w-3">M</span>
+                    <span className="text-xs font-data text-gray-300">
+                      {indicators.macd.macd_line?.toFixed(2) ?? indicators.macd.value?.toFixed(2) ?? '--'}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[9px] text-gray-500 w-3">S</span>
+                    <span className="text-xs font-data text-gray-300">
+                      {indicators.macd.signal_line?.toFixed(2) ?? '--'}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[9px] text-gray-500 w-3">H</span>
+                    <span className={`text-xs font-data ${
+                      (indicators.macd.histogram || 0) >= 0 ? 'text-success-400' : 'text-danger-400'
+                    }`}>
+                      {indicators.macd.histogram?.toFixed(2) ?? '--'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <span className="text-sm text-gray-600">N/A</span>
+            )}
+          </div>
+
+          {/* Bollinger Bands Card */}
+          <div className="bg-[var(--card-hover)] rounded-lg p-3.5 border border-white/[0.04] hover:border-white/[0.08] transition-colors">
+            <div className="flex justify-between items-center mb-1.5">
+              <span className="text-[11px] text-gray-500 uppercase tracking-wider font-medium">Bollinger</span>
+              {indicators.bollinger_bands && (
+                <Badge variant="secondary" className="text-[10px] text-accent-purple">
+                  {indicators.bollinger_bands.interpretation || 'band'}
+                </Badge>
+              )}
+            </div>
+            {indicators.bollinger_bands ? (
+              <div>
+                <div className="flex justify-between text-[10px] font-data text-gray-400 mb-0.5">
+                  <span>{indicators.bollinger_bands.lower_band?.toFixed(1)}</span>
+                  <span className="text-gray-200 font-semibold">
+                    {marketData.current_price?.toFixed(1)}
+                  </span>
+                  <span>{indicators.bollinger_bands.upper_band?.toFixed(1)}</span>
+                </div>
+                <BollingerRange
+                  lower={indicators.bollinger_bands.lower_band}
+                  upper={indicators.bollinger_bands.upper_band}
+                  current={marketData.current_price}
+                />
+                {indicators.bollinger_bands.middle_band != null && (
+                  <div className="text-[9px] text-gray-500 mt-1 text-center font-data">
+                    SMA {indicators.bollinger_bands.middle_band.toFixed(1)}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <span className="text-sm text-gray-600">N/A</span>
+            )}
+          </div>
+
+          {/* Signal Strength Card */}
+          <div className="bg-[var(--card-hover)] rounded-lg p-3.5 border border-white/[0.04] hover:border-white/[0.08] transition-colors">
+            <div className="flex justify-between items-center mb-1.5">
+              <span className="text-[11px] text-gray-500 uppercase tracking-wider font-medium">Signal</span>
+              {signals.overall && (
+                <Badge variant={
+                  signals.overall === 'bullish' ? 'success' :
+                  signals.overall === 'bearish' ? 'danger' :
+                  'warning'
+                } className="text-[10px]">
+                  {signals.overall}
+                </Badge>
+              )}
+            </div>
+            {signals.strength != null ? (
+              <div>
+                <span className="text-lg font-bold font-data">
+                  {(signals.strength * 100).toFixed(0)}%
+                </span>
+                <SignalBar strength={signals.strength} overall={signals.overall} />
+              </div>
+            ) : (
+              <span className="text-sm text-gray-600">N/A</span>
+            )}
+          </div>
         </div>
-      </div>
-    </div>
+      </CardContent>
+    </Card>
   );
 };
 

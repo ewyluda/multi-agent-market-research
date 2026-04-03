@@ -5,6 +5,8 @@
 
 import React from 'react';
 import { motion as Motion } from 'framer-motion';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 
 const fadeUp = {
   hidden: { opacity: 0, y: 12 },
@@ -19,16 +21,16 @@ const getNarrativeData = (analysis) =>
 const getYearBorderColor = (year) => {
   const growth = year?.revenue_growth || year?.growth_rate || 0;
   if (typeof growth === 'number') {
-    if (growth > 10) return '#17c964';
-    if (growth > 0) return '#006fee';
+    if (growth > 10) return 'var(--success)';
+    if (growth > 0) return 'var(--primary)';
   }
   return 'rgba(255,255,255,0.15)';
 };
 
-const INFLECTION_COLORS = {
-  positive: { bg: 'rgba(23,201,100,0.1)', text: '#17c964', border: 'rgba(23,201,100,0.25)' },
-  negative: { bg: 'rgba(243,18,96,0.1)', text: '#f31260', border: 'rgba(243,18,96,0.25)' },
-  pivotal: { bg: 'rgba(0,111,238,0.1)', text: '#006fee', border: 'rgba(0,111,238,0.25)' },
+const INFLECTION_BADGE_VARIANTS = {
+  positive: 'success',
+  negative: 'danger',
+  pivotal: 'default',
 };
 
 // ─── Sub-components ──────────────────────────────────────────────────────────
@@ -37,39 +39,43 @@ const CompanyArc = ({ arc, metadata }) => {
   if (!arc) return null;
 
   return (
-    <div
-      className="glass-card-elevated p-5 mb-4"
+    <Card
+      className="mb-4"
       style={{
         background: 'linear-gradient(135deg, rgba(0,111,238,0.08) 0%, rgba(120,40,200,0.08) 100%)',
-        borderLeft: '3px solid #006fee',
+        borderLeft: '3px solid var(--primary)',
       }}
     >
-      <div className="text-sm font-semibold mb-2 flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
-        <span style={{ color: '#006fee' }}>&#x25C6;</span> Company Arc
-      </div>
-      <p className="text-[13px] leading-relaxed mb-3" style={{ color: 'var(--text-secondary)' }}>
-        {arc}
-      </p>
-      {metadata && (
-        <div className="flex flex-wrap gap-2">
-          {metadata.years_covered && (
-            <span className="text-[10px] px-2 py-0.5 rounded" style={{ background: 'rgba(0,111,238,0.1)', color: '#006fee' }}>
-              {metadata.years_covered}
-            </span>
-          )}
-          {metadata.filings_analyzed != null && (
-            <span className="text-[10px] px-2 py-0.5 rounded" style={{ background: 'rgba(255,255,255,0.06)', color: 'var(--text-muted)' }}>
-              {metadata.filings_analyzed} filings
-            </span>
-          )}
-          {metadata.sector && (
-            <span className="text-[10px] px-2 py-0.5 rounded" style={{ background: 'rgba(255,255,255,0.06)', color: 'var(--text-muted)' }}>
-              {metadata.sector}
-            </span>
-          )}
-        </div>
-      )}
-    </div>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
+          <span style={{ color: 'var(--primary)' }}>&#x25C6;</span> Company Arc
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <p className="text-[13px] leading-relaxed mb-3" style={{ color: 'var(--text-secondary)' }}>
+          {arc}
+        </p>
+        {metadata && (
+          <div className="flex flex-wrap gap-2">
+            {metadata.years_covered && (
+              <Badge variant="default" className="text-[10px]">
+                {metadata.years_covered}
+              </Badge>
+            )}
+            {metadata.filings_analyzed != null && (
+              <Badge variant="secondary" className="text-[10px]">
+                {metadata.filings_analyzed} filings
+              </Badge>
+            )}
+            {metadata.sector && (
+              <Badge variant="secondary" className="text-[10px]">
+                {metadata.sector}
+              </Badge>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 };
 
@@ -81,7 +87,7 @@ const YearSections = ({ years }) => {
       <div className="text-sm font-semibold mb-3 px-1" style={{ color: 'var(--text-primary)' }}>
         Year-by-Year Performance
       </div>
-      <div className="flex flex-col gap-0 rounded-xl overflow-hidden border border-white/[0.06]">
+      <Card className="overflow-hidden">
         {years.map((year, i) => {
           const borderColor = getYearBorderColor(year);
           const inflections = year.quarterly_inflections || year.inflections || [];
@@ -110,7 +116,7 @@ const YearSections = ({ years }) => {
               <div className="flex items-start gap-4">
                 {/* Year badge */}
                 <div
-                  className="text-base font-bold font-mono tabular-nums flex-shrink-0 w-12"
+                  className="text-base font-bold font-data flex-shrink-0 w-12"
                   style={{ color: borderColor }}
                 >
                   {year.year || year.period}
@@ -144,16 +150,12 @@ const YearSections = ({ years }) => {
                     <div className="flex flex-wrap gap-1.5 mt-2">
                       {inflections.map((inf, j) => {
                         const type = inf.type?.toLowerCase() || 'pivotal';
-                        const colors = INFLECTION_COLORS[type] || INFLECTION_COLORS.pivotal;
+                        const badgeVariant = INFLECTION_BADGE_VARIANTS[type] || 'default';
                         return (
-                          <span
-                            key={j}
-                            className="text-[10px] px-2 py-0.5 rounded border"
-                            style={{ background: colors.bg, color: colors.text, borderColor: colors.border }}
-                          >
+                          <Badge key={j} variant={badgeVariant} className="text-[10px] rounded-full">
                             {inf.quarter && `${inf.quarter}: `}{inf.description || inf.event}
                             {inf.impact && ` (${inf.impact})`}
-                          </span>
+                          </Badge>
                         );
                       })}
                     </div>
@@ -163,7 +165,7 @@ const YearSections = ({ years }) => {
             </div>
           );
         })}
-      </div>
+      </Card>
     </div>
   );
 };
@@ -172,9 +174,9 @@ const NarrativeChapters = ({ chapters }) => {
   if (!chapters?.length) return null;
 
   const CHAPTER_COLORS = [
-    { border: '#006fee', bg: 'rgba(0,111,238,0.06)' },
-    { border: '#17c964', bg: 'rgba(23,201,100,0.06)' },
-    { border: '#f5a524', bg: 'rgba(245,165,36,0.06)' },
+    { border: 'var(--primary)', bg: 'rgba(0,111,238,0.06)' },
+    { border: 'var(--success)', bg: 'rgba(23,201,100,0.06)' },
+    { border: 'var(--warning)', bg: 'rgba(245,165,36,0.06)' },
     { border: '#7828c8', bg: 'rgba(120,40,200,0.06)' },
   ];
 
@@ -187,18 +189,19 @@ const NarrativeChapters = ({ chapters }) => {
         {chapters.map((ch, i) => {
           const colorSet = CHAPTER_COLORS[i % CHAPTER_COLORS.length];
           return (
-            <div
+            <Card
               key={i}
-              className="glass-card"
               style={{ borderLeft: `3px solid ${colorSet.border}`, background: colorSet.bg, padding: 'var(--space-card-padding, 20px)' }}
             >
-              <div className="text-[13px] font-medium mb-1" style={{ color: 'var(--text-primary)' }}>
-                {ch.title || ch.theme}
-              </div>
-              <p className="text-[12px] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-                {ch.narrative || ch.description}
-              </p>
-            </div>
+              <CardContent className="p-0">
+                <div className="text-[13px] font-medium mb-1" style={{ color: 'var(--text-primary)' }}>
+                  {ch.title || ch.theme}
+                </div>
+                <p className="text-[12px] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+                  {ch.narrative || ch.description}
+                </p>
+              </CardContent>
+            </Card>
           );
         })}
       </div>
@@ -210,14 +213,18 @@ const CurrentChapter = ({ current }) => {
   if (!current) return null;
 
   return (
-    <div className="glass-card-elevated p-4" style={{ borderLeft: '3px solid #f5a524' }}>
-      <div className="text-sm font-semibold mb-2 flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
-        <span style={{ color: '#f5a524' }}>&#x25B6;</span> Where We Are Now
-      </div>
-      <p className="text-[13px] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-        {typeof current === 'string' ? current : current.narrative || current.description}
-      </p>
-    </div>
+    <Card style={{ borderLeft: '3px solid var(--warning)' }}>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
+          <span style={{ color: 'var(--warning)' }}>&#x25B6;</span> Where We Are Now
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <p className="text-[13px] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+          {typeof current === 'string' ? current : current.narrative || current.description}
+        </p>
+      </CardContent>
+    </Card>
   );
 };
 

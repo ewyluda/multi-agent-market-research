@@ -1,10 +1,11 @@
 /**
  * CompanyOverview - Composite section combining Company Description,
- * Narrative, and Fundamentals into stacked glass cards.
+ * Narrative, and Fundamentals into stacked shadcn Cards.
  */
 
 import React from 'react';
 import { motion as Motion } from 'framer-motion';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import NarrativePanel from './NarrativePanel';
 
 const fadeUp = {
@@ -16,19 +17,19 @@ const fadeUp = {
 
 const MetricCard = ({ label, value, delta }) => (
   <div
-    className="bg-dark-inset rounded-lg border border-white/[0.04] hover:border-white/[0.08] transition-colors"
+    className="bg-[var(--card-hover)] rounded-lg border border-white/[0.04] hover:border-white/[0.08] transition-colors"
     style={{ padding: 'var(--space-card-padding, 20px)' }}
   >
     <div className="text-[11px] uppercase tracking-wider font-medium" style={{ color: 'var(--text-muted)' }}>
       {label}
     </div>
-    <div className="text-lg font-bold mt-1 font-mono tabular-nums" style={{ color: 'var(--text-primary)' }}>
+    <div className="text-lg font-bold mt-1 font-data" style={{ color: 'var(--text-primary)' }}>
       {value}
     </div>
     {delta && (
       <div
-        className="text-[11px] mt-0.5 font-mono"
-        style={{ color: delta.startsWith('+') || delta.startsWith('▲') ? 'var(--accent-green)' : 'var(--accent-red)' }}
+        className="text-[11px] mt-0.5 font-data"
+        style={{ color: delta.startsWith('+') || delta.startsWith('▲') ? 'var(--success)' : 'var(--danger)' }}
       >
         {delta}
       </div>
@@ -43,14 +44,18 @@ const DescriptionCard = ({ data }) => {
   if (!description) return null;
 
   return (
-    <div className="glass-card rounded-xl" style={{ padding: 'var(--space-card-padding, 20px)' }}>
-      <div className="text-sm font-semibold mb-3 flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
-        <span style={{ color: 'var(--accent-blue)' }}>◆</span> Company Description
-      </div>
-      <p className="text-[0.88rem] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-        {description}
-      </p>
-    </div>
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-sm flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
+          <span style={{ color: 'var(--primary)' }}>◆</span> Company Description
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <p className="text-[0.88rem] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+          {description}
+        </p>
+      </CardContent>
+    </Card>
   );
 };
 
@@ -84,28 +89,31 @@ const FundamentalsCard = ({ data }) => {
   const summary = data.analysis || data.summary || null;
 
   return (
-    <div className="glass-card rounded-xl" style={{ padding: 'var(--space-card-padding, 20px)' }}>
-      <div className="text-sm font-semibold mb-4 flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
-        <span style={{ color: 'var(--accent-green)' }}>◆</span> Fundamentals
-      </div>
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-sm flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
+          <span style={{ color: 'var(--success)' }}>◆</span> Fundamentals
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {metrics.length > 0 ? (
+          <div
+            className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4"
+            style={{ gap: 'var(--space-metrics-gap, 16px)', marginBottom: summary ? '20px' : '0' }}
+          >
+            {metrics.map((m, i) => (
+              <MetricCard key={i} label={m.label} value={m.value} />
+            ))}
+          </div>
+        ) : null}
 
-      {metrics.length > 0 ? (
-        <div
-          className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4"
-          style={{ gap: 'var(--space-metrics-gap, 16px)', marginBottom: summary ? '20px' : '0' }}
-        >
-          {metrics.map((m, i) => (
-            <MetricCard key={i} label={m.label} value={m.value} />
-          ))}
-        </div>
-      ) : null}
-
-      {summary && (
-        <div className="text-[0.88rem] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-          {formatParagraphs(summary)}
-        </div>
-      )}
-    </div>
+        {summary && (
+          <div className="text-[0.88rem] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+            {formatParagraphs(summary)}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 };
 

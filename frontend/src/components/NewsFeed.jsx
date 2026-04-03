@@ -4,17 +4,21 @@
 
 import React from 'react';
 import { motion as Motion } from 'framer-motion';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import { NewspaperIcon } from './Icons';
 
 const NewsFeed = ({ analysis }) => {
   if (!analysis || !analysis.agent_results?.news) {
     return (
-      <div className="glass-card-elevated rounded-xl p-5">
-        <div className="flex items-center space-x-2 mb-4">
-          <NewspaperIcon className="w-4 h-4 text-gray-500" />
-          <span className="text-sm text-gray-500">No news data available</span>
-        </div>
-      </div>
+      <Card>
+        <CardContent className="pt-5">
+          <div className="flex items-center space-x-2">
+            <NewspaperIcon className="w-4 h-4 text-gray-500" />
+            <span className="text-sm text-gray-500">No news data available</span>
+          </div>
+        </CardContent>
+      </Card>
     );
   }
 
@@ -31,12 +35,14 @@ const NewsFeed = ({ analysis }) => {
 
   if (sortedArticles.length === 0) {
     return (
-      <div className="glass-card-elevated rounded-xl p-5">
-        <div className="flex items-center space-x-2">
-          <NewspaperIcon className="w-4 h-4 text-gray-500" />
-          <span className="text-sm text-gray-500">No news articles found</span>
-        </div>
-      </div>
+      <Card>
+        <CardContent className="pt-5">
+          <div className="flex items-center space-x-2">
+            <NewspaperIcon className="w-4 h-4 text-gray-500" />
+            <span className="text-sm text-gray-500">No news articles found</span>
+          </div>
+        </CardContent>
+      </Card>
     );
   }
 
@@ -67,97 +73,110 @@ const NewsFeed = ({ analysis }) => {
     return 'border-l-warning/40 hover:border-l-warning/70';
   };
 
+  const getRelevanceBadgeVariant = (score) => {
+    if (score > 0.7) return 'success';
+    if (score > 0.4) return 'default';
+    return 'secondary';
+  };
+
+  const getSentimentBadgeVariant = (score) => {
+    if (score > 0.15) return 'success';
+    if (score < -0.15) return 'danger';
+    return 'warning';
+  };
+
+  const getSentimentLabel = (score) => {
+    if (score > 0.15) return '+Pos';
+    if (score < -0.15) return '-Neg';
+    return '~Neu';
+  };
+
   return (
     <Motion.div
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, delay: 0.2 }}
-      className="glass-card-elevated rounded-xl p-5"
     >
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider flex items-center space-x-2">
-          <NewspaperIcon className="w-4 h-4" />
-          <span>News</span>
-        </h3>
-        <span className="text-[10px] font-medium font-mono px-2 py-0.5 rounded-full bg-accent-blue/15 text-accent-blue border border-accent-blue/20">
-          {newsData.total_count || sortedArticles.length} articles
-        </span>
-      </div>
-
-      <div className="space-y-3">
-        {sortedArticles.map((article, index) => (
-          <div
-            key={index}
-            className={`p-4 bg-dark-inset rounded-lg border-l-2 ${getSentimentBorderColor(article)} hover:bg-dark-card-hover hover:shadow-lg hover:shadow-black/20 hover:-translate-y-px transition-all duration-200`}
-          >
-            <h4 className="text-[13px] font-medium leading-relaxed mb-2">
-              {article.url ? (
-                <a
-                  href={article.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-gray-200 hover:text-accent-blue transition-colors"
-                >
-                  {article.title}
-                </a>
-              ) : (
-                <span className="text-gray-200">{article.title}</span>
-              )}
-            </h4>
-
-            <div className="flex items-center flex-wrap gap-2 text-[11px]">
-              {article.source && (
-                <span className="px-2 py-0.5 rounded-full bg-gray-700/50 text-gray-400 font-medium">
-                  {article.source}
-                </span>
-              )}
-              <span className="text-gray-500">{formatDate(article.published_at)}</span>
-
-              {/* Relevance score */}
-              {article.relevance_score != null && (
-                <span className={`px-1.5 py-0.5 rounded font-mono font-medium ${
-                  article.relevance_score > 0.7 ? 'bg-success/15 text-success-400' :
-                  article.relevance_score > 0.4 ? 'bg-primary/15 text-accent-blue' :
-                  'bg-gray-700/50 text-gray-500'
-                }`}>
-                  {(article.relevance_score * 100).toFixed(0)}% rel
-                </span>
-              )}
-
-              {/* Per-article sentiment (AV-only) */}
-              {article.av_overall_sentiment_score != null && (
-                <span className={`px-1.5 py-0.5 rounded font-mono font-medium ${
-                  article.av_overall_sentiment_score > 0.15 ? 'bg-success/15 text-success-400' :
-                  article.av_overall_sentiment_score < -0.15 ? 'bg-danger/15 text-danger-400' :
-                  'bg-warning/15 text-warning-400'
-                }`}>
-                  {article.av_overall_sentiment_score > 0.15 ? '+Pos' :
-                   article.av_overall_sentiment_score < -0.15 ? '-Neg' : '~Neu'}
-                </span>
-              )}
-
-              {/* AV sentiment label fallback */}
-              {article.av_overall_sentiment_label && article.av_overall_sentiment_score == null && (
-                <span className="px-1.5 py-0.5 rounded bg-accent-purple/15 text-accent-purple font-medium">
-                  {article.av_overall_sentiment_label}
-                </span>
-              )}
-            </div>
-
-            {article.description && (
-              <p className="mt-2 text-xs text-gray-400 line-clamp-2 leading-relaxed">
-                {article.description}
-              </p>
-            )}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm font-semibold text-gray-300 uppercase tracking-wider flex items-center space-x-2">
+              <NewspaperIcon className="w-4 h-4" />
+              <span>News</span>
+            </CardTitle>
+            <Badge variant="default" className="text-[10px] font-data rounded-full">
+              {newsData.total_count || sortedArticles.length} articles
+            </Badge>
           </div>
-        ))}
-      </div>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-3">
+            {sortedArticles.map((article, index) => (
+              <div
+                key={index}
+                className={`p-4 bg-[var(--card-hover)] rounded-lg border-l-2 ${getSentimentBorderColor(article)} hover:bg-[rgba(255,255,255,0.04)] hover:shadow-lg hover:shadow-black/20 hover:-translate-y-px transition-all duration-200`}
+              >
+                <h4 className="text-[13px] font-medium leading-relaxed mb-2">
+                  {article.url ? (
+                    <a
+                      href={article.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-gray-200 hover:text-accent-blue transition-colors"
+                    >
+                      {article.title}
+                    </a>
+                  ) : (
+                    <span className="text-gray-200">{article.title}</span>
+                  )}
+                </h4>
 
-      {newsData.recent_count !== undefined && (
-        <div className="mt-3 pt-3 border-t border-white/5 text-[10px] text-gray-500 font-mono">
-          {newsData.recent_count} articles in the last 24 hours
-        </div>
-      )}
+                <div className="flex items-center flex-wrap gap-2 text-[11px]">
+                  {article.source && (
+                    <Badge variant="secondary" className="text-[11px] rounded-full">
+                      {article.source}
+                    </Badge>
+                  )}
+                  <span className="text-gray-500">{formatDate(article.published_at)}</span>
+
+                  {/* Relevance score */}
+                  {article.relevance_score != null && (
+                    <Badge variant={getRelevanceBadgeVariant(article.relevance_score)} className="text-[10px] font-data">
+                      {(article.relevance_score * 100).toFixed(0)}% rel
+                    </Badge>
+                  )}
+
+                  {/* Per-article sentiment (AV-only) */}
+                  {article.av_overall_sentiment_score != null && (
+                    <Badge variant={getSentimentBadgeVariant(article.av_overall_sentiment_score)} className="text-[10px] font-data">
+                      {getSentimentLabel(article.av_overall_sentiment_score)}
+                    </Badge>
+                  )}
+
+                  {/* AV sentiment label fallback */}
+                  {article.av_overall_sentiment_label && article.av_overall_sentiment_score == null && (
+                    <Badge variant="secondary" className="text-[10px]">
+                      {article.av_overall_sentiment_label}
+                    </Badge>
+                  )}
+                </div>
+
+                {article.description && (
+                  <p className="mt-2 text-xs text-gray-400 line-clamp-2 leading-relaxed">
+                    {article.description}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {newsData.recent_count !== undefined && (
+            <div className="mt-3 pt-3 border-t border-white/5 text-[10px] text-gray-500 font-data">
+              {newsData.recent_count} articles in the last 24 hours
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </Motion.div>
   );
 };
