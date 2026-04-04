@@ -86,7 +86,6 @@ class Orchestrator:
         # Shared data provider (OpenBB SDK)
         self._data_provider = data_provider or OpenBBDataProvider(self.config)
         self._shared_session: Optional[aiohttp.ClientSession] = None
-        self._validated_tickers: set = set()
 
     def _get_config_dict(self) -> Dict[str, Any]:
         """Convert Config class to dictionary."""
@@ -125,11 +124,14 @@ class Orchestrator:
         """
         Validate that a ticker symbol corresponds to a real tradeable security.
 
-        Uses yfinance for a lightweight check. Caches validated tickers in-memory.
-        Fails open (returns True) if yfinance is unavailable.
+        Uses yfinance for a lightweight check.  Results are cached on the
+        shared data provider so they survive across Orchestrator instances
+        (one per request).  Fails open (returns True) if yfinance is
+        unavailable.
         """
-        if ticker in self._validated_tickers:
-            return True
+        cached = self._data_provider.get_cached_validation(ticker)
+        if cached is not None:
+            return cached
 
         try:
             import yfinance as yf
@@ -138,11 +140,9 @@ class Orchestrator:
                 None, lambda: yf.Ticker(ticker).info
             )
             short_name = (info or {}).get("shortName")
-            if not short_name:
-                return False
-
-            self._validated_tickers.add(ticker)
-            return True
+            is_valid = bool(short_name)
+            self._data_provider.cache_validation(ticker, is_valid)
+            return is_valid
         except Exception as e:
             self.logger.warning(f"Ticker validation skipped for {ticker} (yfinance error: {e})")
             return True  # Fail-open
@@ -229,13 +229,25 @@ class Orchestrator:
             # Phase 2: Run solution agent with aggregated results
             await self._notify_progress("synthesizing", ticker, 80)
 
-            final_analysis, thesis_result, earnings_review_result, narrative_result, tag_result, risk_diff_result = await asyncio.gather(
-                self._run_solution_agent(ticker, agent_results),
-                self._run_thesis_agent(ticker, agent_results),
-                self._run_earnings_review_agent(ticker, agent_results),
-                self._run_narrative_agent(ticker, agent_results),
-                self._run_tag_extractor_agent(ticker, agent_results),
-                self._run_risk_diff_agent(ticker, agent_results),
+            # Phase 2a: Required synthesis (critical path)
+            final_analysis = await self._run_solution_agent(ticker, agent_results)
+
+            # Phase 2b: Optional enrichments (individually timed, non-blocking)
+            enrichment_timeout = int(self.config.get("ENRICHMENT_AGENT_TIMEOUT", 15))
+
+            async def _safe_enrichment(coro, name):
+                try:
+                    return await asyncio.wait_for(coro, timeout=enrichment_timeout)
+                except Exception as e:
+                    self.logger.warning(f"Enrichment '{name}' failed (non-blocking): {e}")
+                    return None
+
+            thesis_result, earnings_review_result, narrative_result, tag_result, risk_diff_result = await asyncio.gather(
+                _safe_enrichment(self._run_thesis_agent(ticker, agent_results), "thesis"),
+                _safe_enrichment(self._run_earnings_review_agent(ticker, agent_results), "earnings_review"),
+                _safe_enrichment(self._run_narrative_agent(ticker, agent_results), "narrative"),
+                _safe_enrichment(self._run_tag_extractor_agent(ticker, agent_results), "tag_extractor"),
+                _safe_enrichment(self._run_risk_diff_agent(ticker, agent_results), "risk_diff"),
             )
             if thesis_result:
                 final_analysis["thesis"] = thesis_result
@@ -564,27 +576,43 @@ class Orchestrator:
         timeout: int,
         progress_map: Dict[str, int],
     ) -> Dict[str, Any]:
-        """Run data agents in parallel using asyncio.gather."""
-        tasks = []
-        agent_order = []
+        """Run data agents in parallel with per-agent deadlines.
+
+        Uses asyncio.wait() so that completed results are preserved even when
+        other agents time out.  Only stragglers are cancelled — the analysis
+        continues with partial data rather than failing entirely.
+        """
+        tasks: Dict[asyncio.Task, str] = {}
         for name, agent in agents.items():
             progress_pct = progress_map.get(name, 30)
-            tasks.append(self._run_agent_with_progress(agent, name, ticker, progress_pct))
-            agent_order.append(name)
-
-        try:
-            raw_results = await asyncio.wait_for(
-                asyncio.gather(*tasks, return_exceptions=True),
-                timeout=timeout,
+            task = asyncio.create_task(
+                self._run_agent_with_progress(agent, name, ticker, progress_pct),
+                name=name,
             )
-        except asyncio.TimeoutError:
-            self.logger.error(f"Agent execution timed out for {ticker}")
-            raise Exception(f"Analysis timed out after {timeout} seconds")
+            tasks[task] = name
 
-        results = {}
-        for i, name in enumerate(agent_order):
-            r = raw_results[i]
-            results[name] = r if isinstance(r, dict) else {"success": False, "error": str(r)}
+        done, pending = await asyncio.wait(tasks.keys(), timeout=timeout)
+
+        # Cancel stragglers
+        for task in pending:
+            task.cancel()
+            self.logger.warning(f"Agent '{tasks[task]}' timed out for {ticker}")
+
+        # Harvest completed results
+        results: Dict[str, Any] = {}
+        for task in done:
+            agent_name = tasks[task]
+            try:
+                r = task.result()
+                results[agent_name] = r if isinstance(r, dict) else {"success": False, "error": str(r)}
+            except Exception as e:
+                results[agent_name] = {"success": False, "error": str(e), "data": None, "agent_type": agent_name, "duration_seconds": 0}
+
+        # Mark timed-out agents
+        for task in pending:
+            agent_name = tasks[task]
+            results[agent_name] = {"success": False, "error": f"Timed out after {timeout}s", "data": None, "agent_type": agent_name, "duration_seconds": timeout}
+
         return results
 
     async def _run_data_agents_sequential(
@@ -826,54 +854,37 @@ class Orchestrator:
         Returns:
             Analysis ID
         """
-        # Insert main analysis record
-        analysis_id = self.db_manager.insert_analysis(
-            ticker=ticker,
-            recommendation=final_analysis.get("recommendation", "HOLD"),
-            confidence_score=final_analysis.get("confidence", 0.0),
-            overall_sentiment_score=((agent_results.get("sentiment") or {}).get("data") or {}).get("overall_sentiment", 0.0),
-            solution_agent_reasoning=self._reasoning_for_persistence(final_analysis),
-            duration_seconds=duration,
-            score=final_analysis.get("score"),
-            decision_card=final_analysis.get("decision_card"),
-            change_summary=final_analysis.get("changes_since_last_run") or final_analysis.get("change_summary"),
-            analysis_payload=final_analysis,
-            analysis_schema_version=final_analysis.get("analysis_schema_version", "v1"),
-            signal_contract_v2=final_analysis.get("signal_contract_v2"),
-            ev_score_7d=final_analysis.get("ev_score_7d"),
-            confidence_calibrated=final_analysis.get("confidence_calibrated"),
-            data_quality_score=final_analysis.get("data_quality_score"),
-            regime_label=final_analysis.get("regime_label"),
-            rationale_summary=final_analysis.get("rationale_summary"),
-        )
-
-        # Insert agent results
-        for agent_type, result in agent_results.items():
-            result = result or {}
-            self.db_manager.insert_agent_result(
-                analysis_id=analysis_id,
-                agent_type=agent_type,
-                success=result.get("success", False),
-                data=result.get("data") or {},
-                error=result.get("error"),
-                duration_seconds=result.get("duration_seconds", 0.0)
-            )
-
-        # Insert sentiment scores
+        # Prepare sub-records for atomic write
         sentiment_data = (agent_results.get("sentiment") or {}).get("data") or {}
-        sentiment_factors = sentiment_data.get("factors", {})
-        if sentiment_factors:
-            self.db_manager.insert_sentiment_scores(analysis_id, sentiment_factors)
-
-        # Cache price data
-        market_data = (agent_results.get("market") or {}).get("data") or {}
-        # Note: Would need to format price data properly from market agent
-
-        # Cache news articles
+        sentiment_factors = sentiment_data.get("factors", {}) or None
         news_data = (agent_results.get("news") or {}).get("data") or {}
-        news_articles = news_data.get("articles", [])
-        if news_articles:
-            self.db_manager.insert_news_articles(ticker, news_articles)
+        news_articles = news_data.get("articles", []) or None
+
+        # Single-transaction write: analysis + agent rows + sentiment + news
+        analysis_id = self.db_manager.save_analysis_atomic(
+            ticker=ticker,
+            analysis_kwargs={
+                "recommendation": final_analysis.get("recommendation", "HOLD"),
+                "confidence_score": final_analysis.get("confidence", 0.0),
+                "overall_sentiment_score": ((agent_results.get("sentiment") or {}).get("data") or {}).get("overall_sentiment", 0.0),
+                "solution_agent_reasoning": self._reasoning_for_persistence(final_analysis),
+                "duration_seconds": duration,
+                "score": final_analysis.get("score"),
+                "decision_card": final_analysis.get("decision_card"),
+                "change_summary": final_analysis.get("changes_since_last_run") or final_analysis.get("change_summary"),
+                "analysis_payload": final_analysis,
+                "analysis_schema_version": final_analysis.get("analysis_schema_version", "v1"),
+                "signal_contract_v2": final_analysis.get("signal_contract_v2"),
+                "ev_score_7d": final_analysis.get("ev_score_7d"),
+                "confidence_calibrated": final_analysis.get("confidence_calibrated"),
+                "data_quality_score": final_analysis.get("data_quality_score"),
+                "regime_label": final_analysis.get("regime_label"),
+                "rationale_summary": final_analysis.get("rationale_summary"),
+            },
+            agent_results=agent_results,
+            sentiment_factors=sentiment_factors,
+            news_articles=news_articles,
+        )
 
         self.logger.info(f"Saved analysis {analysis_id} for {ticker}")
 

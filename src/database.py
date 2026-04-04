@@ -901,6 +901,117 @@ class DatabaseManager:
             if analysis_id in by_analysis:
                 item["outcomes"] = by_analysis[analysis_id]
 
+    def save_analysis_atomic(
+        self,
+        ticker: str,
+        analysis_kwargs: Dict[str, Any],
+        agent_results: Dict[str, Dict[str, Any]],
+        sentiment_factors: Optional[Dict[str, Dict[str, float]]] = None,
+        news_articles: Optional[List[Dict[str, Any]]] = None,
+    ) -> int:
+        """Save an entire analysis bundle in a single transaction.
+
+        Writes the parent analysis row, all agent result rows, sentiment
+        scores, and cached news articles using one SQLite connection so
+        the write is atomic — either everything commits or nothing does.
+
+        Returns:
+            ID of the inserted analysis row.
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            timestamp = datetime.now(timezone.utc).isoformat()
+
+            # --- 1. analyses row ---
+            decision_card = analysis_kwargs.get("decision_card")
+            change_summary = analysis_kwargs.get("change_summary")
+            analysis_payload = analysis_kwargs.get("analysis_payload")
+            signal_contract_v2 = analysis_kwargs.get("signal_contract_v2")
+
+            cursor.execute("""
+                INSERT INTO analyses (
+                    ticker, timestamp, recommendation, confidence_score,
+                    overall_sentiment_score, solution_agent_reasoning, duration_seconds,
+                    score, decision_card, change_summary, analysis_payload,
+                    analysis_schema_version, signal_contract_v2, ev_score_7d,
+                    confidence_calibrated, data_quality_score, regime_label, rationale_summary
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                ticker,
+                timestamp,
+                analysis_kwargs.get("recommendation", "HOLD"),
+                analysis_kwargs.get("confidence_score", 0.0),
+                analysis_kwargs.get("overall_sentiment_score", 0.0),
+                analysis_kwargs.get("solution_agent_reasoning", ""),
+                analysis_kwargs.get("duration_seconds", 0.0),
+                analysis_kwargs.get("score"),
+                json.dumps(decision_card) if decision_card is not None else None,
+                json.dumps(change_summary) if change_summary is not None else None,
+                json.dumps(analysis_payload) if analysis_payload is not None else None,
+                analysis_kwargs.get("analysis_schema_version", "v1") or "v1",
+                json.dumps(signal_contract_v2) if signal_contract_v2 is not None else None,
+                analysis_kwargs.get("ev_score_7d"),
+                analysis_kwargs.get("confidence_calibrated"),
+                analysis_kwargs.get("data_quality_score"),
+                analysis_kwargs.get("regime_label"),
+                analysis_kwargs.get("rationale_summary"),
+            ))
+            analysis_id = cursor.lastrowid
+
+            # --- 2. agent_results rows ---
+            for agent_type, result in agent_results.items():
+                result = result or {}
+                data_json = json.dumps(result.get("data") or {})
+                cursor.execute("""
+                    INSERT INTO agent_results (
+                        analysis_id, agent_type, success, data, error, duration_seconds
+                    ) VALUES (?, ?, ?, ?, ?, ?)
+                """, (
+                    analysis_id,
+                    agent_type,
+                    result.get("success", False),
+                    data_json,
+                    result.get("error"),
+                    result.get("duration_seconds", 0.0),
+                ))
+
+            # --- 3. sentiment_scores rows ---
+            if sentiment_factors:
+                for factor, values in sentiment_factors.items():
+                    cursor.execute("""
+                        INSERT INTO sentiment_scores (
+                            analysis_id, factor, score, weight, contribution
+                        ) VALUES (?, ?, ?, ?, ?)
+                    """, (
+                        analysis_id,
+                        factor,
+                        values.get("score", 0.0),
+                        values.get("weight", 0.0),
+                        values.get("contribution", 0.0),
+                    ))
+
+            # --- 4. news_cache rows ---
+            if news_articles:
+                for article in news_articles:
+                    try:
+                        cursor.execute("""
+                            INSERT OR REPLACE INTO news_cache (
+                                ticker, published_at, title, source, url, summary, sentiment_score
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                        """, (
+                            ticker,
+                            article.get("published_at"),
+                            article.get("title"),
+                            article.get("source"),
+                            article.get("url"),
+                            article.get("summary"),
+                            article.get("sentiment_score"),
+                        ))
+                    except sqlite3.IntegrityError:
+                        continue
+
+            return analysis_id
+
     def insert_analysis(
         self,
         ticker: str,
