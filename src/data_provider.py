@@ -42,6 +42,11 @@ class OpenBBDataProvider:
         self._config = config
         self._cache: Dict[str, tuple[Any, float]] = {}  # key -> (result, expiry_ts)
         self._obb = None  # lazy-initialized
+        # In-flight request deduplication — concurrent misses for the same
+        # cache key await a single fetch instead of duplicating upstream work
+        self._inflight: Dict[str, asyncio.Future] = {}
+        # Ticker validation cache — shared across Orchestrator instances
+        self._validated_tickers: Dict[str, tuple[bool, float]] = {}  # ticker -> (is_valid, timestamp)
 
     # ------------------------------------------------------------------
     # Lazy init — import openbb only when first needed
@@ -103,6 +108,49 @@ class OpenBBDataProvider:
     def _cache_put(self, key: str, value: Any, ttl: float):
         self._cache[key] = (value, time.time() + ttl)
 
+    async def _deduplicated_fetch(self, cache_key: str, ttl: float, fetch_fn):
+        """Fetch with in-flight deduplication.
+
+        If another coroutine is already fetching the same *cache_key*, callers
+        await its result instead of issuing a duplicate upstream request.
+        """
+        cached = self._cache_get(cache_key)
+        if cached is not None:
+            return cached
+
+        if cache_key in self._inflight:
+            return await asyncio.shield(self._inflight[cache_key])
+
+        loop = asyncio.get_event_loop()
+        future = loop.create_future()
+        self._inflight[cache_key] = future
+        try:
+            result = await fetch_fn()
+            if result is not None:
+                self._cache_put(cache_key, result, ttl)
+            future.set_result(result)
+            return result
+        except Exception as e:
+            future.set_exception(e)
+            raise
+        finally:
+            self._inflight.pop(cache_key, None)
+
+    # ------------------------------------------------------------------
+    # Ticker validation cache (process-wide, survives across requests)
+    # ------------------------------------------------------------------
+
+    def get_cached_validation(self, ticker: str, ttl: float = 3600) -> Optional[bool]:
+        """Return cached validation result, or None if stale/missing."""
+        entry = self._validated_tickers.get(ticker)
+        if entry and (time.time() - entry[1]) < ttl:
+            return entry[0]
+        return None
+
+    def cache_validation(self, ticker: str, is_valid: bool):
+        """Store a ticker validation result."""
+        self._validated_tickers[ticker] = (is_valid, time.time())
+
     # ------------------------------------------------------------------
     # Public async methods
     # ------------------------------------------------------------------
@@ -110,62 +158,32 @@ class OpenBBDataProvider:
     async def get_quote(self, ticker: str) -> Optional[Dict[str, Any]]:
         """Fetch latest quote for *ticker*."""
         ck = self._cache_key("quote", ticker)
-        cached = self._cache_get(ck)
-        if cached is not None:
-            return cached
-
-        result = await asyncio.to_thread(self._sync_get_quote, ticker)
-        if result is not None:
-            self._cache_put(ck, result, self.TTL_QUOTE)
-        return result
+        return await self._deduplicated_fetch(
+            ck, self.TTL_QUOTE, lambda: asyncio.to_thread(self._sync_get_quote, ticker))
 
     async def get_price_history(self, ticker: str, period: str = "1y") -> Optional[pd.DataFrame]:
         """Fetch OHLCV price history for *ticker*."""
         ck = self._cache_key("price_history", ticker, period=period)
-        cached = self._cache_get(ck)
-        if cached is not None:
-            return cached
-
-        result = await asyncio.to_thread(self._sync_get_price_history, ticker, period)
-        if result is not None:
-            self._cache_put(ck, result, self.TTL_PRICE_HISTORY)
-        return result
+        return await self._deduplicated_fetch(
+            ck, self.TTL_PRICE_HISTORY, lambda: asyncio.to_thread(self._sync_get_price_history, ticker, period))
 
     async def get_company_overview(self, ticker: str) -> Optional[Dict[str, Any]]:
         """Fetch company profile and key metrics for *ticker*."""
         ck = self._cache_key("company_overview", ticker)
-        cached = self._cache_get(ck)
-        if cached is not None:
-            return cached
-
-        result = await asyncio.to_thread(self._sync_get_company_overview, ticker)
-        if result is not None:
-            self._cache_put(ck, result, self.TTL_FUNDAMENTALS)
-        return result
+        return await self._deduplicated_fetch(
+            ck, self.TTL_FUNDAMENTALS, lambda: asyncio.to_thread(self._sync_get_company_overview, ticker))
 
     async def get_financials(self, ticker: str) -> Optional[Dict[str, Any]]:
         """Fetch financial statements (balance sheet, income, cash flow)."""
         ck = self._cache_key("financials", ticker)
-        cached = self._cache_get(ck)
-        if cached is not None:
-            return cached
-
-        result = await asyncio.to_thread(self._sync_get_financials, ticker)
-        if result is not None:
-            self._cache_put(ck, result, self.TTL_FUNDAMENTALS)
-        return result
+        return await self._deduplicated_fetch(
+            ck, self.TTL_FUNDAMENTALS, lambda: asyncio.to_thread(self._sync_get_financials, ticker))
 
     async def get_earnings(self, ticker: str) -> Optional[Dict[str, Any]]:
         """Fetch earnings history for *ticker*."""
         ck = self._cache_key("earnings", ticker)
-        cached = self._cache_get(ck)
-        if cached is not None:
-            return cached
-
-        result = await asyncio.to_thread(self._sync_get_earnings, ticker)
-        if result is not None:
-            self._cache_put(ck, result, self.TTL_FUNDAMENTALS)
-        return result
+        return await self._deduplicated_fetch(
+            ck, self.TTL_FUNDAMENTALS, lambda: asyncio.to_thread(self._sync_get_earnings, ticker))
 
     async def get_technical_indicators(
         self, ticker: str, price_data: Optional[pd.DataFrame] = None
@@ -189,44 +207,25 @@ class OpenBBDataProvider:
 
     async def get_macro_indicators(self) -> Optional[Dict[str, Any]]:
         """Fetch US macro indicators from FRED (ticker-independent, cached 24h)."""
-        ck = self._cache_key("macro")
-        cached = self._cache_get(ck)
-        if cached is not None:
-            return cached
-
         fred_key = self._config.get("FRED_API_KEY", "")
         if not fred_key:
             logger.info("No FRED_API_KEY — macro indicators unavailable")
             return None
-
-        result = await asyncio.to_thread(self._sync_get_macro_indicators)
-        if result is not None:
-            self._cache_put(ck, result, self.TTL_MACRO)
-        return result
+        ck = self._cache_key("macro")
+        return await self._deduplicated_fetch(
+            ck, self.TTL_MACRO, lambda: asyncio.to_thread(self._sync_get_macro_indicators))
 
     async def get_options_chain(self, ticker: str) -> Optional[Dict[str, Any]]:
         """Fetch options chain for *ticker*."""
         ck = self._cache_key("options", ticker)
-        cached = self._cache_get(ck)
-        if cached is not None:
-            return cached
-
-        result = await asyncio.to_thread(self._sync_get_options_chain, ticker)
-        if result is not None:
-            self._cache_put(ck, result, self.TTL_OPTIONS)
-        return result
+        return await self._deduplicated_fetch(
+            ck, self.TTL_OPTIONS, lambda: asyncio.to_thread(self._sync_get_options_chain, ticker))
 
     async def get_news(self, ticker: str, limit: int = 20) -> Optional[List[Dict[str, Any]]]:
         """Fetch company news for *ticker*."""
         ck = self._cache_key("news", ticker, limit=limit)
-        cached = self._cache_get(ck)
-        if cached is not None:
-            return cached
-
-        result = await asyncio.to_thread(self._sync_get_news, ticker, limit)
-        if result is not None:
-            self._cache_put(ck, result, self.TTL_NEWS)
-        return result
+        return await self._deduplicated_fetch(
+            ck, self.TTL_NEWS, lambda: asyncio.to_thread(self._sync_get_news, ticker, limit))
 
     async def get_earnings_transcript(self, ticker: str, quarter: int = 0, year: int = 0) -> Optional[Dict[str, Any]]:
         """Fetch earnings call transcript for *ticker* from FMP.
@@ -240,14 +239,9 @@ class OpenBBDataProvider:
             Dict with transcript content and metadata, or None.
         """
         ck = self._cache_key("transcript", ticker, quarter=quarter, year=year)
-        cached = self._cache_get(ck)
-        if cached is not None:
-            return cached
-
-        result = await self._async_get_earnings_transcript(ticker, quarter, year)
-        if result is not None:
-            self._cache_put(ck, result, self.TTL_TRANSCRIPT)
-        return result
+        return await self._deduplicated_fetch(
+            ck, self.TTL_TRANSCRIPT,
+            lambda: self._async_get_earnings_transcript(ticker, quarter, year))
 
     async def get_earnings_transcripts(self, ticker: str, num_quarters: int = 2) -> List[Dict[str, Any]]:
         """Fetch the N most recent earnings call transcripts for *ticker*.
@@ -394,112 +388,62 @@ class OpenBBDataProvider:
     async def get_analyst_estimates(self, ticker: str) -> Optional[Dict[str, Any]]:
         """Fetch analyst consensus estimates (price targets) for *ticker*."""
         ck = self._cache_key("analyst_estimates", ticker)
-        cached = self._cache_get(ck)
-        if cached is not None:
-            return cached
-        result = await asyncio.to_thread(self._sync_get_analyst_estimates, ticker)
-        if result is not None:
-            self._cache_put(ck, result, self.TTL_ESTIMATES)
-        return result
+        return await self._deduplicated_fetch(
+            ck, self.TTL_ESTIMATES, lambda: asyncio.to_thread(self._sync_get_analyst_estimates, ticker))
 
     async def get_price_targets(self, ticker: str) -> Optional[List[Dict[str, Any]]]:
         """Fetch individual analyst price targets for *ticker*."""
         ck = self._cache_key("price_targets", ticker)
-        cached = self._cache_get(ck)
-        if cached is not None:
-            return cached
-        result = await asyncio.to_thread(self._sync_get_price_targets, ticker)
-        if result is not None:
-            self._cache_put(ck, result, self.TTL_ESTIMATES)
-        return result
+        return await self._deduplicated_fetch(
+            ck, self.TTL_ESTIMATES, lambda: asyncio.to_thread(self._sync_get_price_targets, ticker))
 
     async def get_ratios_ttm(self, ticker: str) -> Optional[Dict[str, Any]]:
         """Fetch comprehensive TTM financial ratios for *ticker*."""
         ck = self._cache_key("ratios_ttm", ticker)
-        cached = self._cache_get(ck)
-        if cached is not None:
-            return cached
-        result = await asyncio.to_thread(self._sync_get_ratios_ttm, ticker)
-        if result is not None:
-            self._cache_put(ck, result, self.TTL_FUNDAMENTALS)
-        return result
+        return await self._deduplicated_fetch(
+            ck, self.TTL_FUNDAMENTALS, lambda: asyncio.to_thread(self._sync_get_ratios_ttm, ticker))
 
     async def get_insider_trading(self, ticker: str) -> Optional[List[Dict[str, Any]]]:
         """Fetch insider trading activity for *ticker*."""
         ck = self._cache_key("insider_trading", ticker)
-        cached = self._cache_get(ck)
-        if cached is not None:
-            return cached
-        result = await asyncio.to_thread(self._sync_get_insider_trading, ticker)
-        if result is not None:
-            self._cache_put(ck, result, self.TTL_OWNERSHIP)
-        return result
+        return await self._deduplicated_fetch(
+            ck, self.TTL_OWNERSHIP, lambda: asyncio.to_thread(self._sync_get_insider_trading, ticker))
 
     async def get_share_statistics(self, ticker: str) -> Optional[Dict[str, Any]]:
         """Fetch share float and outstanding shares for *ticker*."""
         ck = self._cache_key("share_stats", ticker)
-        cached = self._cache_get(ck)
-        if cached is not None:
-            return cached
-        result = await asyncio.to_thread(self._sync_get_share_statistics, ticker)
-        if result is not None:
-            self._cache_put(ck, result, self.TTL_OWNERSHIP)
-        return result
+        return await self._deduplicated_fetch(
+            ck, self.TTL_OWNERSHIP, lambda: asyncio.to_thread(self._sync_get_share_statistics, ticker))
 
     async def get_management(self, ticker: str) -> Optional[List[Dict[str, Any]]]:
         """Fetch key executives for *ticker*."""
         ck = self._cache_key("management", ticker)
-        cached = self._cache_get(ck)
-        if cached is not None:
-            return cached
-        result = await asyncio.to_thread(self._sync_get_management, ticker)
-        if result is not None:
-            self._cache_put(ck, result, self.TTL_FUNDAMENTALS)
-        return result
+        return await self._deduplicated_fetch(
+            ck, self.TTL_FUNDAMENTALS, lambda: asyncio.to_thread(self._sync_get_management, ticker))
 
     async def get_revenue_segments(self, ticker: str) -> Optional[Dict[str, Any]]:
         """Fetch product and geographic revenue segmentation for *ticker*."""
         ck = self._cache_key("revenue_segments", ticker)
-        cached = self._cache_get(ck)
-        if cached is not None:
-            return cached
-        result = await asyncio.to_thread(self._sync_get_revenue_segments, ticker)
-        if result is not None:
-            self._cache_put(ck, result, self.TTL_FUNDAMENTALS)
-        return result
+        return await self._deduplicated_fetch(
+            ck, self.TTL_FUNDAMENTALS, lambda: asyncio.to_thread(self._sync_get_revenue_segments, ticker))
 
     async def get_peers(self, ticker: str) -> Optional[List[Dict[str, Any]]]:
         """Fetch stock peers for *ticker*."""
         ck = self._cache_key("peers", ticker)
-        cached = self._cache_get(ck)
-        if cached is not None:
-            return cached
-        result = await asyncio.to_thread(self._sync_get_peers, ticker)
-        if result is not None:
-            self._cache_put(ck, result, self.TTL_FUNDAMENTALS)
-        return result
+        return await self._deduplicated_fetch(
+            ck, self.TTL_FUNDAMENTALS, lambda: asyncio.to_thread(self._sync_get_peers, ticker))
 
     async def get_financial_growth(self, ticker: str) -> Optional[Dict[str, Any]]:
         """Fetch financial growth rates for *ticker* (direct FMP stable API)."""
         ck = self._cache_key("financial_growth", ticker)
-        cached = self._cache_get(ck)
-        if cached is not None:
-            return cached
-        result = await self._async_get_financial_growth(ticker)
-        if result is not None:
-            self._cache_put(ck, result, self.TTL_FUNDAMENTALS)
-        return result
+        return await self._deduplicated_fetch(
+            ck, self.TTL_FUNDAMENTALS, lambda: self._async_get_financial_growth(ticker))
 
     async def get_dcf_valuation(self, ticker: str) -> Optional[Dict[str, Any]]:
         """Fetch DCF valuation for *ticker* (direct FMP stable API)."""
         ck = self._cache_key("dcf", ticker)
-        cached = self._cache_get(ck)
-        if cached is not None:
-            return cached
-        result = await self._async_get_dcf_valuation(ticker)
-        if result is not None:
-            self._cache_put(ck, result, self.TTL_FUNDAMENTALS)
-        return result
+        return await self._deduplicated_fetch(
+            ck, self.TTL_FUNDAMENTALS, lambda: self._async_get_dcf_valuation(ticker))
 
     # ------------------------------------------------------------------
     # Direct FMP stable REST API methods (async, no OpenBB wrapper)
