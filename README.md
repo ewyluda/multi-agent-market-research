@@ -2,6 +2,24 @@
 
 Real-time AI-powered US equity analysis with a quant PM upgrade layer.
 
+## Screenshots
+
+### Analysis Dashboard
+![Analysis Dashboard](docs/screenshots/dashboard-overview.png)
+*Real-time stock analysis with price chart, KPI cards, and multi-tab agent output (Fundamentals, Thesis, Technicals, Sentiment, and more).*
+
+### Watchlist Management
+![Watchlist](docs/screenshots/watchlist-view.png)
+*Create and manage watchlists to track groups of tickers with scheduled re-analysis.*
+
+### Portfolio Tracker
+![Portfolio](docs/screenshots/portfolio-view.png)
+*Track holdings with cost basis, sector allocation, and AI-powered portfolio advisory.*
+
+### Alerts
+![Alerts](docs/screenshots/alerts-view.png)
+*Configure alert rules for recommendation changes, price movements, and sentiment shifts.*
+
 ## Overview
 This platform runs 9 specialized data agents (news, sentiment, fundamentals, market, technical, macro, options, leadership, earnings) in parallel, then runs 6 synthesis agents simultaneously (solution, thesis, earnings review, narrative, tag extractor, risk diff) to produce institutional-grade research output — all via `asyncio.gather()` with zero added latency.
 
@@ -582,20 +600,11 @@ npm run build
 ```
 
 ## Documentation
-
-### CapRelay Feature Specs & Plans
-- Thesis Agent: `docs/superpowers/specs/2026-04-02-thesis-agent-design.md`
-- Earnings Review Agent: `docs/superpowers/specs/2026-04-02-earnings-review-agent-design.md`
-- Narrative Agent: `docs/superpowers/specs/2026-04-02-narrative-agent-design.md`
-- Qualitative Tag System: `docs/superpowers/specs/2026-04-02-qualitative-tag-system-design.md`
-- Risk Diff Agent: `docs/superpowers/specs/2026-04-02-risk-diff-agent-design.md`
-- Frontend Panels: `docs/superpowers/specs/2026-04-02-frontend-panels-design.md`
-
-### Infrastructure
-- Perception Ledger: `docs/superpowers/specs/2026-04-01-perception-ledger-inflection-tracker-design.md`
-- Quant PM implementation: `docs/plans/2026-02-16-quant-pm-upgrade-implementation-plan.md`
-- Prior roadmap: `docs/plans/2026-02-15-actionable-insights-roadmap.md`
-- Backfill audit: `docs/reports/signal-contract-backfill-report.md`
+- Perception Ledger design spec: `docs/superpowers/specs/2026-04-01-perception-ledger-inflection-tracker-design.md`
+- Perception Ledger implementation plan: `docs/superpowers/plans/2026-04-01-perception-ledger-inflection-tracker.md`
+- Quant PM implementation details: `docs/plans/2026-02-16-quant-pm-upgrade-implementation-plan.md`
+- Prior roadmap context: `docs/plans/2026-02-15-actionable-insights-roadmap.md`
+- Latest backfill audit report: `docs/reports/signal-contract-backfill-report.md`
 
 ## License
 MIT

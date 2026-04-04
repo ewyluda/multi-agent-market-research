@@ -1,5 +1,7 @@
 """Tests for NarrativeAgent — models, data fetching, LLM flow, guardrails."""
 
+import json as json_module
+
 import pytest
 from pydantic import ValidationError
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -354,3 +356,225 @@ class TestNarrativeGuardrails:
         validated, warnings = validate_narrative_output(narrative)
         # Completeness should be preserved (not overridden — narrative doesn't have agent_results in guardrails)
         assert validated["data_completeness"] == 0.85
+
+
+# ── Mock LLM Responses ────────────────────────────────────────────────────────
+
+
+MOCK_PASS1_RESPONSE = json_module.dumps({
+    "per_year": [
+        {
+            "year": 2023, "revenue": "$355B", "revenue_growth": "1%",
+            "gross_margin": "44%", "operating_margin": "29%",
+            "key_events": ["iPhone 15 launch"],
+            "management_themes": ["Operational efficiency"],
+            "capital_moves": ["Continued buybacks"],
+            "inflection_quarters": [],
+        },
+        {
+            "year": 2024, "revenue": "$383B", "revenue_growth": "8%",
+            "gross_margin": "46%", "operating_margin": "31%",
+            "key_events": ["Vision Pro launch", "AI features announced"],
+            "management_themes": ["AI integration", "Services growth"],
+            "capital_moves": ["$90B buyback authorization"],
+            "inflection_quarters": [
+                {"quarter": "Q3'24", "event": "First China revenue decline in 3 years"},
+            ],
+        },
+        {
+            "year": 2025, "revenue": "$430B", "revenue_growth": "12%",
+            "gross_margin": "47%", "operating_margin": "32%",
+            "key_events": ["AI assistant launch", "India expansion"],
+            "management_themes": ["AI monetization", "Geographic diversification"],
+            "capital_moves": ["Increased capex for AI infrastructure"],
+            "inflection_quarters": [],
+        },
+    ],
+    "cross_year_themes": [
+        "Services transition accelerating",
+        "China exposure becoming a headwind",
+        "AI as the next growth vector",
+    ],
+})
+
+MOCK_PASS2_RESPONSE = json_module.dumps({
+    "company_arc": "Over three years Apple evolved from a mature hardware company into an AI-powered services platform, navigating China headwinds while accelerating growth.",
+    "year_sections": [
+        {
+            "year": 2023, "headline": "Consolidation: Flat revenue, margin preservation",
+            "revenue_trajectory": "Revenue flat at $355B as iPhone cycle matured.",
+            "margin_story": "Gross margin held at 44% through operational discipline.",
+            "strategic_moves": ["iPhone 15 launch"],
+            "management_commentary": "Focus on operational efficiency and services scale.",
+            "capital_allocation": "Continued aggressive buyback program.",
+            "quarterly_inflections": [],
+        },
+        {
+            "year": 2024, "headline": "Inflection: Growth resumes, Vision Pro bets big",
+            "revenue_trajectory": "Revenue accelerated to $383B (+8%) driven by services and iPhone upgrades.",
+            "margin_story": "Gross margin expanded to 46% on services mix shift.",
+            "strategic_moves": ["Vision Pro launch", "AI features announced across product line"],
+            "management_commentary": "CEO pivoted messaging to AI integration as the next platform shift.",
+            "capital_allocation": "$90B buyback authorization — largest in tech history.",
+            "quarterly_inflections": [
+                {"quarter": "Q3'24", "headline": "China cracks emerge", "details": "First YoY revenue decline in Greater China, driven by Huawei competition and macro headwinds.", "impact": "negative"},
+            ],
+        },
+        {
+            "year": 2025, "headline": "Acceleration: AI-driven growth hits its stride",
+            "revenue_trajectory": "Revenue surged to $430B (+12%), the fastest growth in 4 years.",
+            "margin_story": "Gross margin expanded further to 47% as AI services monetized.",
+            "strategic_moves": ["AI assistant launch", "India manufacturing expansion"],
+            "management_commentary": "AI monetization became the dominant narrative on earnings calls.",
+            "capital_allocation": "Capex rose 30% for AI infrastructure while buybacks continued.",
+            "quarterly_inflections": [],
+        },
+    ],
+    "narrative_chapters": [
+        {
+            "title": "The Services Flywheel",
+            "years_covered": "2023-2025",
+            "narrative": "Services grew from 20% to 28% of revenue, becoming the primary margin driver and providing recurring revenue that smoothed hardware cycles.",
+            "evidence": ["Services grew from $85B to $110B", "Gross margin expansion of 300bps driven by mix"],
+        },
+        {
+            "title": "The China Question",
+            "years_covered": "2024-2025",
+            "narrative": "China shifted from growth engine to headwind as Huawei's resurgence and macro weakness eroded market share.",
+            "evidence": ["Q3'24 first China decline", "Management pivoted messaging to India opportunity"],
+        },
+    ],
+    "key_inflection_points": [
+        "Q3'24: First China revenue decline signaled geographic risk",
+        "Vision Pro launch marked Apple's next hardware bet",
+        "2025 AI assistant launch as platform shift catalyst",
+    ],
+    "current_chapter": "Apple is in the early innings of AI monetization, with services growth providing a floor while China remains the key risk variable.",
+})
+
+
+class TestNarrativeLLMFlow:
+    """Tests for two-pass LLM flow with mocked responses."""
+
+    @pytest.mark.asyncio
+    async def test_full_two_pass_flow(self):
+        agent = NarrativeAgent("AAPL", {"llm_config": {"provider": "none"}, "NARRATIVE_YEARS": 3}, _make_agent_results())
+        call_count = 0
+
+        async def mock_call_llm(prompt):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return MOCK_PASS1_RESPONSE
+            return MOCK_PASS2_RESPONSE
+
+        mock_financials = _make_mock_financials(3)
+        mock_transcripts = _make_mock_transcripts(12)
+
+        with patch.object(agent, "_call_llm", side_effect=mock_call_llm):
+            with patch("src.llm_guardrails.validate_narrative_output", return_value=({
+                **json_module.loads(MOCK_PASS2_RESPONSE),
+                "years_covered": 3,
+                "data_completeness": 1.0,
+                "data_sources_used": ["financials", "transcripts", "fundamentals"],
+            }, [])):
+                result = await agent.analyze({
+                    "financials": mock_financials,
+                    "transcripts": mock_transcripts,
+                    "agent_results": _make_agent_results(),
+                })
+
+        assert call_count == 2
+        assert result["company_arc"] != ""
+        assert len(result["year_sections"]) == 3
+        assert len(result["narrative_chapters"]) == 2
+        assert result["years_covered"] == 3
+
+    @pytest.mark.asyncio
+    async def test_pass1_failure_returns_empty(self):
+        agent = NarrativeAgent("AAPL", {"llm_config": {"provider": "none"}, "NARRATIVE_YEARS": 3}, _make_agent_results())
+
+        async def mock_fail(prompt):
+            raise Exception("LLM unavailable")
+
+        with patch.object(agent, "_call_llm", side_effect=mock_fail):
+            result = await agent.analyze({
+                "financials": _make_mock_financials(3),
+                "transcripts": _make_mock_transcripts(12),
+                "agent_results": _make_agent_results(),
+            })
+
+        assert "error" in result or "insufficient" in result.get("company_arc", "").lower()
+        assert result["year_sections"] == []
+
+    @pytest.mark.asyncio
+    async def test_pass2_failure_returns_fallback(self):
+        agent = NarrativeAgent("AAPL", {"llm_config": {"provider": "none"}, "NARRATIVE_YEARS": 3}, _make_agent_results())
+        call_count = 0
+
+        async def mock_call_llm(prompt):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return MOCK_PASS1_RESPONSE
+            raise Exception("Pass 2 failed")
+
+        with patch.object(agent, "_call_llm", side_effect=mock_call_llm):
+            result = await agent.analyze({
+                "financials": _make_mock_financials(3),
+                "transcripts": _make_mock_transcripts(12),
+                "agent_results": _make_agent_results(),
+            })
+
+        assert result.get("pass2_failed") is True
+        assert len(result["year_sections"]) == 3
+        assert "extracted_facts" in result
+
+    @pytest.mark.asyncio
+    async def test_no_financials_returns_empty(self):
+        agent = NarrativeAgent("AAPL", {"llm_config": {"provider": "none"}}, _make_agent_results())
+
+        result = await agent.analyze({
+            "financials": None,
+            "transcripts": [],
+            "agent_results": _make_agent_results(),
+        })
+
+        assert result["years_covered"] == 0
+        assert result["year_sections"] == []
+
+
+class TestNarrativePrompt:
+    """Tests for prompt construction."""
+
+    def test_pass1_prompt_contains_ticker(self):
+        agent = NarrativeAgent("AAPL", {"llm_config": {}}, _make_agent_results())
+        financials = _make_mock_financials(3)
+        transcripts = _make_mock_transcripts(4)
+        years = agent._extract_available_years(financials)
+        prompt = agent._build_pass1_prompt(financials, transcripts, years)
+        assert "AAPL" in prompt
+
+    def test_pass1_prompt_contains_financials(self):
+        agent = NarrativeAgent("AAPL", {"llm_config": {}}, _make_agent_results())
+        financials = _make_mock_financials(3)
+        transcripts = _make_mock_transcripts(4)
+        years = agent._extract_available_years(financials)
+        prompt = agent._build_pass1_prompt(financials, transcripts, years)
+        assert "FY2025" in prompt or "2025" in prompt
+        assert "FY2023" in prompt or "2023" in prompt
+
+    def test_pass2_prompt_contains_facts(self):
+        agent = NarrativeAgent("AAPL", {"llm_config": {}}, _make_agent_results())
+        facts = json_module.loads(MOCK_PASS1_RESPONSE)
+        prompt = agent._build_pass2_prompt(facts, "AAPL")
+        assert "AAPL" in prompt
+        assert "$355B" in prompt  # 2023 revenue from facts
+
+    def test_pass1_prompt_includes_guardrail_instructions(self):
+        agent = NarrativeAgent("AAPL", {"llm_config": {}}, _make_agent_results())
+        financials = _make_mock_financials(3)
+        transcripts = _make_mock_transcripts(4)
+        years = agent._extract_available_years(financials)
+        prompt = agent._build_pass1_prompt(financials, transcripts, years)
+        assert "Do NOT infer" in prompt or "Do not infer" in prompt
