@@ -696,6 +696,9 @@ class Orchestrator:
         Instead of waiting for ALL data agents before running sentiment,
         this method monitors for news and market completion and kicks off
         sentiment in parallel with the remaining slower agents.
+
+        Sentiment gets its own full timeout from the moment it starts,
+        independent of how long news/market took.
         """
         # Launch all data agents
         tasks: Dict[asyncio.Task, str] = {}
@@ -719,7 +722,8 @@ class Orchestrator:
         results: Dict[str, Any] = {}
         sentiment_task = None
         remaining_tasks = set(tasks.keys())
-        deadline = asyncio.get_event_loop().time() + timeout
+        loop = asyncio.get_event_loop()
+        data_deadline = loop.time() + timeout
 
         # Wait for news + market first (with overall timeout)
         deps = {t for t in [news_task, market_task] if t is not None}
@@ -752,16 +756,22 @@ class Orchestrator:
 
             sentiment_agent.set_context_data(news_articles, market_data, twitter_posts)
             await self._notify_progress("analyzing_sentiment", ticker, 70)
+
+            # Sentiment gets its own full timeout from NOW
             sentiment_task = asyncio.create_task(
                 asyncio.wait_for(sentiment_agent.execute(), timeout=timeout),
                 name="sentiment",
             )
             remaining_tasks.add(sentiment_task)
 
-        # Wait for remaining data agents + sentiment
+        # Wait for remaining data agents + sentiment.
+        # Use the later of: data-agent deadline OR sentiment's own deadline.
         if remaining_tasks:
-            time_left = max(0, deadline - asyncio.get_event_loop().time())
-            done, pending = await asyncio.wait(remaining_tasks, timeout=time_left)
+            data_time_left = max(0, data_deadline - loop.time())
+            # Sentiment just started — it needs a full `timeout` from now.
+            # Other data agents have been running since the start — they use data_deadline.
+            outer_wait = max(data_time_left, timeout) if sentiment_task else data_time_left
+            done, pending = await asyncio.wait(remaining_tasks, timeout=outer_wait)
 
             for task in pending:
                 task.cancel()

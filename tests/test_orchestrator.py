@@ -1249,3 +1249,57 @@ class TestRiskDiffIntegration:
 
         assert result["success"] is True
         assert result["analysis"].get("risk_diff") is None
+
+
+class TestEarlySentimentTimeout:
+    """Regression tests for sentiment timeout in early-sentiment mode."""
+
+    @pytest.mark.asyncio
+    async def test_sentiment_gets_full_timeout_when_deps_finish_late(self, test_config, tmp_path):
+        """Sentiment must get its own full timeout even if news/market consume most of the deadline."""
+        db_path = str(tmp_path / "test.db")
+        db_manager = DatabaseManager(db_path)
+        config = {**test_config, "AGENT_TIMEOUT": 5}
+        orch = Orchestrator(config=config, db_manager=db_manager)
+
+        async def slow_news_execute():
+            """Simulate news agent finishing at 4s of a 5s timeout."""
+            await asyncio.sleep(4.0)
+            return _make_agent_result("news")
+
+        async def sentiment_execute():
+            """Sentiment needs 2s — must NOT be starved."""
+            await asyncio.sleep(1.5)
+            return _make_agent_result("sentiment")
+
+        with (
+            patch("src.orchestrator.NewsAgent") as MockNews,
+            patch("src.orchestrator.MarketAgent") as MockMarket,
+            patch("src.orchestrator.FundamentalsAgent") as MockFund,
+            patch("src.orchestrator.TechnicalAgent") as MockTech,
+            patch("src.orchestrator.MacroAgent") as MockMacro,
+            patch("src.orchestrator.OptionsAgent") as MockOptions,
+            patch("src.orchestrator.EarningsAgent") as MockEarnings,
+            patch("src.orchestrator.LeadershipAgent") as MockLeadership,
+            patch("src.orchestrator.SentimentAgent") as MockSent,
+            patch("src.orchestrator.SolutionAgent") as MockSolution,
+        ):
+            for mock_cls, name in [
+                (MockMarket, "market"),
+                (MockFund, "fundamentals"), (MockTech, "technical"),
+                (MockMacro, "macro"), (MockOptions, "options"),
+                (MockEarnings, "earnings"), (MockLeadership, "leadership"),
+            ]:
+                mock_cls.return_value.execute = AsyncMock(return_value=_make_agent_result(name))
+
+            MockNews.return_value.execute = AsyncMock(side_effect=slow_news_execute)
+            MockSent.return_value.set_context_data = MagicMock()
+            MockSent.return_value.execute = AsyncMock(side_effect=sentiment_execute)
+            MockSolution.return_value.execute = AsyncMock(return_value=_make_solution_result())
+
+            result = await orch.analyze_ticker("AAPL")
+
+        sentiment_result = result["agent_results"].get("sentiment", {})
+        assert sentiment_result.get("success") is True, (
+            f"Sentiment was starved of timeout — got: {sentiment_result}"
+        )
