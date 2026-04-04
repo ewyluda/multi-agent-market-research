@@ -255,19 +255,44 @@ class Orchestrator:
 
             agent_results = await self._run_agents(ticker, agents_to_run)
 
-            # Collect prefetched data (non-blocking — use whatever completed)
+            # Collect prefetched data — await with short grace period, cancel if still running
             narrative_predata = None
             risk_diff_predata = None
-            if narrative_prefetch and narrative_prefetch.done() and not narrative_prefetch.cancelled():
-                try:
-                    narrative_predata = narrative_prefetch.result()
-                except Exception:
-                    pass
-            if risk_diff_prefetch and risk_diff_prefetch.done() and not risk_diff_prefetch.cancelled():
-                try:
-                    risk_diff_predata = risk_diff_prefetch.result()
-                except Exception:
-                    pass
+            prefetch_grace = float(self.config.get("PREFETCH_GRACE_SECONDS", 2.0))
+
+            for prefetch, label in [
+                (narrative_prefetch, "narrative"),
+                (risk_diff_prefetch, "risk_diff"),
+            ]:
+                if prefetch is None:
+                    continue
+                if prefetch.done():
+                    try:
+                        data = prefetch.result()
+                        if label == "narrative":
+                            narrative_predata = data
+                        else:
+                            risk_diff_predata = data
+                    except Exception:
+                        self.logger.debug(f"{label} prefetch raised (will re-fetch)")
+                else:
+                    # Give it a short grace period
+                    try:
+                        data = await asyncio.wait_for(
+                            asyncio.shield(prefetch), timeout=prefetch_grace
+                        )
+                        if label == "narrative":
+                            narrative_predata = data
+                        else:
+                            risk_diff_predata = data
+                    except (asyncio.TimeoutError, Exception):
+                        # Grace period expired or error — cancel and let enrichment re-fetch
+                        prefetch.cancel()
+                        try:
+                            await prefetch
+                        except (asyncio.CancelledError, Exception):
+                            pass
+                        self.logger.debug(f"{label} prefetch cancelled after grace period")
 
             # Phase 2: Solution + enrichments in parallel
             # Enrichments consume agent_results (Phase 1), not final_analysis,

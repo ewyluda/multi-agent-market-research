@@ -1303,3 +1303,73 @@ class TestEarlySentimentTimeout:
         assert sentiment_result.get("success") is True, (
             f"Sentiment was starved of timeout — got: {sentiment_result}"
         )
+
+
+class TestPrefetchLifecycle:
+    """Tests for narrative/risk_diff prefetch task management."""
+
+    @pytest.mark.asyncio
+    async def test_slow_prefetch_is_cancelled_not_abandoned(self, test_config, tmp_path):
+        """Prefetch tasks still running after grace period are cancelled, not left as orphans."""
+        db_path = str(tmp_path / "test.db")
+        db_manager = DatabaseManager(db_path)
+        orch = Orchestrator(config=test_config, db_manager=db_manager)
+
+        prefetch_cancelled = {"narrative": False, "risk_diff": False}
+
+        async def slow_narrative_fetch(*args, **kwargs):
+            try:
+                await asyncio.sleep(30)  # Will never finish on its own
+                return {"financials": None, "transcripts": [], "agent_results": {}}
+            except asyncio.CancelledError:
+                prefetch_cancelled["narrative"] = True
+                raise
+
+        async def slow_risk_diff_fetch(*args, **kwargs):
+            try:
+                await asyncio.sleep(30)
+                return {"filings": [], "agent_results": {}}
+            except asyncio.CancelledError:
+                prefetch_cancelled["risk_diff"] = True
+                raise
+
+        with (
+            patch("src.orchestrator.NewsAgent") as MockNews,
+            patch("src.orchestrator.MarketAgent") as MockMarket,
+            patch("src.orchestrator.FundamentalsAgent") as MockFund,
+            patch("src.orchestrator.TechnicalAgent") as MockTech,
+            patch("src.orchestrator.MacroAgent") as MockMacro,
+            patch("src.orchestrator.OptionsAgent") as MockOptions,
+            patch("src.orchestrator.EarningsAgent") as MockEarnings,
+            patch("src.orchestrator.LeadershipAgent") as MockLeadership,
+            patch("src.orchestrator.SentimentAgent") as MockSent,
+            patch("src.orchestrator.SolutionAgent") as MockSolution,
+            patch("src.orchestrator.NarrativeAgent") as MockNarrative,
+            patch("src.orchestrator.RiskDiffAgent") as MockRiskDiff,
+        ):
+            for mock_cls, name in [
+                (MockNews, "news"), (MockMarket, "market"),
+                (MockFund, "fundamentals"), (MockTech, "technical"),
+                (MockMacro, "macro"), (MockOptions, "options"),
+                (MockEarnings, "earnings"), (MockLeadership, "leadership"),
+            ]:
+                mock_cls.return_value.execute = AsyncMock(return_value=_make_agent_result(name))
+
+            MockSent.return_value.set_context_data = MagicMock()
+            MockSent.return_value.execute = AsyncMock(return_value=_make_agent_result("sentiment"))
+            MockSolution.return_value.execute = AsyncMock(return_value=_make_solution_result())
+
+            # Narrative prefetch agent instance — slow fetch_data
+            MockNarrative.return_value.fetch_data = AsyncMock(side_effect=slow_narrative_fetch)
+            MockNarrative.return_value.execute = AsyncMock(return_value={"success": True, "data": {}})
+
+            # Risk diff prefetch agent instance — slow fetch_data
+            MockRiskDiff.return_value.fetch_data = AsyncMock(side_effect=slow_risk_diff_fetch)
+            MockRiskDiff.return_value.execute = AsyncMock(return_value={"success": True, "data": {}})
+
+            result = await orch.analyze_ticker("AAPL")
+
+        assert result["success"] is True
+        # Both slow prefetches should have been cancelled, not left as orphans
+        assert prefetch_cancelled["narrative"] is True, "Narrative prefetch was abandoned, not cancelled"
+        assert prefetch_cancelled["risk_diff"] is True, "Risk diff prefetch was abandoned, not cancelled"
