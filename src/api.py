@@ -405,7 +405,7 @@ async def get_latest_analysis(ticker: str):
             # Get full analysis with agent results
             analysis_id = latest.get("id")
             full_analysis = db_manager.get_analysis_with_agents(analysis_id)
-            return full_analysis
+            return _sanitize_for_json(full_analysis)
         else:
             raise HTTPException(
                 status_code=404,

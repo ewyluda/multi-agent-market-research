@@ -6,19 +6,19 @@ Real-time AI-powered US equity analysis with a quant PM upgrade layer.
 
 ### Analysis Dashboard
 ![Analysis Dashboard](docs/screenshots/dashboard-overview.png)
-*Real-time stock analysis with price chart, KPI cards, and multi-tab agent output (Fundamentals, Thesis, Technicals, Sentiment, and more).*
+*KPI cards, Company Arc narrative, and year-by-year financial performance powered by 9 parallel agents.*
 
-### Watchlist Management
-![Watchlist](docs/screenshots/watchlist-view.png)
-*Create and manage watchlists to track groups of tickers with scheduled re-analysis.*
+### Fundamentals & Earnings
+![Fundamentals & Earnings](docs/screenshots/dashboard-fundamentals.png)
+*Structured earnings digest with key highlights, guidance breakdown, and Q&A session analysis.*
 
-### Portfolio Tracker
-![Portfolio](docs/screenshots/portfolio-view.png)
-*Track holdings with cost basis, sector allocation, and AI-powered portfolio advisory.*
+### Technicals & Options
+![Technicals](docs/screenshots/technicals.png)
+*Interactive price chart with RSI, MACD, Bollinger Bands, and real-time options flow analysis.*
 
-### Alerts
-![Alerts](docs/screenshots/alerts-view.png)
-*Configure alert rules for recommendation changes, price movements, and sentiment shifts.*
+### Sentiment & Macro
+![Sentiment](docs/screenshots/sentiment.png)
+*AI-powered sentiment scoring across news, social media, and analyst ratings with macro environment overlay.*
 
 ## Overview
 This platform runs 9 specialized data agents (news, sentiment, fundamentals, market, technical, macro, options, leadership, earnings) in parallel, then runs 6 synthesis agents simultaneously (solution, thesis, earnings review, narrative, tag extractor, risk diff) to produce institutional-grade research output — all via `asyncio.gather()` with zero added latency.
