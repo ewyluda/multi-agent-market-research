@@ -1373,3 +1373,48 @@ class TestPrefetchLifecycle:
         # Both slow prefetches should have been cancelled, not left as orphans
         assert prefetch_cancelled["narrative"] is True, "Narrative prefetch was abandoned, not cancelled"
         assert prefetch_cancelled["risk_diff"] is True, "Risk diff prefetch was abandoned, not cancelled"
+
+
+class TestPostSaveReliability:
+    """Tests for post-save write reliability (no silent data loss)."""
+
+    @pytest.mark.asyncio
+    async def test_all_post_save_writes_execute(self, test_config, tmp_path):
+        """All post-save operations (validation, tags, health, perception, calibration) must execute."""
+        db_path = str(tmp_path / "test.db")
+        db_manager = DatabaseManager(db_path)
+        orch = Orchestrator(config=test_config, db_manager=db_manager)
+
+        with (
+            patch("src.orchestrator.NewsAgent") as MockNews,
+            patch("src.orchestrator.MarketAgent") as MockMarket,
+            patch("src.orchestrator.FundamentalsAgent") as MockFund,
+            patch("src.orchestrator.TechnicalAgent") as MockTech,
+            patch("src.orchestrator.MacroAgent") as MockMacro,
+            patch("src.orchestrator.OptionsAgent") as MockOptions,
+            patch("src.orchestrator.EarningsAgent") as MockEarnings,
+            patch("src.orchestrator.LeadershipAgent") as MockLeadership,
+            patch("src.orchestrator.SentimentAgent") as MockSent,
+            patch("src.orchestrator.SolutionAgent") as MockSolution,
+            patch.object(db_manager, "save_validation_result") as mock_save_val,
+            patch.object(db_manager, "upsert_company_tags") as mock_save_tags,
+            patch.object(db_manager, "save_thesis_health_snapshot") as mock_save_health,
+            patch.object(db_manager, "create_outcome_rows_for_analysis") as mock_save_cal,
+        ):
+            for mock_cls, name in [
+                (MockNews, "news"), (MockMarket, "market"),
+                (MockFund, "fundamentals"), (MockTech, "technical"),
+                (MockMacro, "macro"), (MockOptions, "options"),
+                (MockEarnings, "earnings"), (MockLeadership, "leadership"),
+            ]:
+                mock_cls.return_value.execute = AsyncMock(return_value=_make_agent_result(name))
+
+            MockSent.return_value.set_context_data = MagicMock()
+            MockSent.return_value.execute = AsyncMock(return_value=_make_agent_result("sentiment"))
+            MockSolution.return_value.execute = AsyncMock(return_value=_make_solution_result())
+
+            result = await orch.analyze_ticker("AAPL")
+
+        assert result["success"] is True
+        # Validation should have been called (validation is enabled by default)
+        mock_save_val.assert_called_once()

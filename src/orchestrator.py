@@ -433,125 +433,118 @@ class Orchestrator:
                 self.logger.error(f"Database write failed for {ticker}: {db_exc}", exc_info=True)
                 db_write_warning = f"Analysis completed but database save failed: {db_exc}"
 
-            # Post-processing: run independent DB writes concurrently
+            # Post-processing: sequential DB writes via asyncio.to_thread
+            # (non-blocking for event loop, but serialized to avoid SQLite contention)
             inflection_summary = None
             alerts_triggered = []
 
             if analysis_id:
-                async def _save_validation():
-                    if validation_report is not None:
-                        try:
-                            await asyncio.to_thread(
-                                self.db_manager.save_validation_result,
-                                analysis_id=analysis_id,
-                                ticker=ticker,
-                                validation_id=validation_report["validation_id"],
-                                overall_status=validation_report["overall_status"],
-                                original_confidence=validation_report["original_confidence"],
-                                adjusted_confidence=validation_report["adjusted_confidence"],
-                                total_confidence_penalty=validation_report["total_confidence_penalty"],
-                                rule_checks_total=validation_report.get("rule_validation", {}).get("total_rules_checked", 0),
-                                rule_contradictions=validation_report.get("rule_validation", {}).get("contradictions", 0),
-                                council_claims_total=validation_report.get("council_validation", {}).get("total_claims_checked", 0),
-                                council_contradictions=validation_report.get("council_validation", {}).get("total_contradictions", 0),
-                                spot_check_requested=validation_report.get("spot_check_requested", False),
-                                report_json=validation_report,
-                            )
-                        except Exception as _db_exc:
-                            self.logger.warning(f"Failed to save validation result: {_db_exc}")
-
-                async def _save_tags_and_calibration():
-                    if tag_result:
-                        try:
-                            tags_to_save = tag_result.get("tags", [])
-                            if tags_to_save:
-                                await asyncio.to_thread(
-                                    self.db_manager.upsert_company_tags, ticker, tags_to_save, analysis_id
-                                )
-                                self.logger.info(f"Saved {len(tags_to_save)} tags for {ticker}")
-                        except Exception as e:
-                            self.logger.warning(f"Tag save failed for {ticker}: {e}")
-
-                    if self.config.get("CALIBRATION_ENABLED", True):
-                        try:
-                            baseline_price = self._extract_baseline_price(agent_results, final_analysis)
-                            predicted_up_probability = self._derive_predicted_up_probability(final_analysis)
-                            if baseline_price is not None:
-                                portfolio_profile = self.db_manager.get_portfolio_profile()
-                                await asyncio.to_thread(
-                                    self.db_manager.create_outcome_rows_for_analysis,
-                                    analysis_id=analysis_id,
-                                    ticker=ticker,
-                                    baseline_price=baseline_price,
-                                    confidence=final_analysis.get("confidence"),
-                                    predicted_up_probability=predicted_up_probability,
-                                    transaction_cost_bps=portfolio_profile.get("default_transaction_cost_bps"),
-                                    slippage_bps=5.0,
-                                )
-                        except Exception as exc:
-                            self.logger.warning(f"Failed to enqueue calibration outcomes: {exc}")
-
-                async def _save_thesis_health():
-                    if thesis_health_report is not None:
-                        try:
-                            await asyncio.to_thread(
-                                self.db_manager.save_thesis_health_snapshot,
-                                analysis_id=analysis_id,
-                                ticker=ticker,
-                                overall_health=thesis_health_report["overall_health"],
-                                previous_health=thesis_health_report.get("previous_health"),
-                                health_changed=thesis_health_report.get("health_changed", False),
-                                indicators_json=thesis_health_report.get("indicators", []),
-                                baselines_updated=thesis_health_report.get("baselines_updated", 0),
-                            )
-                        except Exception as _db_exc:
-                            self.logger.warning(f"Failed to save thesis health snapshot: {_db_exc}")
-
-                async def _run_perception_pipeline():
-                    nonlocal inflection_summary
+                # 1. Validation result
+                if validation_report is not None:
                     try:
-                        data_quality = (final_analysis.get("diagnostics") or {}).get("data_quality", {})
-                        quality_score = data_quality.get("agent_success_rate", 0.8)
-                        snapshots = extract_kpi_snapshots(agent_results, confidence=quality_score)
-                        if snapshots:
-                            perception_repo = PerceptionRepository(self.db_manager)
+                        await asyncio.to_thread(
+                            self.db_manager.save_validation_result,
+                            analysis_id=analysis_id,
+                            ticker=ticker,
+                            validation_id=validation_report["validation_id"],
+                            overall_status=validation_report["overall_status"],
+                            original_confidence=validation_report["original_confidence"],
+                            adjusted_confidence=validation_report["adjusted_confidence"],
+                            total_confidence_penalty=validation_report["total_confidence_penalty"],
+                            rule_checks_total=validation_report.get("rule_validation", {}).get("total_rules_checked", 0),
+                            rule_contradictions=validation_report.get("rule_validation", {}).get("contradictions", 0),
+                            council_claims_total=validation_report.get("council_validation", {}).get("total_claims_checked", 0),
+                            council_contradictions=validation_report.get("council_validation", {}).get("total_contradictions", 0),
+                            spot_check_requested=validation_report.get("spot_check_requested", False),
+                            report_json=validation_report,
+                        )
+                    except Exception as _db_exc:
+                        self.logger.warning(f"Failed to save validation result: {_db_exc}")
+
+                # 2. Perception snapshots + inflection detection
+                try:
+                    data_quality = (final_analysis.get("diagnostics") or {}).get("data_quality", {})
+                    quality_score = data_quality.get("agent_success_rate", 0.8)
+                    snapshots = extract_kpi_snapshots(agent_results, confidence=quality_score)
+                    if snapshots:
+                        perception_repo = PerceptionRepository(self.db_manager)
+                        await asyncio.to_thread(
+                            perception_repo.insert_snapshots, ticker, analysis_id, snapshots
+                        )
+                        self.logger.info(f"Captured {len(snapshots)} perception snapshots for {ticker}")
+
+                        prior = await asyncio.to_thread(
+                            perception_repo.get_prior_snapshots, ticker, analysis_id
+                        )
+                        if prior:
+                            detector = InflectionDetector()
+                            inflections = detector.detect(prior, snapshots)
+                            inflection_summary = detector.build_summary(inflections)
+
+                            if inflections:
+                                await asyncio.to_thread(
+                                    perception_repo.insert_inflection_events,
+                                    ticker, analysis_id, inflections,
+                                )
+                                for inf in inflections:
+                                    inf["convergence_score"] = inflection_summary["convergence_score"]
+                                    inf["source_agents"] = [inf["source_agent"]]
+                                self.logger.info(
+                                    f"Detected {len(inflections)} inflections for {ticker} "
+                                    f"(convergence={inflection_summary['convergence_score']:.2f})"
+                                )
+                except Exception as e:
+                    self.logger.warning(f"Perception/inflection processing failed: {e}")
+
+                # 3. Company tags
+                if tag_result:
+                    try:
+                        tags_to_save = tag_result.get("tags", [])
+                        if tags_to_save:
                             await asyncio.to_thread(
-                                perception_repo.insert_snapshots, ticker, analysis_id, snapshots
+                                self.db_manager.upsert_company_tags, ticker, tags_to_save, analysis_id
                             )
-                            self.logger.info(f"Captured {len(snapshots)} perception snapshots for {ticker}")
-
-                            prior = await asyncio.to_thread(
-                                perception_repo.get_prior_snapshots, ticker, analysis_id
-                            )
-                            if prior:
-                                detector = InflectionDetector()
-                                inflections = detector.detect(prior, snapshots)
-                                inflection_summary = detector.build_summary(inflections)
-
-                                if inflections:
-                                    await asyncio.to_thread(
-                                        perception_repo.insert_inflection_events,
-                                        ticker, analysis_id, inflections,
-                                    )
-                                    for inf in inflections:
-                                        inf["convergence_score"] = inflection_summary["convergence_score"]
-                                        inf["source_agents"] = [inf["source_agent"]]
-                                    self.logger.info(
-                                        f"Detected {len(inflections)} inflections for {ticker} "
-                                        f"(convergence={inflection_summary['convergence_score']:.2f})"
-                                    )
+                            self.logger.info(f"Saved {len(tags_to_save)} tags for {ticker}")
                     except Exception as e:
-                        self.logger.warning(f"Perception/inflection processing failed: {e}")
+                        self.logger.warning(f"Tag save failed for {ticker}: {e}")
 
-                # Run all independent post-processing concurrently
-                await asyncio.gather(
-                    _save_validation(),
-                    _save_tags_and_calibration(),
-                    _save_thesis_health(),
-                    _run_perception_pipeline(),
-                )
+                # 4. Thesis health snapshot
+                if thesis_health_report is not None:
+                    try:
+                        await asyncio.to_thread(
+                            self.db_manager.save_thesis_health_snapshot,
+                            analysis_id=analysis_id,
+                            ticker=ticker,
+                            overall_health=thesis_health_report["overall_health"],
+                            previous_health=thesis_health_report.get("previous_health"),
+                            health_changed=thesis_health_report.get("health_changed", False),
+                            indicators_json=thesis_health_report.get("indicators", []),
+                            baselines_updated=thesis_health_report.get("baselines_updated", 0),
+                        )
+                    except Exception as _db_exc:
+                        self.logger.warning(f"Failed to save thesis health snapshot: {_db_exc}")
 
-                # Alerts last (may read updated state)
+                # 5. Calibration outcomes
+                if self.config.get("CALIBRATION_ENABLED", True):
+                    try:
+                        baseline_price = self._extract_baseline_price(agent_results, final_analysis)
+                        predicted_up_probability = self._derive_predicted_up_probability(final_analysis)
+                        if baseline_price is not None:
+                            portfolio_profile = self.db_manager.get_portfolio_profile()
+                            await asyncio.to_thread(
+                                self.db_manager.create_outcome_rows_for_analysis,
+                                analysis_id=analysis_id,
+                                ticker=ticker,
+                                baseline_price=baseline_price,
+                                confidence=final_analysis.get("confidence"),
+                                predicted_up_probability=predicted_up_probability,
+                                transaction_cost_bps=portfolio_profile.get("default_transaction_cost_bps"),
+                                slippage_bps=5.0,
+                            )
+                    except Exception as exc:
+                        self.logger.warning(f"Failed to enqueue calibration outcomes: {exc}")
+
+                # 6. Alert evaluation (last — may depend on updated state)
                 if self.config.get("ALERTS_ENABLED", True):
                     try:
                         from .alert_engine import AlertEngine
