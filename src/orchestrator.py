@@ -104,9 +104,11 @@ class Orchestrator:
     async def _create_shared_session(self) -> aiohttp.ClientSession:
         """Create a shared aiohttp session for all agents in this analysis."""
         connector = aiohttp.TCPConnector(
-            limit=10,
-            limit_per_host=5,
+            limit=20,
+            limit_per_host=10,
             ttl_dns_cache=300,
+            enable_cleanup_closed=True,
+            keepalive_timeout=30,
         )
         self._shared_session = aiohttp.ClientSession(
             connector=connector,
@@ -224,15 +226,78 @@ class Orchestrator:
             # Phase 1: Run data gathering agents
             await self._notify_progress("gathering_data", ticker, 10)
 
+            # Start prefetching data for enrichment agents that fetch their own
+            # data independently (narrative needs financials+transcripts,
+            # risk_diff needs SEC filings). These run concurrently with Phase 1
+            # data agents so the data is ready when enrichments start.
+            narrative_prefetch = None
+            risk_diff_prefetch = None
+            _narrative_agent = None
+            _risk_diff_agent = None
+
+            try:
+                _narrative_agent = NarrativeAgent(ticker, self.config, {})
+                self._inject_shared_resources(_narrative_agent)
+                narrative_prefetch = asyncio.create_task(
+                    _narrative_agent.fetch_data(), name="narrative_prefetch"
+                )
+            except Exception:
+                self.logger.debug("Narrative prefetch setup failed (non-blocking)")
+
+            try:
+                _risk_diff_agent = RiskDiffAgent(ticker, self.config, {})
+                self._inject_shared_resources(_risk_diff_agent)
+                risk_diff_prefetch = asyncio.create_task(
+                    _risk_diff_agent.fetch_data(), name="risk_diff_prefetch"
+                )
+            except Exception:
+                self.logger.debug("Risk diff prefetch setup failed (non-blocking)")
+
             agent_results = await self._run_agents(ticker, agents_to_run)
 
-            # Phase 2: Run solution agent with aggregated results
+            # Collect prefetched data — await with short grace period, cancel if still running
+            narrative_predata = None
+            risk_diff_predata = None
+            prefetch_grace = float(self.config.get("PREFETCH_GRACE_SECONDS", 2.0))
+
+            for prefetch, label in [
+                (narrative_prefetch, "narrative"),
+                (risk_diff_prefetch, "risk_diff"),
+            ]:
+                if prefetch is None:
+                    continue
+                if prefetch.done():
+                    try:
+                        data = prefetch.result()
+                        if label == "narrative":
+                            narrative_predata = data
+                        else:
+                            risk_diff_predata = data
+                    except Exception:
+                        self.logger.debug(f"{label} prefetch raised (will re-fetch)")
+                else:
+                    # Give it a short grace period
+                    try:
+                        data = await asyncio.wait_for(
+                            asyncio.shield(prefetch), timeout=prefetch_grace
+                        )
+                        if label == "narrative":
+                            narrative_predata = data
+                        else:
+                            risk_diff_predata = data
+                    except (asyncio.TimeoutError, Exception):
+                        # Grace period expired or error — cancel and let enrichment re-fetch
+                        prefetch.cancel()
+                        try:
+                            await prefetch
+                        except (asyncio.CancelledError, Exception):
+                            pass
+                        self.logger.debug(f"{label} prefetch cancelled after grace period")
+
+            # Phase 2: Solution + enrichments in parallel
+            # Enrichments consume agent_results (Phase 1), not final_analysis,
+            # so they can safely run concurrently with the solution agent.
             await self._notify_progress("synthesizing", ticker, 80)
-
-            # Phase 2a: Required synthesis (critical path)
-            final_analysis = await self._run_solution_agent(ticker, agent_results)
-
-            # Phase 2b: Optional enrichments (individually timed, non-blocking)
             enrichment_timeout = int(self.config.get("ENRICHMENT_AGENT_TIMEOUT", 15))
 
             async def _safe_enrichment(coro, name):
@@ -242,12 +307,15 @@ class Orchestrator:
                     self.logger.warning(f"Enrichment '{name}' failed (non-blocking): {e}")
                     return None
 
-            thesis_result, earnings_review_result, narrative_result, tag_result, risk_diff_result = await asyncio.gather(
-                _safe_enrichment(self._run_thesis_agent(ticker, agent_results), "thesis"),
-                _safe_enrichment(self._run_earnings_review_agent(ticker, agent_results), "earnings_review"),
-                _safe_enrichment(self._run_narrative_agent(ticker, agent_results), "narrative"),
-                _safe_enrichment(self._run_tag_extractor_agent(ticker, agent_results), "tag_extractor"),
-                _safe_enrichment(self._run_risk_diff_agent(ticker, agent_results), "risk_diff"),
+            final_analysis, (thesis_result, earnings_review_result, narrative_result, tag_result, risk_diff_result) = await asyncio.gather(
+                self._run_solution_agent(ticker, agent_results),
+                asyncio.gather(
+                    _safe_enrichment(self._run_thesis_agent(ticker, agent_results), "thesis"),
+                    _safe_enrichment(self._run_earnings_review_agent(ticker, agent_results), "earnings_review"),
+                    _safe_enrichment(self._run_narrative_agent(ticker, agent_results, prefetched_data=narrative_predata), "narrative"),
+                    _safe_enrichment(self._run_tag_extractor_agent(ticker, agent_results), "tag_extractor"),
+                    _safe_enrichment(self._run_risk_diff_agent(ticker, agent_results, prefetched_data=risk_diff_predata), "risk_diff"),
+                ),
             )
             if thesis_result:
                 final_analysis["thesis"] = thesis_result
@@ -365,48 +433,57 @@ class Orchestrator:
                 self.logger.error(f"Database write failed for {ticker}: {db_exc}", exc_info=True)
                 db_write_warning = f"Analysis completed but database save failed: {db_exc}"
 
-            # Persist validation result now that analysis_id is available
-            if analysis_id and validation_report is not None:
-                try:
-                    self.db_manager.save_validation_result(
-                        analysis_id=analysis_id,
-                        ticker=ticker,
-                        validation_id=validation_report["validation_id"],
-                        overall_status=validation_report["overall_status"],
-                        original_confidence=validation_report["original_confidence"],
-                        adjusted_confidence=validation_report["adjusted_confidence"],
-                        total_confidence_penalty=validation_report["total_confidence_penalty"],
-                        rule_checks_total=validation_report.get("rule_validation", {}).get("total_rules_checked", 0),
-                        rule_contradictions=validation_report.get("rule_validation", {}).get("contradictions", 0),
-                        council_claims_total=validation_report.get("council_validation", {}).get("total_claims_checked", 0),
-                        council_contradictions=validation_report.get("council_validation", {}).get("total_contradictions", 0),
-                        spot_check_requested=validation_report.get("spot_check_requested", False),
-                        report_json=validation_report,
-                    )
-                except Exception as _db_exc:
-                    self.logger.warning(f"Failed to save validation result: {_db_exc}")
-
-            # Capture perception snapshots + detect inflections
+            # Post-processing: sequential DB writes via asyncio.to_thread
+            # (non-blocking for event loop, but serialized to avoid SQLite contention)
             inflection_summary = None
+            alerts_triggered = []
+
             if analysis_id:
+                # 1. Validation result
+                if validation_report is not None:
+                    try:
+                        await asyncio.to_thread(
+                            self.db_manager.save_validation_result,
+                            analysis_id=analysis_id,
+                            ticker=ticker,
+                            validation_id=validation_report["validation_id"],
+                            overall_status=validation_report["overall_status"],
+                            original_confidence=validation_report["original_confidence"],
+                            adjusted_confidence=validation_report["adjusted_confidence"],
+                            total_confidence_penalty=validation_report["total_confidence_penalty"],
+                            rule_checks_total=validation_report.get("rule_validation", {}).get("total_rules_checked", 0),
+                            rule_contradictions=validation_report.get("rule_validation", {}).get("contradictions", 0),
+                            council_claims_total=validation_report.get("council_validation", {}).get("total_claims_checked", 0),
+                            council_contradictions=validation_report.get("council_validation", {}).get("total_contradictions", 0),
+                            spot_check_requested=validation_report.get("spot_check_requested", False),
+                            report_json=validation_report,
+                        )
+                    except Exception as _db_exc:
+                        self.logger.warning(f"Failed to save validation result: {_db_exc}")
+
+                # 2. Perception snapshots + inflection detection
                 try:
                     data_quality = (final_analysis.get("diagnostics") or {}).get("data_quality", {})
                     quality_score = data_quality.get("agent_success_rate", 0.8)
                     snapshots = extract_kpi_snapshots(agent_results, confidence=quality_score)
                     if snapshots:
                         perception_repo = PerceptionRepository(self.db_manager)
-                        perception_repo.insert_snapshots(ticker, analysis_id, snapshots)
+                        await asyncio.to_thread(
+                            perception_repo.insert_snapshots, ticker, analysis_id, snapshots
+                        )
                         self.logger.info(f"Captured {len(snapshots)} perception snapshots for {ticker}")
 
-                        # Detect inflections against prior snapshots
-                        prior = perception_repo.get_prior_snapshots(ticker, analysis_id)
+                        prior = await asyncio.to_thread(
+                            perception_repo.get_prior_snapshots, ticker, analysis_id
+                        )
                         if prior:
                             detector = InflectionDetector()
                             inflections = detector.detect(prior, snapshots)
                             inflection_summary = detector.build_summary(inflections)
 
                             if inflections:
-                                perception_repo.insert_inflection_events(
+                                await asyncio.to_thread(
+                                    perception_repo.insert_inflection_events,
                                     ticker, analysis_id, inflections,
                                 )
                                 for inf in inflections:
@@ -419,58 +496,62 @@ class Orchestrator:
                 except Exception as e:
                     self.logger.warning(f"Perception/inflection processing failed: {e}")
 
-            # Persist company tags
-            if analysis_id and tag_result:
-                try:
-                    tags_to_save = tag_result.get("tags", [])
-                    if tags_to_save:
-                        self.db_manager.upsert_company_tags(ticker, tags_to_save, analysis_id)
-                        self.logger.info(f"Saved {len(tags_to_save)} tags for {ticker}")
-                except Exception as e:
-                    self.logger.warning(f"Tag save failed for {ticker}: {e}")
+                # 3. Company tags
+                if tag_result:
+                    try:
+                        tags_to_save = tag_result.get("tags", [])
+                        if tags_to_save:
+                            await asyncio.to_thread(
+                                self.db_manager.upsert_company_tags, ticker, tags_to_save, analysis_id
+                            )
+                            self.logger.info(f"Saved {len(tags_to_save)} tags for {ticker}")
+                    except Exception as e:
+                        self.logger.warning(f"Tag save failed for {ticker}: {e}")
 
-            # Persist thesis health snapshot
-            if analysis_id and thesis_health_report is not None:
-                try:
-                    self.db_manager.save_thesis_health_snapshot(
-                        analysis_id=analysis_id,
-                        ticker=ticker,
-                        overall_health=thesis_health_report["overall_health"],
-                        previous_health=thesis_health_report.get("previous_health"),
-                        health_changed=thesis_health_report.get("health_changed", False),
-                        indicators_json=thesis_health_report.get("indicators", []),
-                        baselines_updated=thesis_health_report.get("baselines_updated", 0),
-                    )
-                except Exception as _db_exc:
-                    self.logger.warning(f"Failed to save thesis health snapshot: {_db_exc}")
-
-            if analysis_id and self.config.get("CALIBRATION_ENABLED", True):
-                try:
-                    baseline_price = self._extract_baseline_price(agent_results, final_analysis)
-                    predicted_up_probability = self._derive_predicted_up_probability(final_analysis)
-                    if baseline_price is not None:
-                        portfolio_profile = self.db_manager.get_portfolio_profile()
-                        self.db_manager.create_outcome_rows_for_analysis(
+                # 4. Thesis health snapshot
+                if thesis_health_report is not None:
+                    try:
+                        await asyncio.to_thread(
+                            self.db_manager.save_thesis_health_snapshot,
                             analysis_id=analysis_id,
                             ticker=ticker,
-                            baseline_price=baseline_price,
-                            confidence=final_analysis.get("confidence"),
-                            predicted_up_probability=predicted_up_probability,
-                            transaction_cost_bps=portfolio_profile.get("default_transaction_cost_bps"),
-                            slippage_bps=5.0,
+                            overall_health=thesis_health_report["overall_health"],
+                            previous_health=thesis_health_report.get("previous_health"),
+                            health_changed=thesis_health_report.get("health_changed", False),
+                            indicators_json=thesis_health_report.get("indicators", []),
+                            baselines_updated=thesis_health_report.get("baselines_updated", 0),
                         )
-                except Exception as exc:
-                    self.logger.warning(f"Failed to enqueue calibration outcomes: {exc}")
+                    except Exception as _db_exc:
+                        self.logger.warning(f"Failed to save thesis health snapshot: {_db_exc}")
 
-            # Evaluate alert rules
-            alerts_triggered = []
-            if analysis_id and self.config.get("ALERTS_ENABLED", True):
-                try:
-                    from .alert_engine import AlertEngine
-                    alert_engine = AlertEngine(self.db_manager)
-                    alerts_triggered = alert_engine.evaluate_alerts(ticker, analysis_id)
-                except Exception as e:
-                    self.logger.warning(f"Alert evaluation failed: {e}")
+                # 5. Calibration outcomes
+                if self.config.get("CALIBRATION_ENABLED", True):
+                    try:
+                        baseline_price = self._extract_baseline_price(agent_results, final_analysis)
+                        predicted_up_probability = self._derive_predicted_up_probability(final_analysis)
+                        if baseline_price is not None:
+                            portfolio_profile = self.db_manager.get_portfolio_profile()
+                            await asyncio.to_thread(
+                                self.db_manager.create_outcome_rows_for_analysis,
+                                analysis_id=analysis_id,
+                                ticker=ticker,
+                                baseline_price=baseline_price,
+                                confidence=final_analysis.get("confidence"),
+                                predicted_up_probability=predicted_up_probability,
+                                transaction_cost_bps=portfolio_profile.get("default_transaction_cost_bps"),
+                                slippage_bps=5.0,
+                            )
+                    except Exception as exc:
+                        self.logger.warning(f"Failed to enqueue calibration outcomes: {exc}")
+
+                # 6. Alert evaluation (last — may depend on updated state)
+                if self.config.get("ALERTS_ENABLED", True):
+                    try:
+                        from .alert_engine import AlertEngine
+                        alert_engine = AlertEngine(self.db_manager)
+                        alerts_triggered = alert_engine.evaluate_alerts(ticker, analysis_id)
+                    except Exception as e:
+                        self.logger.warning(f"Alert evaluation failed: {e}")
 
             # Complete
             await self._notify_progress("complete", ticker, 100)
@@ -531,13 +612,19 @@ class Orchestrator:
         timeout = self.config.get("AGENT_TIMEOUT", 30)
         use_parallel = self.config.get("PARALLEL_AGENTS", True)
 
-        if use_parallel:
+        if use_parallel and run_sentiment and "news" in agents and "market" in agents:
+            # Overlap sentiment with remaining data agents: start sentiment as
+            # soon as news + market complete, don't wait for all agents.
+            results = await self._run_data_agents_with_early_sentiment(
+                agents, ticker, timeout, progress_map,
+            )
+        elif use_parallel:
             results = await self._run_data_agents_parallel(agents, ticker, timeout, progress_map)
         else:
             results = await self._run_data_agents_sequential(agents, ticker, timeout, progress_map)
 
-        # Run sentiment agent if requested (depends on news + market data)
-        if run_sentiment:
+        # Fallback: run sentiment sequentially if not already handled
+        if run_sentiment and "sentiment" not in results:
             sentiment_agent = SentimentAgent(ticker, self.config)
             self._inject_shared_resources(sentiment_agent)
 
@@ -612,6 +699,114 @@ class Orchestrator:
         for task in pending:
             agent_name = tasks[task]
             results[agent_name] = {"success": False, "error": f"Timed out after {timeout}s", "data": None, "agent_type": agent_name, "duration_seconds": timeout}
+
+        return results
+
+    async def _run_data_agents_with_early_sentiment(
+        self,
+        agents: Dict[str, Any],
+        ticker: str,
+        timeout: int,
+        progress_map: Dict[str, int],
+    ) -> Dict[str, Any]:
+        """Run data agents in parallel, starting sentiment as soon as news+market complete.
+
+        Instead of waiting for ALL data agents before running sentiment,
+        this method monitors for news and market completion and kicks off
+        sentiment in parallel with the remaining slower agents.
+
+        Sentiment gets its own full timeout from the moment it starts,
+        independent of how long news/market took.
+        """
+        # Launch all data agents
+        tasks: Dict[asyncio.Task, str] = {}
+        for name, agent in agents.items():
+            progress_pct = progress_map.get(name, 30)
+            task = asyncio.create_task(
+                self._run_agent_with_progress(agent, name, ticker, progress_pct),
+                name=name,
+            )
+            tasks[task] = name
+
+        # Track which tasks belong to news/market
+        news_task = None
+        market_task = None
+        for task, name in tasks.items():
+            if name == "news":
+                news_task = task
+            elif name == "market":
+                market_task = task
+
+        results: Dict[str, Any] = {}
+        sentiment_task = None
+        remaining_tasks = set(tasks.keys())
+        loop = asyncio.get_event_loop()
+        data_deadline = loop.time() + timeout
+
+        # Wait for news + market first (with overall timeout)
+        deps = {t for t in [news_task, market_task] if t is not None}
+        if deps:
+            done_deps, _ = await asyncio.wait(deps, timeout=timeout)
+            for task in done_deps:
+                agent_name = tasks[task]
+                remaining_tasks.discard(task)
+                try:
+                    r = task.result()
+                    results[agent_name] = r if isinstance(r, dict) else {"success": False, "error": str(r)}
+                except Exception as e:
+                    results[agent_name] = {"success": False, "error": str(e), "data": None, "agent_type": agent_name, "duration_seconds": 0}
+
+            # Start sentiment immediately with whatever news/market data we have
+            sentiment_agent = SentimentAgent(ticker, self.config)
+            self._inject_shared_resources(sentiment_agent)
+
+            news_articles, twitter_posts = [], []
+            news_result = results.get("news")
+            if isinstance(news_result, dict) and news_result.get("success"):
+                news_data = news_result.get("data", {})
+                news_articles = news_data.get("articles", [])
+                twitter_posts = news_data.get("twitter_posts", [])
+
+            market_data = {}
+            market_result = results.get("market")
+            if isinstance(market_result, dict) and market_result.get("success"):
+                market_data = market_result.get("data", {})
+
+            sentiment_agent.set_context_data(news_articles, market_data, twitter_posts)
+            await self._notify_progress("analyzing_sentiment", ticker, 70)
+
+            # Sentiment gets its own full timeout from NOW
+            sentiment_task = asyncio.create_task(
+                asyncio.wait_for(sentiment_agent.execute(), timeout=timeout),
+                name="sentiment",
+            )
+            remaining_tasks.add(sentiment_task)
+
+        # Wait for remaining data agents + sentiment.
+        # Use the later of: data-agent deadline OR sentiment's own deadline.
+        if remaining_tasks:
+            data_time_left = max(0, data_deadline - loop.time())
+            # Sentiment just started — it needs a full `timeout` from now.
+            # Other data agents have been running since the start — they use data_deadline.
+            outer_wait = max(data_time_left, timeout) if sentiment_task else data_time_left
+            done, pending = await asyncio.wait(remaining_tasks, timeout=outer_wait)
+
+            for task in pending:
+                task.cancel()
+                name = tasks.get(task, "sentiment")
+                self.logger.warning(f"Agent '{name}' timed out for {ticker}")
+
+            for task in done:
+                name = tasks.get(task, "sentiment")
+                try:
+                    r = task.result()
+                    results[name] = r if isinstance(r, dict) else {"success": False, "error": str(r)}
+                except Exception as e:
+                    results[name] = {"success": False, "error": str(e), "data": None, "agent_type": name, "duration_seconds": 0}
+
+            for task in pending:
+                name = tasks.get(task, "sentiment")
+                results[name] = {"success": False, "error": f"Timed out after {timeout}s", "data": None, "agent_type": name, "duration_seconds": timeout}
 
         return results
 
@@ -761,11 +956,16 @@ class Orchestrator:
         self,
         ticker: str,
         agent_results: Dict[str, Any],
+        prefetched_data: Optional[Dict[str, Any]] = None,
     ) -> Optional[Dict[str, Any]]:
         """Run narrative agent for multi-year financial story (non-blocking)."""
         try:
             narrative_agent = NarrativeAgent(ticker, self.config, agent_results)
             self._inject_shared_resources(narrative_agent)
+            if prefetched_data is not None:
+                # Inject agent_results into prefetched data (fetch_data returns these)
+                prefetched_data["agent_results"] = agent_results
+                narrative_agent._prefetched_data = prefetched_data
             timeout = self.config.get("AGENT_TIMEOUT", 30)
             result = await asyncio.wait_for(
                 narrative_agent.execute(),
@@ -813,11 +1013,15 @@ class Orchestrator:
         self,
         ticker: str,
         agent_results: Dict[str, Any],
+        prefetched_data: Optional[Dict[str, Any]] = None,
     ) -> Optional[Dict[str, Any]]:
         """Run risk diff agent for SEC filing risk factor changes (non-blocking)."""
         try:
             risk_diff_agent = RiskDiffAgent(ticker, self.config, agent_results)
             self._inject_shared_resources(risk_diff_agent)
+            if prefetched_data is not None:
+                prefetched_data["agent_results"] = agent_results
+                risk_diff_agent._prefetched_data = prefetched_data
             timeout = self.config.get("AGENT_TIMEOUT", 30)
             result = await asyncio.wait_for(
                 risk_diff_agent.execute(),

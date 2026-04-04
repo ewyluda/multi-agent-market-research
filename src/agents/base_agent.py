@@ -27,6 +27,7 @@ class BaseAgent(ABC):
         self.error = None
         self.start_time = None
         self.end_time = None
+        self._prefetched_data = None  # set externally to skip fetch_data()
 
     @abstractmethod
     async def fetch_data(self) -> Dict[str, Any]:
@@ -102,9 +103,14 @@ class BaseAgent(ABC):
         try:
             self.logger.info(f"Starting {self.__class__.__name__} for {self.ticker}")
 
-            # Fetch raw data
-            raw_data = await self.fetch_data()
-            self.logger.debug(f"Fetched data: {len(str(raw_data))} bytes")
+            # Use prefetched data if available, otherwise fetch
+            if self._prefetched_data is not None:
+                raw_data = self._prefetched_data
+                self._prefetched_data = None
+                self.logger.debug(f"Using prefetched data: {len(str(raw_data))} bytes")
+            else:
+                raw_data = await self.fetch_data()
+                self.logger.debug(f"Fetched data: {len(str(raw_data))} bytes")
 
             # Analyze data
             analysis_result = await self.analyze(raw_data)

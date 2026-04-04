@@ -38,9 +38,12 @@ class OpenBBDataProvider:
     TTL_ESTIMATES = 86400      # 24 hours
     TTL_OWNERSHIP = 86400      # 24 hours
 
+    CACHE_MAX_SIZE = 500  # LRU eviction threshold
+
     def __init__(self, config: Dict[str, Any]):
         self._config = config
         self._cache: Dict[str, tuple[Any, float]] = {}  # key -> (result, expiry_ts)
+        self._cache_order: list[str] = []  # insertion order for LRU eviction
         self._obb = None  # lazy-initialized
         # In-flight request deduplication — concurrent misses for the same
         # cache key await a single fetch instead of duplicating upstream work
@@ -102,11 +105,22 @@ class OpenBBDataProvider:
         result, expiry = entry
         if time.time() > expiry:
             del self._cache[key]
+            try:
+                self._cache_order.remove(key)
+            except ValueError:
+                pass
             return None
         return result
 
     def _cache_put(self, key: str, value: Any, ttl: float):
+        # Evict oldest entries if at capacity
+        while len(self._cache) >= self.CACHE_MAX_SIZE and self._cache_order:
+            oldest = self._cache_order.pop(0)
+            self._cache.pop(oldest, None)
         self._cache[key] = (value, time.time() + ttl)
+        if key in self._cache_order:
+            self._cache_order.remove(key)
+        self._cache_order.append(key)
 
     async def _deduplicated_fetch(self, cache_key: str, ttl: float, fetch_fn):
         """Fetch with in-flight deduplication.

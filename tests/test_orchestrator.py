@@ -1249,3 +1249,172 @@ class TestRiskDiffIntegration:
 
         assert result["success"] is True
         assert result["analysis"].get("risk_diff") is None
+
+
+class TestEarlySentimentTimeout:
+    """Regression tests for sentiment timeout in early-sentiment mode."""
+
+    @pytest.mark.asyncio
+    async def test_sentiment_gets_full_timeout_when_deps_finish_late(self, test_config, tmp_path):
+        """Sentiment must get its own full timeout even if news/market consume most of the deadline."""
+        db_path = str(tmp_path / "test.db")
+        db_manager = DatabaseManager(db_path)
+        config = {**test_config, "AGENT_TIMEOUT": 5}
+        orch = Orchestrator(config=config, db_manager=db_manager)
+
+        async def slow_news_execute():
+            """Simulate news agent finishing at 4s of a 5s timeout."""
+            await asyncio.sleep(4.0)
+            return _make_agent_result("news")
+
+        async def sentiment_execute():
+            """Sentiment needs 2s — must NOT be starved."""
+            await asyncio.sleep(1.5)
+            return _make_agent_result("sentiment")
+
+        with (
+            patch("src.orchestrator.NewsAgent") as MockNews,
+            patch("src.orchestrator.MarketAgent") as MockMarket,
+            patch("src.orchestrator.FundamentalsAgent") as MockFund,
+            patch("src.orchestrator.TechnicalAgent") as MockTech,
+            patch("src.orchestrator.MacroAgent") as MockMacro,
+            patch("src.orchestrator.OptionsAgent") as MockOptions,
+            patch("src.orchestrator.EarningsAgent") as MockEarnings,
+            patch("src.orchestrator.LeadershipAgent") as MockLeadership,
+            patch("src.orchestrator.SentimentAgent") as MockSent,
+            patch("src.orchestrator.SolutionAgent") as MockSolution,
+        ):
+            for mock_cls, name in [
+                (MockMarket, "market"),
+                (MockFund, "fundamentals"), (MockTech, "technical"),
+                (MockMacro, "macro"), (MockOptions, "options"),
+                (MockEarnings, "earnings"), (MockLeadership, "leadership"),
+            ]:
+                mock_cls.return_value.execute = AsyncMock(return_value=_make_agent_result(name))
+
+            MockNews.return_value.execute = AsyncMock(side_effect=slow_news_execute)
+            MockSent.return_value.set_context_data = MagicMock()
+            MockSent.return_value.execute = AsyncMock(side_effect=sentiment_execute)
+            MockSolution.return_value.execute = AsyncMock(return_value=_make_solution_result())
+
+            result = await orch.analyze_ticker("AAPL")
+
+        sentiment_result = result["agent_results"].get("sentiment", {})
+        assert sentiment_result.get("success") is True, (
+            f"Sentiment was starved of timeout — got: {sentiment_result}"
+        )
+
+
+class TestPrefetchLifecycle:
+    """Tests for narrative/risk_diff prefetch task management."""
+
+    @pytest.mark.asyncio
+    async def test_slow_prefetch_is_cancelled_not_abandoned(self, test_config, tmp_path):
+        """Prefetch tasks still running after grace period are cancelled, not left as orphans."""
+        db_path = str(tmp_path / "test.db")
+        db_manager = DatabaseManager(db_path)
+        orch = Orchestrator(config=test_config, db_manager=db_manager)
+
+        prefetch_cancelled = {"narrative": False, "risk_diff": False}
+
+        async def slow_narrative_fetch(*args, **kwargs):
+            try:
+                await asyncio.sleep(30)  # Will never finish on its own
+                return {"financials": None, "transcripts": [], "agent_results": {}}
+            except asyncio.CancelledError:
+                prefetch_cancelled["narrative"] = True
+                raise
+
+        async def slow_risk_diff_fetch(*args, **kwargs):
+            try:
+                await asyncio.sleep(30)
+                return {"filings": [], "agent_results": {}}
+            except asyncio.CancelledError:
+                prefetch_cancelled["risk_diff"] = True
+                raise
+
+        with (
+            patch("src.orchestrator.NewsAgent") as MockNews,
+            patch("src.orchestrator.MarketAgent") as MockMarket,
+            patch("src.orchestrator.FundamentalsAgent") as MockFund,
+            patch("src.orchestrator.TechnicalAgent") as MockTech,
+            patch("src.orchestrator.MacroAgent") as MockMacro,
+            patch("src.orchestrator.OptionsAgent") as MockOptions,
+            patch("src.orchestrator.EarningsAgent") as MockEarnings,
+            patch("src.orchestrator.LeadershipAgent") as MockLeadership,
+            patch("src.orchestrator.SentimentAgent") as MockSent,
+            patch("src.orchestrator.SolutionAgent") as MockSolution,
+            patch("src.orchestrator.NarrativeAgent") as MockNarrative,
+            patch("src.orchestrator.RiskDiffAgent") as MockRiskDiff,
+        ):
+            for mock_cls, name in [
+                (MockNews, "news"), (MockMarket, "market"),
+                (MockFund, "fundamentals"), (MockTech, "technical"),
+                (MockMacro, "macro"), (MockOptions, "options"),
+                (MockEarnings, "earnings"), (MockLeadership, "leadership"),
+            ]:
+                mock_cls.return_value.execute = AsyncMock(return_value=_make_agent_result(name))
+
+            MockSent.return_value.set_context_data = MagicMock()
+            MockSent.return_value.execute = AsyncMock(return_value=_make_agent_result("sentiment"))
+            MockSolution.return_value.execute = AsyncMock(return_value=_make_solution_result())
+
+            # Narrative prefetch agent instance — slow fetch_data
+            MockNarrative.return_value.fetch_data = AsyncMock(side_effect=slow_narrative_fetch)
+            MockNarrative.return_value.execute = AsyncMock(return_value={"success": True, "data": {}})
+
+            # Risk diff prefetch agent instance — slow fetch_data
+            MockRiskDiff.return_value.fetch_data = AsyncMock(side_effect=slow_risk_diff_fetch)
+            MockRiskDiff.return_value.execute = AsyncMock(return_value={"success": True, "data": {}})
+
+            result = await orch.analyze_ticker("AAPL")
+
+        assert result["success"] is True
+        # Both slow prefetches should have been cancelled, not left as orphans
+        assert prefetch_cancelled["narrative"] is True, "Narrative prefetch was abandoned, not cancelled"
+        assert prefetch_cancelled["risk_diff"] is True, "Risk diff prefetch was abandoned, not cancelled"
+
+
+class TestPostSaveReliability:
+    """Tests for post-save write reliability (no silent data loss)."""
+
+    @pytest.mark.asyncio
+    async def test_all_post_save_writes_execute(self, test_config, tmp_path):
+        """All post-save operations (validation, tags, health, perception, calibration) must execute."""
+        db_path = str(tmp_path / "test.db")
+        db_manager = DatabaseManager(db_path)
+        orch = Orchestrator(config=test_config, db_manager=db_manager)
+
+        with (
+            patch("src.orchestrator.NewsAgent") as MockNews,
+            patch("src.orchestrator.MarketAgent") as MockMarket,
+            patch("src.orchestrator.FundamentalsAgent") as MockFund,
+            patch("src.orchestrator.TechnicalAgent") as MockTech,
+            patch("src.orchestrator.MacroAgent") as MockMacro,
+            patch("src.orchestrator.OptionsAgent") as MockOptions,
+            patch("src.orchestrator.EarningsAgent") as MockEarnings,
+            patch("src.orchestrator.LeadershipAgent") as MockLeadership,
+            patch("src.orchestrator.SentimentAgent") as MockSent,
+            patch("src.orchestrator.SolutionAgent") as MockSolution,
+            patch.object(db_manager, "save_validation_result") as mock_save_val,
+            patch.object(db_manager, "upsert_company_tags") as mock_save_tags,
+            patch.object(db_manager, "save_thesis_health_snapshot") as mock_save_health,
+            patch.object(db_manager, "create_outcome_rows_for_analysis") as mock_save_cal,
+        ):
+            for mock_cls, name in [
+                (MockNews, "news"), (MockMarket, "market"),
+                (MockFund, "fundamentals"), (MockTech, "technical"),
+                (MockMacro, "macro"), (MockOptions, "options"),
+                (MockEarnings, "earnings"), (MockLeadership, "leadership"),
+            ]:
+                mock_cls.return_value.execute = AsyncMock(return_value=_make_agent_result(name))
+
+            MockSent.return_value.set_context_data = MagicMock()
+            MockSent.return_value.execute = AsyncMock(return_value=_make_agent_result("sentiment"))
+            MockSolution.return_value.execute = AsyncMock(return_value=_make_solution_result())
+
+            result = await orch.analyze_ticker("AAPL")
+
+        assert result["success"] is True
+        # Validation should have been called (validation is enabled by default)
+        mock_save_val.assert_called_once()

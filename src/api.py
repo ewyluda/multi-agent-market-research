@@ -64,6 +64,13 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app):
     """Startup/shutdown lifecycle for the FastAPI application."""
+    # Pre-warm macro cache (ticker-independent, changes daily at most)
+    try:
+        await data_provider.get_macro_indicators()
+        logger.info("Macro indicator cache pre-warmed")
+    except Exception:
+        logger.warning("Macro cache pre-warm failed (non-blocking)", exc_info=True)
+
     # Startup: start the scheduler if enabled
     if Config.SCHEDULER_ENABLED:
         from .scheduler import AnalysisScheduler
