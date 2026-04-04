@@ -11,7 +11,25 @@ in the analysis output JSON.
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
+
+
+# ─── Pre-compiled regex patterns ────────────────────────────────────────────
+
+_RE_PE_RATIO = re.compile(
+    r'p/?e\s*(?:ratio)?\s*(?:of|at|is|around|near|approximately)?\s*~?(\d+(?:\.\d+)?)',
+    re.IGNORECASE,
+)
+_RE_PROFIT_MARGIN = re.compile(
+    r'(?:profit|net)\s*margin\s*(?:of|at|is|around)?\s*~?(\d+(?:\.\d+)?)\s*%',
+    re.IGNORECASE,
+)
+_RE_ROE = re.compile(
+    r'(?:roe|return on equity)\s*(?:of|at|is|around)?\s*~?(\d+(?:\.\d+)?)\s*%',
+    re.IGNORECASE,
+)
+_RE_WORD = re.compile(r"[a-z0-9]+")
+_RE_PERCENTAGE = re.compile(r"([\d.]+)\s*%")
 
 
 # ─── Helpers ────────────────────────────────────────────────────────────────
@@ -274,7 +292,7 @@ def validate_equity_research(
     # Cross-check P/E ratio
     _cross_check_metric(
         all_text,
-        pattern=r'p/?e\s*(?:ratio)?\s*(?:of|at|is|around|near|approximately)?\s*~?(\d+(?:\.\d+)?)',
+        pattern=_RE_PE_RATIO,
         input_value=_safe_float(input_metrics.get("pe_ratio")),
         metric_name="P/E ratio",
         warnings=warnings,
@@ -283,7 +301,7 @@ def validate_equity_research(
     # Cross-check profit margin (as percentage)
     _cross_check_metric(
         all_text,
-        pattern=r'(?:profit|net)\s*margin\s*(?:of|at|is|around)?\s*~?(\d+(?:\.\d+)?)\s*%',
+        pattern=_RE_PROFIT_MARGIN,
         input_value=_pct(_safe_float(input_metrics.get("profit_margins"))),
         metric_name="profit margin",
         warnings=warnings,
@@ -292,7 +310,7 @@ def validate_equity_research(
     # Cross-check ROE (as percentage)
     _cross_check_metric(
         all_text,
-        pattern=r'(?:roe|return on equity)\s*(?:of|at|is|around)?\s*~?(\d+(?:\.\d+)?)\s*%',
+        pattern=_RE_ROE,
         input_value=_pct(_safe_float(input_metrics.get("return_on_equity"))),
         metric_name="ROE",
         warnings=warnings,
@@ -310,7 +328,7 @@ def _pct(val: Optional[float]) -> Optional[float]:
 
 def _cross_check_metric(
     text: str,
-    pattern: str,
+    pattern: Union[str, re.Pattern],
     input_value: Optional[float],
     metric_name: str,
     warnings: List[str],
@@ -320,7 +338,10 @@ def _cross_check_metric(
     if input_value is None or input_value == 0:
         return
 
-    match = re.search(pattern, text, re.IGNORECASE)
+    if isinstance(pattern, re.Pattern):
+        match = pattern.search(text)
+    else:
+        match = re.search(pattern, text, re.IGNORECASE)
     if not match:
         return
 
@@ -425,7 +446,7 @@ def _evidence_is_grounded(evidence: str, fact_corpus: str) -> bool:
     Uses keyword overlap: extracts significant words (3+ chars) from the
     evidence and checks if at least 40% appear in the corpus.
     """
-    words = re.findall(r"[a-z0-9]+", evidence.lower())
+    words = _RE_WORD.findall(evidence.lower())
     significant = [w for w in words if len(w) >= 3]
     if not significant:
         return True  # Can't check empty evidence
@@ -509,7 +530,7 @@ def validate_earnings_review_output(
         metric_lower = kpi.get("metric", "").lower()
         # Check percentage values > 100% for margin-type metrics
         if "margin" in metric_lower or "retention" in metric_lower:
-            pct_match = re.search(r"([\d.]+)\s*%", value_str)
+            pct_match = _RE_PERCENTAGE.search(value_str)
             if pct_match:
                 pct_val = float(pct_match.group(1))
                 # Net Revenue Retention can exceed 100%, margins generally shouldn't exceed ~80%
