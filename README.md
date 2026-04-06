@@ -345,6 +345,52 @@ docker compose -f docker-compose.dev.yml up --build
   - `ev_above`, `ev_below`, `regime_change`, `data_quality_below`, `calibration_drop`
 - `inflection_detected` — fires when convergence score exceeds threshold
 
+### Agent API (LLM-Optimized)
+
+Token-efficient endpoints designed for AI agent consumption (OpenClaw, Claude Code, etc.). Three layers:
+
+**Layer 1 — Analysis** (processed, token-efficient):
+- `GET /api/agent/{ticker}/summary` — headline numbers (~200 tokens)
+- `GET /api/agent/{ticker}/analysis?detail=summary|standard|full&sections=fundamentals,sentiment,...`
+- `GET /api/agent/{ticker}/changes` — delta from previous analysis
+- `GET /api/agent/{ticker}/inflections` — recent KPI inflection events
+- `GET /api/agent/{ticker}/council` — investor council results
+- `GET /api/agent/compare?tickers=AAPL,MSFT,GOOGL` — side-by-side (max 5)
+
+**Layer 2 — Actions** (mutating):
+- `POST /api/agent/{ticker}/analyze` — trigger fresh analysis (blocks until complete, 120s timeout)
+- `POST /api/agent/{ticker}/council?investors=druckenmiller,ptj` — trigger council analysis
+- `/api/agent/watchlists*` CRUD
+- `/api/agent/alerts*` CRUD (validates rule_type against allowlist)
+- `/api/agent/portfolio*` CRUD (infers market_value from quote)
+
+**Layer 3 — Raw Data** (direct provider access):
+- `GET /api/agent/data/{ticker}/quote|price-history|profile|financials|earnings|transcript|analyst-estimates|price-targets|insider-trading|peers|ratios|revenue-segments|dcf|management|growth|share-stats|technical|options|news|sec-filings|sec-section`
+- `GET /api/agent/data/macro` — FRED indicators (fed funds, CPI, GDP, yields, unemployment)
+
+### MCP Server
+
+42-tool MCP server wrapping the agent API for AI agent integration:
+
+```bash
+# Requires FastAPI backend running on :8000
+python mcp_server/server.py  # stdio transport
+```
+
+Configure for Claude Code (`.claude/settings.json`):
+```json
+{
+  "mcpServers": {
+    "market-research": {
+      "command": "python",
+      "args": ["mcp_server/server.py"]
+    }
+  }
+}
+```
+
+See `mcp_server/README.md` for OpenClaw bridge configuration.
+
 ### Health
 - `GET /health`
 
@@ -520,7 +566,9 @@ multi-agent-market-research/
 │   ├── repositories/
 │   │   └── perception_repo.py
 │   ├── routers/
-│   │   └── inflection.py
+│   │   ├── inflection.py
+│   │   ├── agent_api.py              # LLM-optimized /api/agent/* endpoints
+│   │   └── agent_formatters.py       # Token-efficient data formatting
 │   ├── database.py
 │   ├── models.py
 │   ├── config.py
@@ -574,6 +622,13 @@ multi-agent-market-research/
 │   ├── test_data_quality.py
 │   ├── test_rollout_canary.py
 │   └── test_agents/
+├── mcp_server/                        # MCP server for AI agent integration
+│   ├── server.py                      # FastMCP entry point (stdio transport)
+│   ├── tools/
+│   │   ├── analysis.py                # Layer 1: analysis tools (6)
+│   │   ├── actions.py                 # Layer 2: action tools (15)
+│   │   └── data.py                    # Layer 3: raw data tools (21)
+│   └── README.md
 ├── docs/plans/
 │   ├── 2026-02-15-actionable-insights-roadmap.md
 │   └── 2026-02-16-quant-pm-upgrade-implementation-plan.md

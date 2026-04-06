@@ -105,6 +105,9 @@ app.add_middleware(
 
 app.include_router(inflection_router)
 
+from src.routers.agent_api import router as agent_router
+app.include_router(agent_router)
+
 # Initialize database
 db_manager = DatabaseManager(Config.DATABASE_PATH)
 
