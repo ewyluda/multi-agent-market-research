@@ -1,6 +1,6 @@
 """Tests for agent API endpoints."""
 
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, AsyncMock
 from datetime import datetime, timezone
 
 import pytest
@@ -135,3 +135,124 @@ class TestCompare:
     def test_too_many_tickers_returns_400(self, client):
         resp = client.get("/api/agent/compare?tickers=A,B,C,D,E,F")
         assert resp.status_code == 400
+
+
+class TestRunAnalysis:
+    @patch("src.routers.agent_api._get_data_provider")
+    @patch("src.routers.agent_api._get_db")
+    @patch("src.routers.agent_api.Orchestrator")
+    def test_triggers_analysis(self, mock_orch_cls, mock_db, mock_dp, client):
+        mock_orch = MagicMock()
+        mock_orch.analyze_ticker = AsyncMock(return_value={
+            "success": True,
+            "analysis_id": 42,
+            "analysis": {
+                "recommendation": "BUY", "score": 72, "confidence": 0.81,
+                "reasoning": "Good.", "risks": [], "opportunities": [],
+                "price_targets": {"entry": 185, "target": 210, "stop_loss": 175},
+                "position_size": "MEDIUM", "time_horizon": "MEDIUM_TERM",
+            },
+            "duration_seconds": 15.0,
+        })
+        mock_orch_cls.return_value = mock_orch
+        resp = client.post("/api/agent/AAPL/analyze")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is True
+        assert data["analysis_id"] == 42
+
+    @patch("src.routers.agent_api._get_data_provider")
+    @patch("src.routers.agent_api._get_db")
+    @patch("src.routers.agent_api.Orchestrator")
+    def test_analysis_failure(self, mock_orch_cls, mock_db, mock_dp, client):
+        mock_orch = MagicMock()
+        mock_orch.analyze_ticker = AsyncMock(return_value={
+            "success": False,
+            "error": "LLM timeout",
+        })
+        mock_orch_cls.return_value = mock_orch
+        resp = client.post("/api/agent/AAPL/analyze")
+        assert resp.status_code == 200
+        assert resp.json()["success"] is False
+
+
+class TestWatchlistEndpoints:
+    @patch("src.routers.agent_api._get_db")
+    def test_list_watchlists(self, mock_db, client):
+        mock_db.return_value.get_watchlists.return_value = [
+            {"id": 1, "name": "Tech", "tickers": ["AAPL", "MSFT"]}
+        ]
+        resp = client.get("/api/agent/watchlists")
+        assert resp.status_code == 200
+        assert len(resp.json()["watchlists"]) == 1
+
+    @patch("src.routers.agent_api._get_db")
+    def test_create_watchlist(self, mock_db, client):
+        mock_db.return_value.create_watchlist.return_value = {
+            "id": 1, "name": "Tech", "tickers": []
+        }
+        resp = client.post("/api/agent/watchlists", json={"name": "Tech"})
+        assert resp.status_code == 200
+        assert resp.json()["name"] == "Tech"
+
+    @patch("src.routers.agent_api._get_db")
+    def test_delete_watchlist(self, mock_db, client):
+        mock_db.return_value.delete_watchlist.return_value = True
+        resp = client.delete("/api/agent/watchlists/1")
+        assert resp.status_code == 200
+
+
+class TestAlertEndpoints:
+    @patch("src.routers.agent_api._get_db")
+    def test_list_alerts(self, mock_db, client):
+        mock_db.return_value.get_alert_rules.return_value = [
+            {"id": 1, "ticker": "AAPL", "rule_type": "price_change", "threshold": 5.0}
+        ]
+        resp = client.get("/api/agent/alerts")
+        assert resp.status_code == 200
+        assert len(resp.json()["alerts"]) == 1
+
+    @patch("src.routers.agent_api._get_db")
+    def test_create_alert(self, mock_db, client):
+        mock_db.return_value.create_alert_rule.return_value = {
+            "id": 1, "ticker": "AAPL", "rule_type": "price_change", "threshold": 5.0
+        }
+        resp = client.post("/api/agent/alerts", json={
+            "ticker": "AAPL", "rule_type": "price_change", "threshold": 5.0
+        })
+        assert resp.status_code == 200
+
+    @patch("src.routers.agent_api._get_db")
+    def test_delete_alert(self, mock_db, client):
+        mock_db.return_value.delete_alert_rule.return_value = True
+        resp = client.delete("/api/agent/alerts/1")
+        assert resp.status_code == 200
+
+
+class TestPortfolioEndpoints:
+    @patch("src.routers.agent_api._get_db")
+    def test_get_portfolio(self, mock_db, client):
+        mock_db.return_value.get_portfolio_snapshot.return_value = {
+            "profile": {}, "by_ticker": {}, "total_market_value": 10000
+        }
+        mock_db.return_value.list_portfolio_holdings.return_value = [
+            {"id": 1, "ticker": "AAPL", "shares": 10, "market_value": 1850}
+        ]
+        resp = client.get("/api/agent/portfolio")
+        assert resp.status_code == 200
+
+    @patch("src.routers.agent_api._get_db")
+    def test_add_holding(self, mock_db, client):
+        mock_db.return_value.create_portfolio_holding.return_value = {
+            "id": 1, "ticker": "AAPL", "shares": 10
+        }
+        resp = client.post("/api/agent/portfolio", json={
+            "ticker": "AAPL", "shares": 10
+        })
+        assert resp.status_code == 200
+
+    @patch("src.routers.agent_api._get_db")
+    def test_delete_holding(self, mock_db, client):
+        mock_db.return_value.delete_portfolio_holding.return_value = True
+        resp = client.delete("/api/agent/portfolio/1")
+        assert resp.status_code == 200
