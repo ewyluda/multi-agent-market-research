@@ -202,13 +202,12 @@ def register_tools(mcp, call_api):
         return await call_api("GET", f"/api/agent/data/{ticker.upper()}/sec-filings", params={"filing_type": filing_type, "limit": limit})
 
     @mcp.tool()
-    async def get_sec_filing_section(ticker: str, filing_url: str, section: str = "1A") -> str:
-        """Extract section from SEC filing. WARNING: Large output (2-10K tokens).
-        Get filing URLs from get_sec_filings first.
+    async def get_sec_risk_factors(ticker: str, filing_url: str) -> str:
+        """Extract Item 1A (Risk Factors) from an SEC filing. WARNING: Large output (2-10K tokens).
+        Get filing URLs from get_sec_filings first. URL must be from sec.gov or FMP.
 
         Args:
             ticker: Stock ticker symbol
-            filing_url: URL from get_sec_filings results
-            section: "1A" (Risk Factors), "1" (Business), "7" (MD&A)
+            filing_url: URL from get_sec_filings results (must be sec.gov or FMP)
         """
-        return await call_api("GET", f"/api/agent/data/{ticker.upper()}/sec-section", params={"filing_url": filing_url, "section": section}, timeout=60)
+        return await call_api("GET", f"/api/agent/data/{ticker.upper()}/sec-section", params={"filing_url": filing_url}, timeout=60)

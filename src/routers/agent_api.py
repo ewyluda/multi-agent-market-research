@@ -236,8 +236,15 @@ async def list_watchlists():
 async def create_watchlist(body: WatchlistCreate):
     """Create a new watchlist."""
     db = _get_db()
-    watchlist = db.create_watchlist(body.name)
-    return clean_for_agent(watchlist)
+    try:
+        watchlist = db.create_watchlist(body.name)
+        return clean_for_agent(watchlist)
+    except Exception as e:
+        if "UNIQUE" in str(e):
+            raise HTTPException(status_code=409, detail=agent_error(
+                f"Watchlist '{body.name}' already exists",
+            ))
+        raise
 
 
 @router.put("/watchlists/{watchlist_id}")
@@ -296,6 +303,35 @@ async def list_alerts(ticker: Optional[str] = Query(default=None)):
 async def create_alert(body: AlertCreate):
     """Create a new alert rule."""
     ticker = _validate_ticker(body.ticker)
+
+    from src.config import Config
+    base_types = {
+        "recommendation_change", "score_above", "score_below",
+        "confidence_above", "confidence_below",
+    }
+    v2_types = {
+        "ev_above", "ev_below", "regime_change",
+        "data_quality_below", "calibration_drop",
+    }
+    valid_types = set(base_types)
+    if getattr(Config, "ALERTS_V2_ENABLED", False):
+        valid_types.update(v2_types)
+
+    if body.rule_type not in valid_types:
+        raise HTTPException(
+            status_code=400,
+            detail=agent_error(f"Invalid rule_type '{body.rule_type}'. Valid: {', '.join(sorted(valid_types))}"),
+        )
+
+    threshold_optional = {"recommendation_change"}
+    if getattr(Config, "ALERTS_V2_ENABLED", False):
+        threshold_optional.add("regime_change")
+    if body.rule_type not in threshold_optional and body.threshold is None:
+        raise HTTPException(
+            status_code=400,
+            detail=agent_error("threshold is required for this rule_type"),
+        )
+
     db = _get_db()
     alert = db.create_alert_rule(ticker, body.rule_type, body.threshold)
     return clean_for_agent(alert)
@@ -324,16 +360,42 @@ async def get_portfolio():
 async def add_portfolio_holding(body: PortfolioHoldingCreate):
     """Add a holding to the portfolio."""
     ticker = _validate_ticker(body.ticker)
+
+    market_value = body.market_value
+    if market_value is None:
+        # Infer market_value from live quote (same logic as main API)
+        inferred_price = None
+        try:
+            import yfinance as yf
+            fast_info = await asyncio.to_thread(lambda: yf.Ticker(ticker).fast_info)
+            inferred_price = (
+                fast_info.get("lastPrice")
+                or fast_info.get("regularMarketPrice")
+                or fast_info.get("previousClose")
+            )
+        except Exception:
+            pass
+        if inferred_price is None and body.avg_cost is not None:
+            inferred_price = body.avg_cost
+        market_value = float(inferred_price) * float(body.shares) if inferred_price else 0.0
+
     db = _get_db()
-    holding = db.create_portfolio_holding(
-        ticker,
-        body.shares,
-        body.avg_cost,
-        body.market_value,
-        body.sector,
-        body.beta,
-    )
-    return clean_for_agent(holding)
+    try:
+        holding = db.create_portfolio_holding(
+            ticker=ticker,
+            shares=body.shares,
+            avg_cost=body.avg_cost,
+            market_value=market_value,
+            sector=body.sector,
+            beta=body.beta,
+        )
+        return clean_for_agent(holding)
+    except Exception as e:
+        if "UNIQUE" in str(e).upper():
+            raise HTTPException(status_code=409, detail=agent_error(
+                f"Holding for {ticker} already exists",
+            ))
+        raise
 
 
 @router.delete("/portfolio/{holding_id}")
@@ -390,22 +452,128 @@ async def run_analysis(ticker: str, body: RunAnalysisRequest = RunAnalysisReques
 
 
 @router.post("/{ticker}/council")
-async def run_council(ticker: str):
-    """Trigger an investor council analysis for a ticker."""
+async def run_council(
+    ticker: str,
+    investors: Optional[str] = Query(
+        default=None,
+        description="Comma-separated investor keys (e.g., druckenmiller,ptj,munger). "
+                    "Use 'all' for all investors.",
+    ),
+    analysis_id: Optional[int] = Query(default=None),
+):
+    """Trigger an investor council analysis for a ticker.
+
+    Requires an existing analysis. Runs the same council pipeline as
+    POST /api/analyze/{ticker}/council.
+    """
     ticker = _validate_ticker(ticker)
     db = _get_db()
+
+    from src.agents.council.profiles import INVESTOR_PROFILES, PRIMARY_INVESTORS, ALL_INVESTORS
+
+    # Resolve investor keys
+    if investors and investors.strip().lower() == "all":
+        investor_keys = ALL_INVESTORS
+    elif investors:
+        requested_keys = [k.strip() for k in investors.split(",") if k.strip()]
+        invalid = [k for k in requested_keys if k not in INVESTOR_PROFILES]
+        if invalid:
+            raise HTTPException(status_code=400, detail=agent_error(
+                f"Unknown investor key(s): {invalid}. Valid: {list(INVESTOR_PROFILES.keys())}",
+            ))
+        investor_keys = requested_keys
+    else:
+        investor_keys = PRIMARY_INVESTORS
+
+    # Load analysis context
+    if analysis_id:
+        analysis_with_agents = db.get_analysis_with_agents(analysis_id)
+    else:
+        latest = db.get_latest_analysis(ticker)
+        analysis_with_agents = db.get_analysis_with_agents(latest["id"]) if latest else None
+
+    if not analysis_with_agents:
+        raise HTTPException(status_code=404, detail=agent_error(
+            f"No analysis found for {ticker}. Run an analysis first.",
+            suggestion="run_analysis",
+        ))
+
+    # Extract agent_results from stored analysis
+    agent_results = {}
     try:
-        from src.agents.council import run_council_analysis
-        result = await asyncio.wait_for(
-            run_council_analysis(ticker, db_manager=db),
+        stored = analysis_with_agents.get("agent_results") or {}
+        for agent_type, ar in stored.items():
+            data = ar.get("data") if isinstance(ar, dict) else ar
+            if agent_type and data:
+                agent_results[agent_type] = {"data": data, "success": True}
+    except Exception as e:
+        logger.warning("Could not load agent results for council context: %s", e)
+
+    thesis_card = db.get_thesis_card(ticker)
+
+    # Build config
+    from src.config import Config
+    config = {
+        attr: getattr(Config, attr)
+        for attr in dir(Config)
+        if not attr.startswith("_") and not callable(getattr(Config, attr))
+    }
+    config["llm_config"] = Config.get_llm_config()
+
+    # Instantiate and run council agents (same as main API)
+    import src.api as api_module
+    council_agents = []
+    for key in investor_keys:
+        agent_cls = api_module._get_council_agent_class(key)
+        if agent_cls is None:
+            logger.warning("No agent class found for investor key: %s", key)
+            continue
+        agent = agent_cls(ticker, config)
+        agent.set_context(agent_results, thesis_card)
+        council_agents.append((key, agent))
+
+    async def _run_one(key, agent):
+        try:
+            return await agent.execute()
+        except Exception as e:
+            logger.error("Council agent %s failed: %s", key, e)
+            return {"success": False, "data": None, "error": str(e)}
+
+    try:
+        raw_results = await asyncio.wait_for(
+            asyncio.gather(*[_run_one(key, agent) for key, agent in council_agents]),
             timeout=180,
         )
     except asyncio.TimeoutError:
-        return clean_for_agent({"success": False, "ticker": ticker, "error": "Council analysis timed out"})
-    except Exception as e:
-        logger.error("Council error for %s: %s", ticker, e)
-        return clean_for_agent({"success": False, "ticker": ticker, "error": str(e)})
-    return clean_for_agent(result)
+        return clean_for_agent({"success": False, "ticker": ticker, "error": "Council timed out"})
+
+    # Build result dicts
+    results_dicts = []
+    for (key, _), raw in zip(council_agents, raw_results):
+        data = raw.get("data") or {}
+        profile = INVESTOR_PROFILES.get(key, {})
+        results_dicts.append({
+            "investor": key,
+            "investor_name": profile.get("name", key),
+            "stance": data.get("stance", "PASS"),
+            "thesis_health": data.get("thesis_health", "UNKNOWN"),
+            "qualitative_analysis": data.get("qualitative_analysis", raw.get("error", "")),
+            "primary_question_answered": data.get("primary_question_answered", ""),
+            "key_observations": data.get("key_observations", []),
+            "if_then_scenarios": data.get("if_then_scenarios", []),
+            "error": data.get("error") or (None if raw.get("success") else raw.get("error")),
+        })
+
+    # Persist
+    db.save_council_results(ticker, results_dicts, analysis_id=analysis_with_agents.get("id"))
+
+    return clean_for_agent({
+        "success": True,
+        "ticker": ticker,
+        "investors_run": investor_keys,
+        "council_count": len(results_dicts),
+        "results": results_dicts,
+    })
 
 
 # ---- Layer 3: Raw Data Endpoints ----
@@ -664,16 +832,42 @@ async def get_sec_filings(
     return clean_for_agent({"ticker": ticker, "filing_type": filing_type, "filings": data})
 
 
+_SEC_ALLOWED_HOSTS = {
+    "www.sec.gov",
+    "sec.gov",
+    "efts.sec.gov",
+    "edgar.sec.gov",
+    "financialmodelingprep.com",
+    "www.financialmodelingprep.com",
+}
+
+
 @router.get("/data/{ticker}/sec-section")
 async def get_sec_section(
     ticker: str,
-    filing_url: str = Query(description="Full SEC EDGAR filing URL"),
-    section: str = Query(default="1A", description="Section identifier (e.g. 1A for Risk Factors)"),
+    filing_url: str = Query(description="SEC EDGAR filing URL (must be from sec.gov or FMP)"),
 ):
-    """Extract a specific section from an SEC filing via EDGAR."""
+    """Extract Item 1A (Risk Factors) from an SEC filing.
+
+    Only Risk Factors extraction is currently supported. The filing_url must
+    point to sec.gov or financialmodelingprep.com — other hosts are rejected.
+    Get valid URLs from the get_sec_filings tool first.
+    """
     ticker = _validate_ticker(ticker)
+
+    from urllib.parse import urlparse
+    parsed = urlparse(filing_url)
+    if parsed.hostname not in _SEC_ALLOWED_HOSTS:
+        raise HTTPException(
+            status_code=400,
+            detail=agent_error(
+                f"filing_url host '{parsed.hostname}' not allowed. "
+                "Must be a sec.gov or financialmodelingprep.com URL.",
+            ),
+        )
+
     dp = _get_data_provider()
-    data = await dp.get_sec_filing_section(ticker, filing_url=filing_url, section=section)
+    data = await dp.get_sec_filing_section(ticker, filing_url=filing_url, section="1A")
     if not data:
-        raise HTTPException(status_code=404, detail=agent_error(f"Section {section} not found in filing"))
+        raise HTTPException(status_code=404, detail=agent_error("Risk Factors section not found in filing"))
     return clean_for_agent(data)

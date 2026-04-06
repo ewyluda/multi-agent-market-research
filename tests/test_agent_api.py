@@ -216,12 +216,24 @@ class TestAlertEndpoints:
     @patch("src.routers.agent_api._get_db")
     def test_create_alert(self, mock_db, client):
         mock_db.return_value.create_alert_rule.return_value = {
-            "id": 1, "ticker": "AAPL", "rule_type": "price_change", "threshold": 5.0
+            "id": 1, "ticker": "AAPL", "rule_type": "score_above", "threshold": 50.0
         }
         resp = client.post("/api/agent/alerts", json={
-            "ticker": "AAPL", "rule_type": "price_change", "threshold": 5.0
+            "ticker": "AAPL", "rule_type": "score_above", "threshold": 50.0
         })
         assert resp.status_code == 200
+
+    def test_create_alert_invalid_rule_type(self, client):
+        resp = client.post("/api/agent/alerts", json={
+            "ticker": "AAPL", "rule_type": "invalid_type", "threshold": 5.0
+        })
+        assert resp.status_code == 400
+
+    def test_create_alert_missing_threshold(self, client):
+        resp = client.post("/api/agent/alerts", json={
+            "ticker": "AAPL", "rule_type": "score_above"
+        })
+        assert resp.status_code == 400
 
     @patch("src.routers.agent_api._get_db")
     def test_delete_alert(self, mock_db, client):
@@ -331,3 +343,22 @@ class TestRawDataEndpoints:
         resp = client.get("/api/agent/data/AAPL/sec-filings")
         assert resp.status_code == 200
         assert len(resp.json()["filings"]) == 1
+
+    def test_sec_section_rejects_non_edgar_url(self, client):
+        resp = client.get(
+            "/api/agent/data/AAPL/sec-section",
+            params={"filing_url": "http://evil.com/steal-data"},
+        )
+        assert resp.status_code == 400
+        assert "not allowed" in resp.json()["detail"]["message"]
+
+    @patch("src.routers.agent_api._get_data_provider")
+    def test_sec_section_allows_edgar_url(self, mock_dp, client):
+        mock_dp.return_value.get_sec_filing_section = AsyncMock(return_value={
+            "section_text": "Risk factors...", "char_count": 100
+        })
+        resp = client.get(
+            "/api/agent/data/AAPL/sec-section",
+            params={"filing_url": "https://www.sec.gov/Archives/edgar/data/0000320193/filing.htm"},
+        )
+        assert resp.status_code == 200
