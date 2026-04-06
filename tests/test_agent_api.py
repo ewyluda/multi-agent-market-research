@@ -3,6 +3,7 @@
 from unittest.mock import patch, MagicMock, AsyncMock
 from datetime import datetime, timezone
 
+import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
@@ -256,3 +257,77 @@ class TestPortfolioEndpoints:
         mock_db.return_value.delete_portfolio_holding.return_value = True
         resp = client.delete("/api/agent/portfolio/1")
         assert resp.status_code == 200
+
+
+class TestRawDataEndpoints:
+    @patch("src.routers.agent_api._get_data_provider")
+    def test_get_stock_quote(self, mock_dp, client):
+        mock_dp.return_value.get_quote = AsyncMock(return_value={
+            "symbol": "AAPL", "price": 185.50, "change": 2.30
+        })
+        resp = client.get("/api/agent/data/AAPL/quote")
+        assert resp.status_code == 200
+        assert resp.json()["price"] == 185.5
+
+    @patch("src.routers.agent_api._get_data_provider")
+    def test_get_price_history(self, mock_dp, client):
+        df = pd.DataFrame({
+            "date": ["2026-01-01", "2026-01-02"],
+            "open": [180.0, 182.0],
+            "high": [185.0, 186.0],
+            "low": [179.0, 181.0],
+            "close": [184.0, 185.0],
+            "volume": [1000000, 1100000],
+        })
+        mock_dp.return_value.get_price_history = AsyncMock(return_value=df)
+        resp = client.get("/api/agent/data/AAPL/price-history?period=1m")
+        assert resp.status_code == 200
+        assert len(resp.json()["data"]) == 2
+
+    @patch("src.routers.agent_api._get_data_provider")
+    def test_get_financials(self, mock_dp, client):
+        mock_dp.return_value.get_financials = AsyncMock(return_value={
+            "revenue": 394000000000, "net_income": 97000000000
+        })
+        resp = client.get("/api/agent/data/AAPL/financials")
+        assert resp.status_code == 200
+
+    @patch("src.routers.agent_api._get_data_provider")
+    def test_get_earnings_transcript(self, mock_dp, client):
+        mock_dp.return_value.get_earnings_transcript = AsyncMock(return_value={
+            "quarter": 1, "year": 2026, "content": "CEO: Good quarter..."
+        })
+        resp = client.get("/api/agent/data/AAPL/transcript?year=2026&quarter=1")
+        assert resp.status_code == 200
+        assert resp.json()["quarter"] == 1
+
+    @patch("src.routers.agent_api._get_data_provider")
+    def test_get_macro_indicators(self, mock_dp, client):
+        mock_dp.return_value.get_macro_indicators = AsyncMock(return_value={
+            "fed_funds_rate": {"value": 5.25}
+        })
+        resp = client.get("/api/agent/data/macro")
+        assert resp.status_code == 200
+
+    @patch("src.routers.agent_api._get_data_provider")
+    def test_provider_returns_none_gives_404(self, mock_dp, client):
+        mock_dp.return_value.get_quote = AsyncMock(return_value=None)
+        resp = client.get("/api/agent/data/AAPL/quote")
+        assert resp.status_code == 404
+
+    @patch("src.routers.agent_api._get_data_provider")
+    def test_get_options_chain(self, mock_dp, client):
+        mock_dp.return_value.get_options_chain = AsyncMock(return_value={
+            "put_call_ratio": 0.85, "chains": []
+        })
+        resp = client.get("/api/agent/data/AAPL/options")
+        assert resp.status_code == 200
+
+    @patch("src.routers.agent_api._get_data_provider")
+    def test_get_sec_filings(self, mock_dp, client):
+        mock_dp.return_value.get_sec_filing_metadata = AsyncMock(return_value=[
+            {"filing_type": "10-K", "filing_date": "2025-11-01"}
+        ])
+        resp = client.get("/api/agent/data/AAPL/sec-filings")
+        assert resp.status_code == 200
+        assert len(resp.json()["filings"]) == 1

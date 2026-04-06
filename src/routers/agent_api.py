@@ -11,6 +11,8 @@ import logging
 import asyncio
 from typing import Optional
 
+import pandas as pd
+
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
@@ -404,3 +406,274 @@ async def run_council(ticker: str):
         logger.error("Council error for %s: %s", ticker, e)
         return clean_for_agent({"success": False, "ticker": ticker, "error": str(e)})
     return clean_for_agent(result)
+
+
+# ---- Layer 3: Raw Data Endpoints ----
+# IMPORTANT: /data/macro must be defined BEFORE /data/{ticker}/* routes to
+# avoid "macro" being treated as a ticker parameter.
+
+
+@router.get("/data/macro")
+async def get_macro_indicators():
+    """Macroeconomic indicators from FRED (fed funds rate, CPI, GDP, etc.)."""
+    dp = _get_data_provider()
+    data = await dp.get_macro_indicators()
+    if not data:
+        raise HTTPException(status_code=404, detail=agent_error("No macro indicator data available"))
+    return clean_for_agent(data)
+
+
+@router.get("/data/{ticker}/quote")
+async def get_stock_quote(ticker: str):
+    """Real-time stock quote from FMP."""
+    ticker = _validate_ticker(ticker)
+    dp = _get_data_provider()
+    data = await dp.get_quote(ticker)
+    if not data:
+        raise HTTPException(status_code=404, detail=agent_error(f"No quote data for {ticker}"))
+    return clean_for_agent(data)
+
+
+@router.get("/data/{ticker}/price-history")
+async def get_price_history(
+    ticker: str,
+    period: str = Query(default="3m", pattern="^(1m|3m|6m|1y|2y)$"),
+):
+    """OHLCV price history from FMP."""
+    ticker = _validate_ticker(ticker)
+    dp = _get_data_provider()
+    data = await dp.get_price_history(ticker, period=period)
+    if data is None:
+        raise HTTPException(status_code=404, detail=agent_error(f"No price history for {ticker}"))
+    if isinstance(data, pd.DataFrame):
+        records = data.reset_index().to_dict(orient="records")
+        for r in records:
+            for k, v in list(r.items()):
+                if isinstance(v, pd.Timestamp):
+                    r[k] = v.isoformat()
+        return clean_for_agent({"ticker": ticker, "period": period, "data": records})
+    return clean_for_agent({"ticker": ticker, "period": period, "data": data})
+
+
+@router.get("/data/{ticker}/profile")
+async def get_company_profile(ticker: str):
+    """Company overview / profile from FMP."""
+    ticker = _validate_ticker(ticker)
+    dp = _get_data_provider()
+    data = await dp.get_company_overview(ticker)
+    if not data:
+        raise HTTPException(status_code=404, detail=agent_error(f"No profile data for {ticker}"))
+    return clean_for_agent(data)
+
+
+@router.get("/data/{ticker}/financials")
+async def get_financials(ticker: str):
+    """Income statement / financial statements from FMP."""
+    ticker = _validate_ticker(ticker)
+    dp = _get_data_provider()
+    data = await dp.get_financials(ticker)
+    if not data:
+        raise HTTPException(status_code=404, detail=agent_error(f"No financials data for {ticker}"))
+    return clean_for_agent(data)
+
+
+@router.get("/data/{ticker}/earnings")
+async def get_earnings(ticker: str):
+    """Earnings history and surprises from FMP."""
+    ticker = _validate_ticker(ticker)
+    dp = _get_data_provider()
+    data = await dp.get_earnings(ticker)
+    if not data:
+        raise HTTPException(status_code=404, detail=agent_error(f"No earnings data for {ticker}"))
+    return clean_for_agent(data)
+
+
+@router.get("/data/{ticker}/transcript")
+async def get_earnings_transcript(
+    ticker: str,
+    year: int = Query(default=0),
+    quarter: int = Query(default=0),
+):
+    """Earnings call transcript from FMP."""
+    ticker = _validate_ticker(ticker)
+    dp = _get_data_provider()
+    data = await dp.get_earnings_transcript(ticker, quarter=quarter, year=year)
+    if not data:
+        raise HTTPException(status_code=404, detail=agent_error(f"No transcript data for {ticker}"))
+    return clean_for_agent(data)
+
+
+@router.get("/data/{ticker}/analyst-estimates")
+async def get_analyst_estimates(ticker: str):
+    """Analyst EPS / revenue estimates from FMP."""
+    ticker = _validate_ticker(ticker)
+    dp = _get_data_provider()
+    data = await dp.get_analyst_estimates(ticker)
+    if not data:
+        raise HTTPException(status_code=404, detail=agent_error(f"No analyst estimates for {ticker}"))
+    return clean_for_agent(data)
+
+
+@router.get("/data/{ticker}/price-targets")
+async def get_price_targets(ticker: str):
+    """Analyst price targets from FMP."""
+    ticker = _validate_ticker(ticker)
+    dp = _get_data_provider()
+    data = await dp.get_price_targets(ticker)
+    if not data:
+        raise HTTPException(status_code=404, detail=agent_error(f"No price targets for {ticker}"))
+    return clean_for_agent({"ticker": ticker, "targets": data})
+
+
+@router.get("/data/{ticker}/insider-trading")
+async def get_insider_trading(ticker: str):
+    """Insider buy/sell transactions from FMP."""
+    ticker = _validate_ticker(ticker)
+    dp = _get_data_provider()
+    data = await dp.get_insider_trading(ticker)
+    if not data:
+        raise HTTPException(status_code=404, detail=agent_error(f"No insider trading data for {ticker}"))
+    return clean_for_agent({"ticker": ticker, "transactions": data})
+
+
+@router.get("/data/{ticker}/peers")
+async def get_peers(ticker: str):
+    """Comparable peer companies from FMP."""
+    ticker = _validate_ticker(ticker)
+    dp = _get_data_provider()
+    data = await dp.get_peers(ticker)
+    if not data:
+        raise HTTPException(status_code=404, detail=agent_error(f"No peer data for {ticker}"))
+    return clean_for_agent({"ticker": ticker, "peers": data})
+
+
+@router.get("/data/{ticker}/ratios")
+async def get_ratios_ttm(ticker: str):
+    """Trailing-twelve-month valuation ratios from FMP."""
+    ticker = _validate_ticker(ticker)
+    dp = _get_data_provider()
+    data = await dp.get_ratios_ttm(ticker)
+    if not data:
+        raise HTTPException(status_code=404, detail=agent_error(f"No ratio data for {ticker}"))
+    return clean_for_agent(data)
+
+
+@router.get("/data/{ticker}/revenue-segments")
+async def get_revenue_segments(ticker: str):
+    """Revenue breakdown by segment / geography from FMP."""
+    ticker = _validate_ticker(ticker)
+    dp = _get_data_provider()
+    data = await dp.get_revenue_segments(ticker)
+    if not data:
+        raise HTTPException(status_code=404, detail=agent_error(f"No revenue segment data for {ticker}"))
+    return clean_for_agent(data)
+
+
+@router.get("/data/{ticker}/dcf")
+async def get_dcf_valuation(ticker: str):
+    """Discounted cash flow valuation from FMP."""
+    ticker = _validate_ticker(ticker)
+    dp = _get_data_provider()
+    data = await dp.get_dcf_valuation(ticker)
+    if not data:
+        raise HTTPException(status_code=404, detail=agent_error(f"No DCF valuation data for {ticker}"))
+    return clean_for_agent(data)
+
+
+@router.get("/data/{ticker}/management")
+async def get_management(ticker: str):
+    """Executive management team from FMP."""
+    ticker = _validate_ticker(ticker)
+    dp = _get_data_provider()
+    data = await dp.get_management(ticker)
+    if not data:
+        raise HTTPException(status_code=404, detail=agent_error(f"No management data for {ticker}"))
+    return clean_for_agent({"ticker": ticker, "management": data})
+
+
+@router.get("/data/{ticker}/growth")
+async def get_financial_growth(ticker: str):
+    """Financial growth metrics (YoY revenue, EPS growth, etc.) from FMP."""
+    ticker = _validate_ticker(ticker)
+    dp = _get_data_provider()
+    data = await dp.get_financial_growth(ticker)
+    if not data:
+        raise HTTPException(status_code=404, detail=agent_error(f"No financial growth data for {ticker}"))
+    return clean_for_agent(data)
+
+
+@router.get("/data/{ticker}/share-stats")
+async def get_share_statistics(ticker: str):
+    """Share statistics (float, short interest, ownership) from FMP."""
+    ticker = _validate_ticker(ticker)
+    dp = _get_data_provider()
+    data = await dp.get_share_statistics(ticker)
+    if not data:
+        raise HTTPException(status_code=404, detail=agent_error(f"No share statistics for {ticker}"))
+    return clean_for_agent(data)
+
+
+@router.get("/data/{ticker}/technical")
+async def get_technical_indicators(ticker: str):
+    """Technical indicators (RSI, MACD, moving averages, etc.)."""
+    ticker = _validate_ticker(ticker)
+    dp = _get_data_provider()
+    data = await dp.get_technical_indicators(ticker)
+    if not data:
+        raise HTTPException(status_code=404, detail=agent_error(f"No technical indicator data for {ticker}"))
+    return clean_for_agent(data)
+
+
+@router.get("/data/{ticker}/options")
+async def get_options_chain(ticker: str):
+    """Options chain data (calls, puts, put/call ratio) via yfinance."""
+    ticker = _validate_ticker(ticker)
+    dp = _get_data_provider()
+    data = await dp.get_options_chain(ticker)
+    if not data:
+        raise HTTPException(status_code=404, detail=agent_error(f"No options data for {ticker}"))
+    return clean_for_agent(data)
+
+
+@router.get("/data/{ticker}/news")
+async def get_news(
+    ticker: str,
+    limit: int = Query(default=10, le=50),
+):
+    """Recent news articles for a ticker via Tavily / FMP."""
+    ticker = _validate_ticker(ticker)
+    dp = _get_data_provider()
+    data = await dp.get_news(ticker, limit=limit)
+    if not data:
+        raise HTTPException(status_code=404, detail=agent_error(f"No news data for {ticker}"))
+    return clean_for_agent({"ticker": ticker, "articles": data})
+
+
+@router.get("/data/{ticker}/sec-filings")
+async def get_sec_filings(
+    ticker: str,
+    filing_type: str = Query(default="10-K"),
+    limit: int = Query(default=3, le=10),
+):
+    """SEC filing metadata (10-K, 10-Q, 8-K) from EDGAR / FMP."""
+    ticker = _validate_ticker(ticker)
+    dp = _get_data_provider()
+    data = await dp.get_sec_filing_metadata(ticker, filing_type=filing_type, limit=limit)
+    if not data:
+        raise HTTPException(status_code=404, detail=agent_error(f"No SEC filings found for {ticker}"))
+    return clean_for_agent({"ticker": ticker, "filing_type": filing_type, "filings": data})
+
+
+@router.get("/data/{ticker}/sec-section")
+async def get_sec_section(
+    ticker: str,
+    filing_url: str = Query(description="Full SEC EDGAR filing URL"),
+    section: str = Query(default="1A", description="Section identifier (e.g. 1A for Risk Factors)"),
+):
+    """Extract a specific section from an SEC filing via EDGAR."""
+    ticker = _validate_ticker(ticker)
+    dp = _get_data_provider()
+    data = await dp.get_sec_filing_section(ticker, filing_url=filing_url, section=section)
+    if not data:
+        raise HTTPException(status_code=404, detail=agent_error(f"Section {section} not found in filing"))
+    return clean_for_agent(data)
