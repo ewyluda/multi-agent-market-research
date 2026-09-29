@@ -5,6 +5,7 @@ import { useAnalysis } from '@/hooks/useAnalysis'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
 import KpiRow from './KpiRow'
+import VerdictHero from './VerdictHero'
 import AnalysisTabs from './AnalysisTabs'
 import MetaFooter from '@/components/MetaFooter'
 import { motion } from 'framer-motion'
@@ -76,6 +77,7 @@ export default function AnalysisView() {
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.2 }}>
       <KpiRow analysis={analysis} />
+      <VerdictHero analysis={analysis} />
       <AnalysisTabs analysis={analysis} />
       <MetaFooter analysis={analysis} />
     </motion.div>
