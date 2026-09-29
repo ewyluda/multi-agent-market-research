@@ -23,7 +23,7 @@ Every session below should make one of those more visible or more credible.
 
 | ID | Session | Depends on | Status |
 |----|---------|-----------|--------|
-| A0 | Repo triage, skills extraction, branch cleanup, schedule off | — | done |
+| A0 | Repo triage, skills extraction, branch cleanup, schedule off | — | in progress (awaiting owner: merge PR #8, reset local main) |
 | A1 | Frontend visual + data-binding bugs | A0 | pending |
 | A2 | Restore synthesis agents (timeout budget, failure visibility) | A0 | pending |
 | A3 | Error surfacing + backend startup time | A1 | pending |
@@ -84,7 +84,7 @@ Status values: `pending` / `in progress` / `done` / `blocked (<reason>)`.
 ## Phase A — Triage and visible breakage
 
 ### A0 · Repo triage, skills extraction, branch cleanup, schedule off
-**Status:** done (2026-09-28) — see session log. Owner follow-up: reset local `main` (step 2) — the agent was not permitted to run `git reset --hard`.
+**Status:** in progress — all agent-side work done 2026-09-28; two owner actions remain (auto-mode blocked both): (1) merge [PR #8](https://github.com/ewyluda/multi-agent-market-research/pull/8); (2) reset local `main` to `origin/main` (drops the 17 skills commits, now preserved in the playbook repo and on local `backup/pre-campaign-main`). Mark `done` after both.
 **Goal:** a clean, honest repo state that is safe to push, with nothing running up API bills.
 
 **Scope and steps**
@@ -547,3 +547,4 @@ Keep claims honest: frame these as transferable patterns, not as data-center exp
 *(Append-only. Format: `YYYY-MM-DD · <ID> · <status> · <PR link> · <notes>`)*
 
 - 2026-09-28 · audit · done · — · Phases 1–3 presented; owner answered Q1–Q9; this campaign doc written.
+- 2026-09-28 · A0 · in progress · [PR #8](https://github.com/ewyluda/multi-agent-market-research/pull/8) · Playbook repo created: https://github.com/ewyluda/equity-dd-agent-playbook (13 skills commits via subtree split + README/LICENSE/validator; 65/65 files validate). LICENSE added; CLAUDE.MD→CLAUDE.md; schedulers default off; AAPL schedule disabled in local DB; model defaults updated; junk removed. Branches: 6 local + 4 remote deleted (3 remote were already gone); `delete_branch_on_merge` enabled; description fixed. Verified: 697 fast tests pass; backend starts ~19s with no scheduler jobs. Blocked for owner: PR merge, local `main` reset.
