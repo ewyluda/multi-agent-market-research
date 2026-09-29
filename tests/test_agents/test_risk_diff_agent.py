@@ -147,24 +147,44 @@ MOCK_COMPANY_TICKERS_JSON = {
     "2": {"cik_str": 1018724, "ticker": "AMZN", "title": "AMAZON COM INC"},
 }
 
+# Shape of FMP /stable/sec-filings-search/symbol: every form type, filtered client-side.
+# (The old /stable/sec-filings endpoint, with `type`/`fillingDate` fields, now returns 404.)
 MOCK_FMP_FILINGS_RESPONSE = [
     {
         "symbol": "AAPL",
-        "fillingDate": "2025-02-15",
-        "acceptedDate": "2025-02-15 06:30:00",
         "cik": "0000320193",
-        "type": "10-K",
-        "link": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000001/aapl-20250101.htm",
-        "finalLink": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000001/aapl-20250101.htm",
+        "filingDate": "2025-05-02 00:00:00",
+        "acceptedDate": "2025-05-02 06:01:00",
+        "formType": "10-Q",
+        "link": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000057/aapl-20250329.htm",
+        "finalLink": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000057/aapl-20250329.htm",
     },
     {
         "symbol": "AAPL",
-        "fillingDate": "2024-02-15",
-        "acceptedDate": "2024-02-15 06:30:00",
         "cik": "0000320193",
-        "type": "10-K",
+        "filingDate": "2025-04-01 00:00:00",
+        "acceptedDate": "2025-04-01 18:30:00",
+        "formType": "4",
+        "link": "https://www.sec.gov/Archives/edgar/data/320193/form4.xml",
+        "finalLink": "https://www.sec.gov/Archives/edgar/data/320193/form4.xml",
+    },
+    {
+        "symbol": "AAPL",
+        "cik": "0000320193",
+        "filingDate": "2024-02-15 00:00:00",
+        "acceptedDate": "2024-02-15 06:30:00",
+        "formType": "10-K",
         "link": "https://www.sec.gov/Archives/edgar/data/320193/000032019324000001/aapl-20240101.htm",
         "finalLink": "https://www.sec.gov/Archives/edgar/data/320193/000032019324000001/aapl-20240101.htm",
+    },
+    {
+        "symbol": "AAPL",
+        "cik": "0000320193",
+        "filingDate": "2025-02-15 00:00:00",
+        "acceptedDate": "2025-02-15 06:30:00",
+        "formType": "10-K",
+        "link": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000001/aapl-20250101.htm",
+        "finalLink": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000001/aapl-20250101.htm",
     },
 ]
 
@@ -272,10 +292,12 @@ class TestGetSecFilingMetadata:
         with patch("aiohttp.ClientSession", return_value=mock_session):
             filings = await dp.get_sec_filing_metadata("AAPL", filing_type="10-K", limit=3)
 
-        assert len(filings) == 2
-        assert filings[0]["filing_type"] == "10-K"
-        assert filings[0]["filing_date"] == "2025-02-15"
-        assert "filing_url" in filings[0]
+        # Only 10-Ks, newest first, dates trimmed to YYYY-MM-DD.
+        assert [f["filing_type"] for f in filings] == ["10-K", "10-K"]
+        assert [f["filing_date"] for f in filings] == ["2025-02-15", "2024-02-15"]
+        assert filings[0]["filing_url"].endswith("aapl-20250101.htm")
+        requested_url = mock_session.get.call_args[0][0]
+        assert "/stable/sec-filings-search/symbol?symbol=AAPL" in requested_url
 
     @pytest.mark.asyncio
     async def test_get_filing_metadata_no_api_key(self):
@@ -293,6 +315,32 @@ class TestParseRiskSection:
         assert result is not None
         assert "Supply Chain" in result
         assert "Competition" in result
+        assert "Unresolved Staff Comments" not in result
+
+    def test_parse_risk_section_skips_table_of_contents_and_references(self):
+        # Real 10-Ks list "Item 1A. Risk Factors" in the TOC and cite it in sentences before
+        # the actual header. The parser once anchored on the TOC entry, so the "section"
+        # started with the TOC + Item 1 Business and the LLM found no risks (campaign A2).
+        filler = "<p>" + ("NVIDIA pioneered accelerated computing. " * 40) + "</p>"
+        html = f"""<html><body>
+        <p>Table of Contents</p>
+        <p>Item 1A. Risk Factors</p><p>12</p>
+        <p>Item 1B. Unresolved Staff Comments</p><p>32</p>
+        <p>Item 1. Business</p>{filler}
+        <p>Our forward-looking statements are discussed in Item 1A. Risk Factors of this report.</p>
+        {filler}
+        <p>Item 1A. Risk Factors</p>
+        <p>Supply Chain: we depend on third-party foundries to manufacture our products.</p>
+        <p>Export Controls: new restrictions could limit sales to certain markets.</p>
+        {filler}
+        <p>Item 1B. Unresolved Staff Comments</p><p>None.</p>
+        </body></html>"""
+        result = OpenBBDataProvider._parse_risk_section(html)
+        assert result is not None
+        assert result.startswith("Item 1A. Risk Factors")
+        assert "Supply Chain" in result and "Export Controls" in result
+        assert "Table of Contents" not in result
+        assert "forward-looking statements are discussed" not in result
         assert "Unresolved Staff Comments" not in result
 
     def test_parse_risk_section_no_match(self):

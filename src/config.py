@@ -42,6 +42,24 @@ class Config:
 
     # Agent Configuration
     AGENT_TIMEOUT = int(os.getenv("AGENT_TIMEOUT", "30"))  # seconds
+    # Per-agent time budgets (seconds) for the synthesis phase, applied in exactly one place
+    # (Orchestrator._run_synthesis_agent). Thesis and narrative make two sequential LLM calls,
+    # so they get more than the single-call agents. Override one with SYNTHESIS_TIMEOUT_<AGENT>.
+    SYNTHESIS_TIMEOUTS = {
+        name: int(os.getenv(f"SYNTHESIS_TIMEOUT_{name.upper()}", str(default)))
+        for name, default in {
+            # Observed over 3 live NVDA runs (xAI grok-4.20 reasoning, 2026-09-29), seconds:
+            # solution 14-25, thesis 71-99, narrative 78-95, earnings_review 25-33,
+            # risk_diff 7-83 (two LLM passes over SEC text), tags 8-14. Reasoning-model latency
+            # varies a lot run to run, so the slow two-pass agents get ~50% headroom.
+            "solution": 60,
+            "thesis": 150,
+            "narrative": 150,
+            "earnings_review": 60,
+            "risk_diff": 150,
+            "tag_extractor": 30,
+        }.items()
+    }
     AGENT_MAX_RETRIES = int(os.getenv("AGENT_MAX_RETRIES", "2"))
     FUNDAMENTALS_LLM_ENABLED = os.getenv("FUNDAMENTALS_LLM_ENABLED", "true").lower() == "true"
     MACRO_AGENT_ENABLED = os.getenv("MACRO_AGENT_ENABLED", "true").lower() == "true"

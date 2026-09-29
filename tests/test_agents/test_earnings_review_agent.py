@@ -165,10 +165,12 @@ def _make_agent_results(
         results["market"] = {
             "success": True,
             "data": {
+                # Real MarketAgent output shape (market_agent.py); fixtures once used a bare
+                # float + high_52w keys, which hid a TypeError in every live run.
                 "current_price": 195.0,
-                "high_52w": 220.0,
-                "low_52w": 165.0,
-                "price_change_1m": 0.05,
+                "fifty_two_week_high": 220.0,
+                "fifty_two_week_low": 165.0,
+                "price_change_1m": {"change": 9.3, "change_pct": 5.0, "start_price": 185.7, "end_price": 195.0},
                 "data_source": "fmp",
             },
         }
@@ -406,6 +408,10 @@ class TestEarningsReviewLLMFlow:
         assert len(result["beat_miss"]) >= 1
         assert result["beat_miss"][0]["verdict"] == "beat"
         assert result["kpi_table"] == []
+        # The transcript exists; the summary must not claim otherwise (campaign A2 regression).
+        assert result["partial_reason"] == "llm_failed"
+        assert "No earnings transcript" not in result["executive_summary"]
+        assert result["partial_error"].startswith("Exception: LLM unavailable")
 
     @pytest.mark.asyncio
     async def test_no_transcript_returns_partial(self):
@@ -423,6 +429,7 @@ class TestEarningsReviewLLMFlow:
             result = await agent.analyze(results)
 
         assert call_count == 0  # LLM not called for partial
+        assert result["partial_reason"] == "no_transcript"
         assert result.get("partial") is True
         assert len(result["beat_miss"]) >= 1
 

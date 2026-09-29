@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import time
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 import aiohttp
@@ -1259,9 +1260,11 @@ class OpenBBDataProvider:
         filing_type: str = "10-K",
         limit: int = 3,
     ) -> List[Dict[str, Any]]:
-        """Fetch SEC filing metadata from FMP.
+        """Fetch SEC filing metadata from FMP, newest first.
 
-        Uses ``/stable/sec-filings?symbol={ticker}&type={filing_type}&limit={limit}``.
+        Uses ``/stable/sec-filings-search/symbol`` (the older ``/stable/sec-filings`` returns 404).
+        That endpoint returns every form type (mostly Form 4s) in a date window, so we request a
+        window wide enough for ``limit`` filings of ``filing_type`` and filter client-side.
 
         Returns:
             List of dicts with keys: filing_type, filing_date, filing_url, accession_number.
@@ -1277,9 +1280,15 @@ class OpenBBDataProvider:
             logger.warning("No FMP_API_KEY — cannot fetch SEC filing metadata")
             return []
 
+        # 10-Ks are annual and 10-Qs quarterly (3/yr); add a year of slack for filing-date drift.
+        per_year = 3 if filing_type.upper().startswith("10-Q") else 1
+        years_back = -(-limit // per_year) + 1
+        today = datetime.now(timezone.utc).date()
+        start = today.replace(year=today.year - years_back)
         url = (
-            f"https://financialmodelingprep.com/stable/sec-filings"
-            f"?symbol={ticker.upper()}&type={filing_type}&limit={limit}&apikey={fmp_key}"
+            "https://financialmodelingprep.com/stable/sec-filings-search/symbol"
+            f"?symbol={ticker.upper()}&from={start.isoformat()}&to={today.isoformat()}"
+            f"&page=0&limit=1000&apikey={fmp_key}"
         )
         try:
             async with aiohttp.ClientSession() as session:
@@ -1287,25 +1296,31 @@ class OpenBBDataProvider:
                     url, timeout=aiohttp.ClientTimeout(total=15)
                 ) as resp:
                     if resp.status != 200:
-                        logger.warning("FMP sec-filings returned %d for %s", resp.status, ticker)
+                        logger.warning("FMP sec-filings-search returned %d for %s", resp.status, ticker)
                         return []
                     raw = await resp.json()
                     if not isinstance(raw, list):
                         return []
 
+                    wanted = filing_type.upper()
+                    matches = [
+                        item for item in raw
+                        if str(item.get("formType", "")).upper() == wanted
+                    ]
+                    matches.sort(key=lambda item: item.get("filingDate", ""), reverse=True)
+
                     filings = []
-                    for item in raw:
-                        filing_url = item.get("finalLink") or item.get("link", "")
+                    for item in matches[:limit]:
                         filings.append({
-                            "filing_type": item.get("type", filing_type),
-                            "filing_date": item.get("fillingDate", ""),
-                            "filing_url": filing_url,
+                            "filing_type": item.get("formType", filing_type),
+                            "filing_date": str(item.get("filingDate", ""))[:10],
+                            "filing_url": item.get("finalLink") or item.get("link", ""),
                             "accession_number": item.get("cik", ""),
                         })
                     self._cache_put(ck, filings, self.TTL_SEC_FILINGS)
                     return filings
         except Exception as e:
-            logger.warning("FMP sec-filings fetch failed for %s: %s", ticker, e)
+            logger.warning("FMP sec-filings-search fetch failed for %s: %s", ticker, e)
             return []
 
     async def get_sec_filing_section(
@@ -1388,19 +1403,31 @@ class OpenBBDataProvider:
             soup = BeautifulSoup(html, "html.parser")
             text = soup.get_text(separator="\n")
 
-            # Find Item 1A header
             import re as _re
-            pattern = r"(?:Item\s*1A[\.\s\-\u2014:]*Risk\s*Factors)"
-            match = _re.search(pattern, text, _re.IGNORECASE)
-            if not match:
-                return None
-
-            start = match.start()
-
-            # Find next Item header (Item 1B, Item 2, etc.)
+            header = r"Item\s*1A[\.\s\-\u2014:]*Risk\s*Factors"
             end_pattern = r"(?:Item\s*(?:1B|2)[\.\s\-\u2014:])"
-            end_match = _re.search(end_pattern, text[start + 100:], _re.IGNORECASE)
-            end = (start + 100 + end_match.start()) if end_match else start + 50000
+
+            def _span(start: int, search_from: int) -> tuple:
+                end_match = _re.search(end_pattern, text[search_from:], _re.IGNORECASE)
+                end = (search_from + end_match.start()) if end_match else start + 50000
+                return start, end
+
+            # "Item 1A. Risk Factors" appears several times: in the table of contents, in
+            # sentences ("see Item 1A. Risk Factors"), and as the real section header. Real
+            # headers sit on their own line, so prefer those, and take the one with the longest
+            # span to the next Item header (a TOC entry spans only a few characters).
+            line_headers = list(_re.finditer(
+                rf"^[ \t]*{header}[ \t]*\.?[ \t]*$", text, _re.IGNORECASE | _re.MULTILINE
+            ))
+            if line_headers:
+                spans = [_span(m.start(), m.end()) for m in line_headers]
+                start, end = max(spans, key=lambda s: s[1] - s[0])
+            else:
+                # Fallback for filings whose header shares a line with other text.
+                match = _re.search(rf"(?:{header})", text, _re.IGNORECASE)
+                if not match:
+                    return None
+                start, end = _span(match.start(), match.start() + 100)
 
             section = text[start:end].strip()
             return section if len(section) > 200 else None

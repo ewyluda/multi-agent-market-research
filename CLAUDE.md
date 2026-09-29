@@ -88,7 +88,7 @@ docker compose up --build                                    # Docker production
 
 **Optional**: `TWITTER_BEARER_TOKEN` (social sentiment — use raw value, do NOT URL-decode `%2B`/`%3D`)
 
-Key config: `LLM_PROVIDER` (anthropic/openai/xai), `AGENT_TIMEOUT` (30s), `PARALLEL_AGENTS` (true), `FUNDAMENTALS_LLM_ENABLED` (true), `MACRO_AGENT_ENABLED` (true), `OPTIONS_AGENT_ENABLED` (true)
+Key config: `LLM_PROVIDER` (anthropic/openai/xai), `AGENT_TIMEOUT` (30s, data agents), `SYNTHESIS_TIMEOUTS` (per synthesis agent, override with `SYNTHESIS_TIMEOUT_<AGENT>`), `PARALLEL_AGENTS` (true), `FUNDAMENTALS_LLM_ENABLED` (true), `MACRO_AGENT_ENABLED` (true), `OPTIONS_AGENT_ENABLED` (true)
 
 ## API Endpoints
 
@@ -122,9 +122,10 @@ Key config: `LLM_PROVIDER` (anthropic/openai/xai), `AGENT_TIMEOUT` (30s), `PARAL
 1. Create agent inheriting `BaseAgent` with `__init__(ticker, config, agent_results)`
 2. `fetch_data()` returns `agent_results` as-is; `analyze()` does LLM synthesis
 3. Register in `AGENT_REGISTRY` but NOT `DEFAULT_AGENTS`
-4. Add `_run_<name>_agent()` method to orchestrator, wire into synthesis phase via `asyncio.gather()`
-5. Failure must be non-blocking — return `None`, analysis continues without it
-6. Pattern: `ThesisAgent`, `SolutionAgent`
+4. Add a thin `_run_<name>_agent()` wrapper that calls `self._run_synthesis_agent("<name>", AgentCls, ...)`, add a budget to `Config.SYNTHESIS_TIMEOUTS`, and wire it into the synthesis `asyncio.gather()`. Don't add another `wait_for` — the budget is applied once, in `_run_synthesis_agent`
+5. Failure must be non-blocking — return `None`, analysis continues without it. The outcome (ok/partial/timeout/failed/error, elapsed vs budget, reason) lands in `analysis.synthesis_status` and the Diagnostics panel; return `partial: True` + `partial_reason` for degraded results
+6. Read other agents' fields through shared readers (e.g. `src/agents/market_fields.py` for MarketAgent output) and test against the producer's real output shape, not a hand-written guess
+7. Pattern: `ThesisAgent`, `SolutionAgent`
 
 ### Data Provider
 - All `OpenBBDataProvider` methods are async with TTL caching

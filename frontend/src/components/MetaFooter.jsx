@@ -3,6 +3,54 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 
+const SYNTHESIS_LABELS = {
+  solution: 'Recommendation',
+  thesis: 'Bull/bear thesis',
+  narrative: 'Financial narrative',
+  earnings_review: 'Earnings review',
+  risk_diff: 'Risk-factor diff',
+  tag_extractor: 'Company tags',
+};
+
+const STATUS_COLOR = {
+  ok: 'var(--success)',
+  timeout: 'var(--warning)',
+  partial: 'var(--warning)',
+  failed: 'var(--danger)',
+  error: 'var(--danger)',
+};
+
+function SynthesisStatus({ status }) {
+  const entries = Object.entries(status || {});
+  if (entries.length === 0) return null;
+  return (
+    <div className="mb-6">
+      <h4 className="text-[0.8rem] font-semibold text-white/60 mb-3">Synthesis Agents</h4>
+      <div className="flex flex-col gap-1.5">
+        {entries.map(([key, s]) => (
+          <div key={key} className="py-1.5 px-3 rounded-md" style={{ background: 'rgba(255,255,255,0.02)' }}>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-1.5 h-1.5 rounded-full" style={{ background: STATUS_COLOR[s?.status] || 'var(--danger)' }} />
+                <span className="text-[0.78rem] text-white/70">{SYNTHESIS_LABELS[key] || key}</span>
+              </div>
+              <span className="text-[0.72rem] text-white/40 font-data">
+                {s?.elapsed_s != null ? `${s.elapsed_s.toFixed(1)}s` : '—'}
+                {s?.timeout_s != null && <span className="text-white/25"> / {s.timeout_s.toFixed(0)}s</span>}
+              </span>
+            </div>
+            {s?.status !== 'ok' && (
+              <div className="text-[0.7rem] mt-1" style={{ color: STATUS_COLOR[s?.status] || 'var(--danger)' }}>
+                {s?.status}{s?.error ? ` — ${s.error}` : ''}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function DiagnosticsSlideOver({ analysis, onClose }) {
   const payload = analysis?.analysis || analysis || {};
   const agentResults = analysis?.agent_results || payload?.agent_results || {};
@@ -47,6 +95,8 @@ function DiagnosticsSlideOver({ analysis, onClose }) {
             ))}
           </div>
         </div>
+
+        <SynthesisStatus status={payload.synthesis_status} />
 
         {dataQuality.quality_level && (
           <div className="mb-6">
@@ -106,7 +156,11 @@ export default function MetaFooter({ analysis }) {
   const agentResults = analysis.agent_results || analysis.analysis?.agent_results || {};
   const agentCount = Object.keys(agentResults).length;
   const successCount = Object.values(agentResults).filter((r) => r?.success).length;
-  const totalDuration = Object.values(agentResults).reduce((sum, r) => sum + (r?.duration_seconds || 0), 0);
+  // Wall-clock time of the whole run; summing per-agent durations would overstate a parallel run.
+  const totalDuration = analysis.duration_seconds
+    ?? Object.values(agentResults).reduce((sum, r) => sum + (r?.duration_seconds || 0), 0);
+  const synthesis = Object.values(analysis.analysis?.synthesis_status || {});
+  const synthesisOk = synthesis.filter((s) => s?.status === 'ok').length;
 
   const formatDate = (ts) => {
     if (!ts) return '—';
@@ -123,14 +177,22 @@ export default function MetaFooter({ analysis }) {
             <span className="text-[0.72rem] text-white/30">Analyzed <span className="text-white/50 font-medium">{formatDate(timestamp)}</span></span>
             <span className="text-[0.72rem] text-white/30">Duration <span className="text-white/50 font-medium font-data">{totalDuration.toFixed(1)}s</span></span>
             <span className="text-[0.72rem] text-white/30">Agents <span className="text-white/50 font-medium font-data">{successCount}/{agentCount} succeeded</span></span>
+            {synthesis.length > 0 && (
+              <span className="text-[0.72rem] text-white/30">
+                Synthesis{' '}
+                <span
+                  className="font-medium font-data"
+                  style={{ color: synthesisOk === synthesis.length ? 'rgba(255,255,255,0.5)' : 'var(--warning)' }}
+                >
+                  {synthesisOk}/{synthesis.length} succeeded
+                </span>
+              </span>
+            )}
             <Button
               variant="ghost"
               size="sm"
               onClick={() => setShowDiagnostics(true)}
-              className="ml-auto text-[0.72rem] font-medium h-auto p-0"
-              style={{ color: 'rgba(0,111,238,0.5)' }}
-              onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--primary)')}
-              onMouseLeave={(e) => (e.currentTarget.style.color = 'rgba(0,111,238,0.5)')}
+              className="ml-auto text-[0.72rem] font-medium h-auto p-0 text-[var(--primary)] opacity-70 hover:opacity-100"
             >
               View Diagnostics →
             </Button>

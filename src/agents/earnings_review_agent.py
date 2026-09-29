@@ -9,6 +9,7 @@ import anthropic
 from openai import OpenAI
 
 from .base_agent import BaseAgent
+from .market_fields import format_period_change, week52_high, week52_low
 
 # ─── Sector KPI Templates ───────────────────────────────────────────────────
 
@@ -69,7 +70,9 @@ class EarningsReviewAgent(BaseAgent):
         # Check if we have enough data for LLM analysis
         has_transcript = self._has_transcript_data()
         if not has_transcript:
-            return self._partial_result(beat_miss, sector_template_name, completeness, sources)
+            return self._partial_result(
+                beat_miss, sector_template_name, completeness, sources, reason="no_transcript"
+            )
 
         if not earnings_data:
             return self._empty_result(sources)
@@ -80,8 +83,13 @@ class EarningsReviewAgent(BaseAgent):
             llm_response = await self._call_llm(prompt)
             parsed = self._parse_llm_response(llm_response)
         except Exception as e:
-            self.logger.warning(f"Earnings review LLM failed for {self.ticker}: {e}")
-            return self._partial_result(beat_miss, sector_template_name, completeness, sources)
+            self.logger.warning(
+                f"Earnings review LLM failed for {self.ticker}: {type(e).__name__}: {e}"
+            )
+            return self._partial_result(
+                beat_miss, sector_template_name, completeness, sources,
+                reason="llm_failed", error=f"{type(e).__name__}: {e}"[:300],
+            )
 
         result = {
             "executive_summary": parsed.get("executive_summary", ""),
@@ -244,10 +252,9 @@ class EarningsReviewAgent(BaseAgent):
 
         # Format market context
         price = market_data.get("current_price", "N/A")
-        high52 = market_data.get("high_52w", "N/A")
-        low52 = market_data.get("low_52w", "N/A")
-        chg1m = market_data.get("price_change_1m")
-        chg_str = f"{chg1m * 100:+.1f}%" if chg1m is not None else "N/A"
+        high52 = week52_high(market_data)
+        low52 = week52_low(market_data)
+        chg_str = format_period_change(market_data.get("price_change_1m"))
 
         return f"""You are a senior equity research analyst writing a structured earnings review for {self.ticker} ({company}).
 
@@ -385,10 +392,23 @@ Price: ${price} | 52w: ${low52}-${high52} | 1M Change: {chg_str}
         sector_template_name: str,
         completeness: float,
         sources: List[str],
+        reason: str = "no_transcript",
+        error: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Return partial result with deterministic fields when transcript unavailable."""
-        return {
-            "executive_summary": f"No earnings transcript available for detailed review of {self.ticker}.",
+        """Deterministic-only result when the LLM digest can't be produced.
+
+        ``reason`` says why ("no_transcript" or "llm_failed") so the UI never claims a
+        transcript is missing when the model call is what failed.
+        """
+        summaries = {
+            "no_transcript": f"No earnings transcript available for detailed review of {self.ticker}.",
+            "llm_failed": (
+                f"The earnings call transcript for {self.ticker} was retrieved, but the AI digest "
+                "could not be generated this run. Beat/miss figures below are computed directly."
+            ),
+        }
+        result = {
+            "executive_summary": summaries.get(reason, summaries["no_transcript"]),
             "beat_miss": beat_miss,
             "guidance_deltas": [],
             "kpi_table": [],
@@ -400,4 +420,8 @@ Price: ${price} | 52w: ${low52}-${high52} | 1M Change: {chg_str}
             "data_completeness": completeness,
             "data_sources_used": sources,
             "partial": True,
+            "partial_reason": reason,
         }
+        if error:
+            result["partial_error"] = error
+        return result
