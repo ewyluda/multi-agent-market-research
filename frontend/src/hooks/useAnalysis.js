@@ -6,6 +6,7 @@ import { useCallback, useRef } from 'react';
 import { useAnalysisContext } from '../context/AnalysisContext';
 import { getLatestAnalysis } from '../utils/api';
 import { useSSE } from './useSSE';
+import { normalizeAnalysis } from '../utils/normalizeAnalysis';
 
 export const useAnalysis = () => {
   const {
@@ -37,8 +38,6 @@ export const useAnalysis = () => {
     setProgress(0);
     setStage('starting');
 
-    console.log(`Starting SSE analysis for ${ticker}...`);
-
     activeAnalysisRef.current = ticker;
 
     return new Promise((resolve, reject) => {
@@ -46,7 +45,6 @@ export const useAnalysis = () => {
         onProgress: (update) => {
           if (activeAnalysisRef.current !== ticker) return;
 
-          console.log('Progress update:', update);
           if (update.stage) {
             setStage(update.stage);
           }
@@ -58,9 +56,8 @@ export const useAnalysis = () => {
         onResult: (result) => {
           if (activeAnalysisRef.current !== ticker) return;
 
-          console.log('Analysis result received:', result?.success);
           if (result.success) {
-            setAnalysis(result);
+            setAnalysis(normalizeAnalysis(result));
             setProgress(100);
             setStage('complete');
           } else {
@@ -106,7 +103,7 @@ export const useAnalysis = () => {
       setLoading(true);
       setError(null);
 
-      const result = await getLatestAnalysis(ticker);
+      const result = normalizeAnalysis(await getLatestAnalysis(ticker));
       setAnalysis(result);
       setCurrentTicker(ticker);
 

@@ -3,6 +3,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   getPortfolio,
   updatePortfolioProfile,
@@ -148,7 +149,9 @@ const FieldLabel = ({ children }) => (
 );
 
 /* ──────── Main PortfolioView component ──────── */
-const PortfolioView = ({ onSelectTicker }) => {
+const PortfolioView = () => {
+  const navigate = useNavigate();
+  const onSelectTicker = (ticker) => navigate(`/analysis/${ticker}`);
   const [loading, setLoading] = useState(false);
   const [savingHolding, setSavingHolding] = useState(false);
   const [error, setError] = useState(null);

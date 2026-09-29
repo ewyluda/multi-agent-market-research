@@ -5,6 +5,7 @@ import TechnicalsTab from './TechnicalsTab'
 import SentimentTab from './SentimentTab'
 import CouncilTab from './CouncilTab'
 import { motion } from 'framer-motion'
+import { useSearchParams } from 'react-router-dom'
 
 const TABS = [
   { value: 'overview', label: 'Overview' },
@@ -14,9 +15,23 @@ const TABS = [
   { value: 'council', label: 'Council' },
 ]
 
+const TAB_VALUES = new Set(TABS.map((t) => t.value))
+
 export default function AnalysisTabs({ analysis }) {
+  // Active tab lives in the URL (?tab=thesis) so views are shareable and survive reloads.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const requested = searchParams.get('tab')
+  const activeTab = TAB_VALUES.has(requested) ? requested : 'overview'
+
+  const handleTabChange = (value) => {
+    const next = new URLSearchParams(searchParams)
+    if (value === 'overview') next.delete('tab')
+    else next.set('tab', value)
+    setSearchParams(next, { replace: true })
+  }
+
   return (
-    <Tabs defaultValue="overview" className="w-full">
+    <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
       <TabsList className="w-full justify-start bg-transparent border-b border-[var(--border)] rounded-none p-0 h-auto gap-0">
         {TABS.map((tab) => (
           <TabsTrigger

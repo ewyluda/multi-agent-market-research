@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useHistory } from '../hooks/useHistory';
 import { getCalibrationSummary } from '../utils/api';
 import { Card, CardContent } from '@/components/ui/card';
@@ -21,10 +22,12 @@ function formatRelativeTime(ts) {
   return `${days}d ago`;
 }
 
-export default function HistoryView({ onSelectAnalysis }) {
+export default function HistoryView() {
+  const navigate = useNavigate();
   const {
     tickers,
     tickersLoading,
+    fetchTickers,
     selectedTicker,
     selectTicker,
     history,
@@ -32,9 +35,7 @@ export default function HistoryView({ onSelectAnalysis }) {
     totalCount,
     hasMore,
     page,
-    pageSize,
     goToPage,
-    filters,
     applyFilters,
   } = useHistory();
   const [recFilter, setRecFilter] = useState('All');
@@ -45,16 +46,27 @@ export default function HistoryView({ onSelectAnalysis }) {
     getCalibrationSummary(180).then((r) => setCalibration(r?.data)).catch(() => {});
   }, []);
 
+  // Load analyzed tickers on mount and open the most recently analyzed one.
+  useEffect(() => {
+    fetchTickers().then((list) => {
+      if (list.length > 0 && !selectedTicker) selectTicker(list[0].ticker);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleRecFilter = (f) => {
+    setRecFilter(f);
+    applyFilters({ recommendation: f === 'All' ? null : f });
+  };
+
   const filteredTickers = useMemo(() => {
     let list = tickers || [];
     if (search) list = list.filter((t) => t.ticker.includes(search.toUpperCase()));
     return list;
   }, [tickers, search]);
 
-  const filteredHistory = useMemo(() => {
-    if (recFilter === 'All') return history;
-    return (history || []).filter((h) => (h.recommendation || '').toUpperCase() === recFilter);
-  }, [history, recFilter]);
+  // Recommendation filtering is server-side (applyFilters), so counts and paging stay correct.
+  const filteredHistory = history || [];
 
   const loadMore = () => {
     if (hasMore) goToPage(page + 1);
@@ -70,7 +82,7 @@ export default function HistoryView({ onSelectAnalysis }) {
             key={f}
             size="sm"
             variant={recFilter === f ? 'default' : 'secondary'}
-            onClick={() => setRecFilter(f)}
+            onClick={() => handleRecFilter(f)}
             className="text-xs h-7 px-3"
           >
             {f}
@@ -106,10 +118,10 @@ export default function HistoryView({ onSelectAnalysis }) {
       )}
 
       <div className="flex flex-col gap-0.5">
-        {historyLoading && (
+        {(historyLoading || tickersLoading) && (
           <div className="py-8 text-center text-[0.82rem]" style={{ color: 'var(--text-muted)' }}>Loading...</div>
         )}
-        {!historyLoading && filteredHistory.length === 0 && (
+        {!historyLoading && !tickersLoading && filteredHistory.length === 0 && (
           <div className="py-8 text-center text-[0.82rem]" style={{ color: 'var(--text-muted)' }}>No analyses found</div>
         )}
         {filteredHistory.map((item) => {
@@ -118,7 +130,7 @@ export default function HistoryView({ onSelectAnalysis }) {
           return (
             <button
               key={item.id}
-              onClick={() => onSelectAnalysis?.(item.ticker || selectedTicker)}
+              onClick={() => navigate(`/analysis/${item.ticker || selectedTicker}`)}
               className="flex items-center py-2.5 px-3 rounded-md text-[0.8rem] text-left w-full border-none cursor-pointer transition-colors hover:bg-white/[0.03]"
               style={{ background: 'rgba(255,255,255,0.02)' }}
             >

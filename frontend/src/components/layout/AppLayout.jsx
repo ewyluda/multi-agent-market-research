@@ -51,13 +51,14 @@ export default function AppLayout() {
     [tickerInput, navigate, runAnalysis]
   )
 
+  // Selecting a ticker opens its latest saved analysis; re-running is an explicit
+  // "Analyze" action because a live run spends LLM/data API credits.
   const handleSelectTicker = useCallback(
     (ticker) => {
       setTickerInput(ticker)
       navigate(`/analysis/${ticker}`)
-      runAnalysis(ticker)
     },
-    [navigate, runAnalysis]
+    [navigate]
   )
 
   return (
@@ -82,7 +83,7 @@ export default function AppLayout() {
           padding: '24px',
         }}
       >
-        <Outlet context={{ onSelectTicker: handleSelectTicker }} />
+        <Outlet />
       </main>
     </div>
   )

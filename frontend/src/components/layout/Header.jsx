@@ -1,4 +1,5 @@
-import { Search, Bell, Settings, Loader2 } from 'lucide-react'
+import { Search, Bell, Loader2 } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { useAnalysisContext } from '@/context/AnalysisContext'
@@ -20,6 +21,7 @@ const STAGE_LABELS = {
 }
 
 export default function Header({ tickerInput, setTickerInput, onAnalyze, unacknowledgedCount }) {
+  const navigate = useNavigate()
   const { loading, stage, progress, analysis } = useAnalysisContext()
 
   return (
@@ -79,16 +81,19 @@ export default function Header({ tickerInput, setTickerInput, onAnalyze, unackno
 
       {/* Right actions */}
       <div className="flex items-center gap-1 shrink-0">
-        <Button variant="ghost" size="icon" className="relative">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="relative"
+          onClick={() => navigate('/alerts')}
+          aria-label={unacknowledgedCount > 0 ? `Alerts (${unacknowledgedCount} unacknowledged)` : 'Alerts'}
+        >
           <Bell className="h-4 w-4" />
           {unacknowledgedCount > 0 && (
             <span className="absolute -top-0.5 -right-0.5 w-4 h-4 rounded-full bg-[var(--danger)] text-[10px] font-bold flex items-center justify-center text-white">
               {unacknowledgedCount > 9 ? '9+' : unacknowledgedCount}
             </span>
           )}
-        </Button>
-        <Button variant="ghost" size="icon">
-          <Settings className="h-4 w-4" />
         </Button>
       </div>
 
