@@ -1196,13 +1196,14 @@ class FundamentalsAgent(BaseAgent):
         """
         company = analysis.get("company_name", self.ticker)
         sector = analysis.get("sector", "Unknown")
-        pe = analysis.get("pe_ratio", "N/A")
+        pe = analysis.get("pe_ratio")
+        pe = f"{pe:.1f}" if isinstance(pe, (int, float)) else "N/A"
         margins = analysis.get("profit_margins")
         margins_pct = f"{margins * 100:.1f}%" if margins else "N/A"
         health = analysis.get("health_score", 0)
 
         summary = f"{company} operates in the {sector} sector. "
-        summary += f"P/E ratio: {pe if pe != 'N/A' else 'N/A'}, "
+        summary += f"P/E ratio: {pe}, "
         summary += f"Profit margins: {margins_pct}. "
         summary += f"Overall health score: {health:.0f}/100."
 

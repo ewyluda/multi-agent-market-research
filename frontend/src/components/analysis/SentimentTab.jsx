@@ -4,8 +4,12 @@ import { Badge } from '@/components/ui/badge'
 
 function SentimentBreakdown({ sentiment }) {
   if (!sentiment) return null
-  const factors = sentiment.factors || sentiment.factor_scores || []
-  const overall = sentiment.overall_score ?? sentiment.composite_score
+  // The sentiment agent returns factors keyed by name: { earnings: { score, weight, contribution }, ... }
+  const rawFactors = sentiment.factors || sentiment.factor_scores || []
+  const factors = Array.isArray(rawFactors)
+    ? rawFactors
+    : Object.entries(rawFactors).map(([key, f]) => ({ ...f, name: f?.name || key.replace(/_/g, ' ') }))
+  const overall = sentiment.overall_sentiment ?? sentiment.overall_score ?? sentiment.composite_score
   const analysisText = sentiment.analysis || sentiment.summary
 
   return (
@@ -26,16 +30,16 @@ function SentimentBreakdown({ sentiment }) {
           <div className="space-y-3">
             {factors.map((factor, i) => (
               <div key={i} className="flex items-center justify-between">
-                <span className="text-sm text-[var(--text-secondary)]">{factor.name || factor.factor}</span>
+                <span className="text-sm text-[var(--text-secondary)] capitalize">{factor.name || factor.factor}</span>
                 <div className="flex items-center gap-2">
                   <div className="w-24 h-1.5 rounded-full bg-[var(--muted)] overflow-hidden">
                     <div className="h-full rounded-full transition-all" style={{
-                      width: `${Math.abs((factor.score || factor.weight || 0) * 100)}%`,
+                      width: `${Math.min(100, Math.abs((factor.score ?? 0) * 100))}%`,
                       backgroundColor: (factor.score || 0) > 0 ? 'var(--success)' : 'var(--danger)',
                     }} />
                   </div>
                   <span className="font-data text-xs w-10 text-right text-[var(--text-muted)]">
-                    {(factor.score || factor.weight || 0).toFixed(2)}
+                    {(factor.score ?? 0) > 0 ? '+' : ''}{(factor.score ?? 0).toFixed(2)}
                   </span>
                 </div>
               </div>

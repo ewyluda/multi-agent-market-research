@@ -1,6 +1,7 @@
 import { DollarSign, Target, Gauge, TrendingUp, BarChart3 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import KpiCard from './KpiCard'
+import { formatPercent } from '@/utils/normalizeAnalysis'
 import { motion } from 'framer-motion'
 
 const REC_VARIANT = {
@@ -19,18 +20,17 @@ export default function KpiRow({ analysis }) {
 
   const market = analysis.agent_results?.market?.data || {}
   const fundamentals = analysis.agent_results?.fundamentals?.data || {}
-  const sentiment = analysis.agent_results?.sentiment?.data || analysis.analysis?.sentiment || {}
   const recommendation = analysis.signal_contract_v2?.recommendation || analysis.recommendation || '—'
-  const confidence = analysis.confidence_score ?? analysis.signal_contract_v2?.confidence
+  const confidence = analysis.confidence_calibrated ?? analysis.confidence_score ?? analysis.signal_contract_v2?.confidence
   const price = market.current_price || market.price
-  const change1d = market.change_1d ?? market.percent_change
-  const sentimentScore = sentiment.overall_score ?? sentiment.composite_score
+  const change1d = market.previous_close ? ((price - market.previous_close) / market.previous_close) * 100 : null
+  const sentimentScore = analysis.overall_sentiment_score
   const pe = fundamentals.pe_ratio ?? fundamentals.pe
 
   const cards = [
     { icon: DollarSign, label: 'Price', value: formatPrice(price), trend: change1d },
     null, // recommendation card is custom
-    { icon: Gauge, label: 'Confidence', value: confidence != null ? `${Math.round(confidence)}%` : '—', trendLabel: confidence != null ? 'AI confidence score' : undefined },
+    { icon: Gauge, label: 'Confidence', value: formatPercent(confidence), trendLabel: confidence != null ? (analysis.confidence_calibrated != null ? 'Calibrated confidence' : 'Model confidence') : undefined },
     { icon: TrendingUp, label: 'Sentiment', value: sentimentScore != null ? (sentimentScore > 0 ? '+' : '') + sentimentScore.toFixed(2) : '—', trendLabel: sentimentScore != null ? (sentimentScore > 0.3 ? 'Bullish' : sentimentScore < -0.3 ? 'Bearish' : 'Neutral') : undefined },
     { icon: BarChart3, label: 'P/E Ratio', value: pe != null ? pe.toFixed(1) + 'x' : '—', trendLabel: 'Price to earnings' },
   ]

@@ -3,6 +3,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   getWatchlists,
   getWatchlist,
@@ -115,7 +116,9 @@ const BatchProgress = ({ results, total }) => {
 };
 
 /* ──────── Main WatchlistView component ──────── */
-const WatchlistView = ({ onSelectTicker }) => {
+const WatchlistView = () => {
+  const navigate = useNavigate();
+  const onSelectTicker = (ticker) => navigate(`/analysis/${ticker}`);
   const [watchlists, setWatchlists] = useState([]);
   const [activeWatchlist, setActiveWatchlist] = useState(null);
   const [watchlistDetail, setWatchlistDetail] = useState(null);

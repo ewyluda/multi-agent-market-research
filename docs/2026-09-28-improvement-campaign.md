@@ -23,8 +23,8 @@ Every session below should make one of those more visible or more credible.
 
 | ID | Session | Depends on | Status |
 |----|---------|-----------|--------|
-| A0 | Repo triage, skills extraction, branch cleanup, schedule off | — | in progress (awaiting owner: merge PR #8, reset local main) |
-| A1 | Frontend visual + data-binding bugs | A0 | pending |
+| A0 | Repo triage, skills extraction, branch cleanup, schedule off | — | done |
+| A1 | Frontend visual + data-binding bugs | A0 | in progress (PR open, awaiting merge) |
 | A2 | Restore synthesis agents (timeout budget, failure visibility) | A0 | pending |
 | A3 | Error surfacing + backend startup time | A1 | pending |
 | A4 | Verdict hero (render the Solution agent's output) | A1 | pending |
@@ -84,7 +84,7 @@ Status values: `pending` / `in progress` / `done` / `blocked (<reason>)`.
 ## Phase A — Triage and visible breakage
 
 ### A0 · Repo triage, skills extraction, branch cleanup, schedule off
-**Status:** in progress — all agent-side work done 2026-09-28; two owner actions remain (auto-mode blocked both): (1) merge [PR #8](https://github.com/ewyluda/multi-agent-market-research/pull/8); (2) reset local `main` to `origin/main` (drops the 17 skills commits, now preserved in the playbook repo and on local `backup/pre-campaign-main`). Mark `done` after both.
+**Status:** done (2026-09-28) — PR #8 merged; local `main` reset to `origin/main` (owner-approved). Pre-campaign state kept on local branch `backup/pre-campaign-main`.
 **Goal:** a clean, honest repo state that is safe to push, with nothing running up API bills.
 
 **Scope and steps**
@@ -106,7 +106,7 @@ Status values: `pending` / `in progress` / `done` / `blocked (<reason>)`.
 **Done when:** all of the above hold and the A0 PR is merged and pushed.
 
 ### A1 · Frontend visual and data-binding bugs
-**Status:** pending
+**Status:** in progress
 **Goal:** what's already built renders correctly and navigation works.
 
 **Scope and steps**
@@ -541,6 +541,11 @@ Keep claims honest: frame these as transferable patterns, not as data-center exp
 - 2026-09-28 (A0): all `llm_config.get("model", <fallback>)` fallbacks in agents are dead code — `Config.get_llm_config()` always supplies `model`. Delete in C2 as planned. Tests still reference `claude-3-5-*` IDs as mock config values (harmless; update in C2).
 - 2026-09-28 (A0): with schedulers off by default, the **daily calibration job** (the outcome-eval showcase) also doesn't run unless opted in. D5 README must say how to enable it; C4 scorecard should read existing `analysis_outcomes` rows.
 - 2026-09-28 (A0): backend startup measured at ~19s to `Application startup complete` (OpenBB init ~12s, macro pre-warm ~7s) with scheduler off; the 68s seen during the audit included scheduler setup + reloads from concurrent test runs. A3 target unchanged (≤10s).
+- 2026-09-28 (A1): History rows can only open a ticker's *latest* analysis — there is no `GET /api/analysis/by-id/{id}` endpoint, so a specific historical run can't be viewed. Candidate for B4 (router split) or D4 (demo history).
+- 2026-09-28 (A1): the local DB has 3 analyses with ticker `BATCH` (2026-02-18) — the batch endpoint apparently persisted its own name as a ticker once. Check `batch_analyze_tickers` (`src/api.py:251`) in B3; delete the junk rows locally.
+- 2026-09-28 (A1): selecting a ticker from Sidebar/Watchlist/Portfolio used to start a new **paid live run** (`AppLayout.handleSelectTicker` called `runAnalysis`); it now only navigates to the saved analysis. Live runs are explicit (Analyze button / "Run analysis for X").
+- 2026-09-28 (A1): the fundamentals summary float fix applies to new runs only; saved analyses keep the old text.
+- 2026-09-28 (A1): the sidebar "Recent" list is in-memory React state (resets on reload). Fold into D2.
 - 2026-09-28 (audit): `.claude/launch.json` called a bare `python`, which isn't on PATH; changed to `venv/bin/python` (untracked file).
 
 ## Session log
@@ -548,3 +553,5 @@ Keep claims honest: frame these as transferable patterns, not as data-center exp
 
 - 2026-09-28 · audit · done · — · Phases 1–3 presented; owner answered Q1–Q9; this campaign doc written.
 - 2026-09-28 · A0 · in progress · [PR #8](https://github.com/ewyluda/multi-agent-market-research/pull/8) · Playbook repo created: https://github.com/ewyluda/equity-dd-agent-playbook (13 skills commits via subtree split + README/LICENSE/validator; 65/65 files validate). LICENSE added; CLAUDE.MD→CLAUDE.md; schedulers default off; AAPL schedule disabled in local DB; model defaults updated; junk removed. Branches: 6 local + 4 remote deleted (3 remote were already gone); `delete_branch_on_merge` enabled; description fixed. Verified: 697 fast tests pass; backend starts ~19s with no scheduler jobs. Blocked for owner: PR merge, local `main` reset.
+- 2026-09-28 · A0 · done · [PR #8](https://github.com/ewyluda/multi-agent-market-research/pull/8) · Owner approved merge + local `main` reset; both done.
+- 2026-09-28 · A1 · PR open · (see PR) · CSS reset moved to `@layer base`; `normalizeAnalysis()` adapter; KPI confidence 45% / sentiment −0.10 / 1-day change verified on AAPL id 221; sentiment factor dict rendered; History loads on mount with server-side rating filter; History/Watchlist/Portfolio clicks navigate (no paid re-run); route-driven AnalysisView + `?tab=`; no-saved-analysis state; bell → /alerts, dead Settings removed; P/E summary formatted. Lint 27→22 (rest are B1). `vite build` OK; 697 fast tests pass.
