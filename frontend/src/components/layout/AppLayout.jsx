@@ -5,6 +5,7 @@ import Sidebar from './Sidebar'
 import { useAnalysisContext } from '@/context/AnalysisContext'
 import { useAnalysis } from '@/hooks/useAnalysis'
 import { getUnacknowledgedCount } from '@/utils/api'
+import { useBackendStatus } from '@/hooks/useBackendStatus'
 
 export default function AppLayout() {
   const [tickerInput, setTickerInput] = useState('')
@@ -13,19 +14,20 @@ export default function AppLayout() {
   const { analysis } = useAnalysisContext()
   const { runAnalysis } = useAnalysis()
   const navigate = useNavigate()
+  const backend = useBackendStatus()
+  const backendUp = backend.status === 'online' || backend.status === 'no-llm-key'
 
-  // Fetch alert count
+  // Alert count — only poll while the backend is reachable (the status pill covers "offline").
   useEffect(() => {
-    getUnacknowledgedCount()
-      .then((data) => setUnacknowledgedCount(data?.count || 0))
-      .catch(() => {})
-    const interval = setInterval(() => {
+    if (!backendUp) return undefined
+    const load = () =>
       getUnacknowledgedCount()
         .then((data) => setUnacknowledgedCount(data?.count || 0))
         .catch(() => {})
-    }, 30000)
+    load()
+    const interval = setInterval(load, 30000)
     return () => clearInterval(interval)
-  }, [])
+  }, [backendUp])
 
   // Track recent analyses
   useEffect(() => {
@@ -68,6 +70,7 @@ export default function AppLayout() {
         setTickerInput={setTickerInput}
         onAnalyze={handleAnalyze}
         unacknowledgedCount={unacknowledgedCount}
+        backend={backend}
       />
       <Sidebar
         unacknowledgedCount={unacknowledgedCount}
@@ -83,7 +86,7 @@ export default function AppLayout() {
           padding: '24px',
         }}
       >
-        <Outlet />
+        <Outlet context={{ backend }} />
       </main>
     </div>
   )

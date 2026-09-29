@@ -26,7 +26,7 @@ Every session below should make one of those more visible or more credible.
 | A0 | Repo triage, skills extraction, branch cleanup, schedule off | — | done |
 | A1 | Frontend visual + data-binding bugs | A0 | done |
 | A2 | Restore synthesis agents (timeout budget, failure visibility) | A0 | done |
-| A3 | Error surfacing + backend startup time | A1 | pending |
+| A3 | Error surfacing + backend startup time | A1 | in progress (PR open, stacked on A4) |
 | A4 | Verdict hero (render the Solution agent's output) | A1 | in progress (PR open, awaiting merge) |
 | B1 | CI, lint, dependency lock, leaky-test fixes | A1, A2 | pending |
 | B2 | Security + deploy hardening | B1 | pending |
@@ -143,7 +143,7 @@ Status values: `pending` / `in progress` / `done` / `blocked (<reason>)`.
 **Done when:** the live run shows all synthesis outputs, or any failure is visible with a reason.
 
 ### A3 · Error surfacing + backend startup time
-**Status:** pending
+**Status:** in progress — PR open (stacked on the A4 branch).
 **Goal:** the app never looks "idle" when it is actually broken, and the backend is up in seconds.
 
 **Scope and steps**
@@ -552,6 +552,8 @@ Keep claims honest: frame these as transferable patterns, not as data-center exp
 - 2026-09-29 (A2): the 10-K section parser can't find headers split mid-word across HTML elements (MSFT: `ITEM 1A. RIS` / `K FACTORS`); those filings go to the LLM-extraction fallback (pre-existing behaviour, not a regression).
 - 2026-09-29 (A2): news RSS sources return 403/404 on every run (AP Business, Investopedia, Barrons, Reuters). Check in B3/B5 — prune dead feeds or fix headers.
 - 2026-09-29 (A4): KpiRow's Rating/Confidence cards now duplicate the Verdict panel header. D2: consider replacing them with EV score / data quality / regime (fields already in the payload: `ev_score_7d`, `data_quality_score`, `regime_label`).
+- 2026-09-29 (A3): two error paths were implemented but not exercised live (would need a deliberately failed paid run / removing the LLM key): the "re-run failed — showing last saved analysis" banner and the `no-llm-key` status. D4's demo mode should include fixtures for both so they're screenshot-able; B5 frontend tests should cover them.
+- 2026-09-29 (A3): the first analysis after a cold start still pays the ~12s OpenBB import if it arrives before the background warm-up finishes (warm-up now overlaps with the user choosing a ticker, so usually hidden).
 - 2026-09-28 (audit): `.claude/launch.json` called a bare `python`, which isn't on PATH; changed to `venv/bin/python` (untracked file).
 
 ## Session log
@@ -563,3 +565,4 @@ Keep claims honest: frame these as transferable patterns, not as data-center exp
 - 2026-09-28 · A1 · done · [PR #9](https://github.com/ewyluda/multi-agent-market-research/pull/9) · CSS reset moved to `@layer base`; `normalizeAnalysis()` adapter; KPI confidence 45% / sentiment −0.10 / 1-day change verified on AAPL id 221; sentiment factor dict rendered; History loads on mount with server-side rating filter; History/Watchlist/Portfolio clicks navigate (no paid re-run); route-driven AnalysisView + `?tab=`; no-saved-analysis state; bell → /alerts, dead Settings removed; P/E summary formatted. Lint 27→22 (rest are B1). `vite build` OK; 697 fast tests pass.
 - 2026-09-29 · A2 · done · [PR #10](https://github.com/ewyluda/multi-agent-market-research/pull/10) · Four root causes behind "thesis/narrative/risk diff silently missing": (1) a 15s outer `wait_for` around every synthesis agent — narrative/thesis take 70–100s live; (2) ThesisAgent + EarningsReviewAgent crashed with `TypeError: dict * int` reading MarketAgent's `price_change_1m` dict as a float (new `src/agents/market_fields.py`); (3) RiskDiff called FMP `/stable/sec-filings`, which returns 404 → switched to `sec-filings-search/symbol` + client-side form filter; (4) the Item 1A parser anchored on the table-of-contents entry, so the LLM saw TOC + Business text and extracted zero risks. Also: per-agent budgets in `Config.SYNTHESIS_TIMEOUTS` applied once in `_run_synthesis_agent`; `synthesis_status` (ok/partial/timeout/failed/error + elapsed/budget/reason) persisted and shown in footer + Diagnostics; EarningsReview/RiskDiff partial results say *why*; tags attached to payload. Verified with 4 live NVDA runs (xAI + FMP): final run 6/6 synthesis ok, thesis/narrative/risk diff (score 67, 2 new risks) all populated. 710 fast tests pass.
 - 2026-09-29 · A4 · PR open · (see PR) · New `VerdictHero` above the tabs: rating + calibrated confidence + position/horizon, validation badge (status + rules passed), rule-engine override badge with evidence, 3-line rationale with expand, top-3 opportunities/risks, price ladder (stop/entry/current/target, % from current, reward/risk), bull/base/bear probability bars with guardrail-clamped flags + probability-weighted return, and an expandable list of guardrail adjustments. Verified on NVDA #233 (BUY, 5.1× R/R, +19.6% weighted, 2 clamps) and AAPL #221 (HOLD) at 1440 and 1024 wide. Lint unchanged (22), build OK.
+- 2026-09-29 · A3 · PR open · (see PR) · Startup: macro pre-warm moved to a background task → cold start to healthy `/health` **1.6s** (was ~19s; 68s during the audit). `/health` is cheap (no external calls, DB check off the event loop) and reports `llm_provider`, `llm_configured`, `data_sources` (booleans only — test asserts no key values leak) and `warmup`. Frontend: `useBackendStatus` polls `/health` (15s online / 5s offline); header status pill (Live · provider / No LLM key / Backend offline, click to recheck); alert-count polling pauses while offline; AnalysisView distinguishes 404 (no saved analysis) from load failures, shows an offline screen that auto-retries when the backend returns, and an error banner with Retry for failed live runs (with or without a saved analysis to fall back on). Verified: offline screen + pill, auto-recovery to NVDA after starting backend, MSFT 404 path. 711 fast tests pass; lint unchanged (22); build OK.

@@ -14,6 +14,14 @@ const api = axios.create({
 });
 
 /**
+ * Cheap backend health check (no external calls): LLM/data key presence + warm-up state.
+ */
+export const getHealth = async () => {
+  const response = await api.get('/health', { timeout: 4000 });
+  return response.data;
+};
+
+/**
  * Trigger analysis for a ticker
  */
 export const analyzeTickerAPI = async (ticker) => {
