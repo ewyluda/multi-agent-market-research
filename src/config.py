@@ -26,7 +26,17 @@ class Config:
     # LLM Configuration
     # Strip inline comments that Docker env_file doesn't handle
     LLM_PROVIDER = os.getenv("LLM_PROVIDER", "anthropic").split("#")[0].strip()
-    LLM_MODEL = os.getenv("LLM_MODEL", "claude-3-5-sonnet-20241022").split("#")[0].strip()
+    # Interim per-provider defaults; replaced by the tiered registry in src/llm/models.py (campaign C1).
+    # The OpenAI default is a placeholder until the GPT-6 API IDs are verified; set LLM_MODEL explicitly.
+    _DEFAULT_MODELS = {
+        "anthropic": "claude-sonnet-5-5",
+        "xai": "grok-4.7",
+        "openai": "gpt-4o",
+    }
+    LLM_MODEL = (
+        os.getenv("LLM_MODEL", "").split("#")[0].strip()
+        or _DEFAULT_MODELS.get(LLM_PROVIDER, _DEFAULT_MODELS["anthropic"])
+    )
     LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.3"))
     LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "4096"))
 
@@ -38,9 +48,9 @@ class Config:
     OPTIONS_AGENT_ENABLED = os.getenv("OPTIONS_AGENT_ENABLED", "true").lower() == "true"
     EARNINGS_AGENT_ENABLED = os.getenv("EARNINGS_AGENT_ENABLED", "true").lower() == "true"
     EARNINGS_TRANSCRIPT_QUARTERS = int(os.getenv("EARNINGS_TRANSCRIPT_QUARTERS", "4"))
-    SCHEDULER_ENABLED = os.getenv("SCHEDULER_ENABLED", "true").lower() == "true"
+    SCHEDULER_ENABLED = os.getenv("SCHEDULER_ENABLED", "false").lower() == "true"
     SCHEDULER_MIN_INTERVAL = int(os.getenv("SCHEDULER_MIN_INTERVAL", "30"))
-    CATALYST_SCHEDULER_ENABLED = os.getenv("CATALYST_SCHEDULER_ENABLED", "true").lower() == "true"
+    CATALYST_SCHEDULER_ENABLED = os.getenv("CATALYST_SCHEDULER_ENABLED", "false").lower() == "true"
     CATALYST_SOURCE = os.getenv("CATALYST_SOURCE", "earnings").split("#")[0].strip().lower()
     CATALYST_PRE_DAYS = int(os.getenv("CATALYST_PRE_DAYS", "1"))
     CATALYST_POST_DAYS = int(os.getenv("CATALYST_POST_DAYS", "1"))

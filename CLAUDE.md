@@ -60,6 +60,9 @@ All data agents use `OpenBBDataProvider` (`src/data_provider.py`) injected via `
 | `src/inflection_detector.py` | Inflection detection + convergence scoring |
 | `src/repositories/perception_repo.py` | Perception snapshot + inflection event CRUD |
 | `src/routers/inflection.py` | `/api/inflections/*` endpoints |
+| `src/routers/agent_api.py` | LLM-optimized `/api/agent/*` endpoints (3 layers) |
+| `src/routers/agent_formatters.py` | Token-efficient data formatting for agent API |
+| `mcp_server/server.py` | MCP server entry point (stdio transport, 42 tools) |
 
 ## Quick Reference
 
@@ -98,6 +101,11 @@ Key config: `LLM_PROVIDER` (anthropic/openai/xai), `AGENT_TIMEOUT` (30s), `PARAL
 **Council**: `POST/GET /api/analyze/{ticker}/council`, `POST/GET/DELETE /api/thesis/{ticker}`
 
 **Inflections**: `GET /api/inflections/{ticker}`, `GET /api/inflections/{ticker}/timeseries`, `GET /api/watchlists/{id}/inflections`, `PUT /api/watchlists/{id}/schedule`
+
+**Agent API** (LLM-optimized, 3 layers):
+- Layer 1 (Analysis): `GET /api/agent/{ticker}/summary`, `GET /api/agent/{ticker}/analysis?detail=&sections=`, `GET /api/agent/{ticker}/changes`, `GET /api/agent/{ticker}/inflections`, `GET /api/agent/{ticker}/council`, `GET /api/agent/compare?tickers=`
+- Layer 2 (Actions): `POST /api/agent/{ticker}/analyze`, `POST /api/agent/{ticker}/council?investors=`, `/api/agent/watchlists*`, `/api/agent/alerts*`, `/api/agent/portfolio*`
+- Layer 3 (Raw Data): `GET /api/agent/data/{ticker}/{source}` (quote, price-history, profile, financials, earnings, transcript, analyst-estimates, price-targets, insider-trading, peers, ratios, revenue-segments, dcf, management, growth, share-stats, technical, options, news, sec-filings, sec-section), `GET /api/agent/data/macro`
 
 **Other**: `GET /api/calibration/summary`, `GET /api/rollout/phase7/status`, `GET /api/macro-events`, `GET /health`
 
@@ -163,6 +171,15 @@ After DB save, the orchestrator:
 - Methods `get_analysis_by_id()` and `get_agent_results()` do **not** exist
 - Council endpoint builds config from `Config` class — orchestrator is per-request, not a singleton
 
+### Agent API & MCP Server
+- **Agent API** (`src/routers/agent_api.py`): LLM-optimized endpoints under `/api/agent/*` with 3 layers — analysis (token-efficient summaries), actions (run analyses, CRUD), raw data (direct FMP/FRED/EDGAR access)
+- **Formatters** (`src/routers/agent_formatters.py`): `format_summary()`, `format_analysis(detail, sections)`, `format_changes()`, `clean_for_agent()`, `agent_error()`
+- **MCP Server** (`mcp_server/server.py`): FastMCP with stdio transport, 42 tools wrapping agent API via localhost HTTP. Compatible with OpenClaw (MCP bridge), Claude Code, Cursor
+- Access shared state via `import src.api as api_module` then `api_module.db_manager` / `api_module.data_provider` (same pattern as inflection router)
+- Detail levels: `?detail=summary|standard|full`. Section filtering: `?sections=fundamentals,sentiment,...`
+- SEC section endpoint validates `filing_url` against allowlist (sec.gov, FMP only) — SSRF protection
+- Start MCP server: `python mcp_server/server.py` (requires FastAPI backend running on :8000)
+
 ## Frontend
 
 React + Vite + Tailwind CSS v4. Hero UI dark theme (zinc-based).
@@ -208,5 +225,7 @@ Async/await for I/O, type hints on all functions, Pydantic for validation, try/e
 4. Maintain async patterns and error handling throughout
 5. Test changes: `python -m pytest tests/ -v`
 6. All plans indexed at [`docs/plans/INDEX.md`](docs/plans/INDEX.md)
+7. **Active campaign:** [`docs/2026-09-28-improvement-campaign.md`](docs/2026-09-28-improvement-campaign.md) — portfolio-readiness sessions A0–D6 with status board and resolved decisions. Read it before starting campaign work; don't re-ask its resolved questions.
+8. Background schedulers (`SCHEDULER_ENABLED`, `CATALYST_SCHEDULER_ENABLED`) default to **off** — they spend LLM/data credits. Never flip the defaults back on.
 
 **File reading priority**: `src/orchestrator.py` → `src/agents/base_agent.py` → specific agent → `src/models.py` → `src/config.py` → `src/database.py`
