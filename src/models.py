@@ -241,11 +241,15 @@ class AlertRuleUpdate(BaseModel):
 
 
 class HealthCheckResponse(BaseModel):
-    """Health check response."""
+    """Health check response. Cheap: no external calls, safe to poll from the UI."""
     status: str
     timestamp: str
     database_connected: bool
     config_valid: bool
+    llm_provider: Optional[str] = None
+    llm_configured: Optional[bool] = None
+    data_sources: Optional[Dict[str, bool]] = None  # key present? (never the key itself)
+    warmup: Optional[str] = None  # background cache warm-up: pending | done | failed
 
 
 # ── Investor Council models ───────────────────────────────────────────────────

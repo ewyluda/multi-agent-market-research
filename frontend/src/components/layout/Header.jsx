@@ -20,7 +20,49 @@ const STAGE_LABELS = {
   completed: 'Complete',
 }
 
-export default function Header({ tickerInput, setTickerInput, onAnalyze, unacknowledgedCount }) {
+const PROVIDER_LABEL = { anthropic: 'Anthropic', openai: 'OpenAI', xai: 'xAI' }
+
+function BackendStatusPill({ backend }) {
+  if (!backend) return null
+  const { status, health, recheck } = backend
+  const provider = PROVIDER_LABEL[health?.llm_provider] || health?.llm_provider
+  const missingData = Object.entries(health?.data_sources || {})
+    .filter(([, ok]) => !ok)
+    .map(([name]) => name.toUpperCase())
+  const view = {
+    checking: { color: 'var(--text-muted)', label: 'Connecting…', title: 'Checking the backend' },
+    online: {
+      color: 'var(--success)',
+      label: provider ? `Live · ${provider}` : 'Live',
+      title: missingData.length ? `Backend online. Missing data keys: ${missingData.join(', ')}` : 'Backend online',
+    },
+    'no-llm-key': {
+      color: 'var(--warning)',
+      label: 'No LLM key',
+      title: `Backend online, but no API key is set for ${provider || 'the selected LLM provider'} — saved analyses load, new runs will fail.`,
+    },
+    offline: {
+      color: 'var(--danger)',
+      label: 'Backend offline',
+      title: 'Cannot reach the API. Start it with: python run.py (click to retry)',
+    },
+  }[status]
+
+  return (
+    <button
+      type="button"
+      onClick={() => recheck()}
+      title={view.title}
+      aria-label={`Backend status: ${view.label}. ${view.title}`}
+      className="hidden sm:flex items-center gap-1.5 h-7 px-2.5 rounded-full border border-[var(--border)] text-[11px] text-[var(--text-secondary)] hover:border-[var(--border-hover)]"
+    >
+      <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: view.color }} aria-hidden />
+      {view.label}
+    </button>
+  )
+}
+
+export default function Header({ tickerInput, setTickerInput, onAnalyze, unacknowledgedCount, backend }) {
   const navigate = useNavigate()
   const { loading, stage, progress, analysis } = useAnalysisContext()
 
@@ -80,7 +122,8 @@ export default function Header({ tickerInput, setTickerInput, onAnalyze, unackno
       )}
 
       {/* Right actions */}
-      <div className="flex items-center gap-1 shrink-0">
+      <div className="flex items-center gap-2 shrink-0">
+        <BackendStatusPill backend={backend} />
         <Button
           variant="ghost"
           size="icon"

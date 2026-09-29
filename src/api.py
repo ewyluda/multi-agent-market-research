@@ -64,12 +64,21 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app):
     """Startup/shutdown lifecycle for the FastAPI application."""
-    # Pre-warm macro cache (ticker-independent, changes daily at most)
-    try:
-        await data_provider.get_macro_indicators()
-        logger.info("Macro indicator cache pre-warmed")
-    except Exception:
-        logger.warning("Macro cache pre-warm failed (non-blocking)", exc_info=True)
+    # Pre-warm the macro cache in the background. Awaiting it here blocked the server from
+    # accepting requests for ~20s (OpenBB import + FRED calls); the UI now sees a healthy
+    # backend immediately and /health reports warm-up progress.
+    app.state.warmup = "pending"
+
+    async def _prewarm():
+        try:
+            await data_provider.get_macro_indicators()
+            app.state.warmup = "done"
+            logger.info("Macro indicator cache pre-warmed")
+        except Exception:
+            app.state.warmup = "failed"
+            logger.warning("Macro cache pre-warm failed (non-blocking)", exc_info=True)
+
+    prewarm_task = asyncio.create_task(_prewarm(), name="macro_prewarm")
 
     # Startup: start the scheduler if enabled
     if Config.SCHEDULER_ENABLED:
@@ -81,6 +90,8 @@ async def lifespan(app):
         app.state.scheduler = scheduler
         await scheduler.start()
     yield
+    if not prewarm_task.done():
+        prewarm_task.cancel()
     # Shutdown: stop the scheduler if running
     if hasattr(app.state, "scheduler"):
         await app.state.scheduler.stop()
@@ -228,13 +239,23 @@ async def update_company_tags(ticker: str, body: dict):
 
 @app.get("/health", response_model=HealthCheckResponse)
 async def health_check():
-    """Health check endpoint."""
-    config_valid = Config.validate_config()
+    """Cheap health check (no external calls) — the UI polls this for its status pill.
 
-    # Test database connection
+    Reports whether an LLM key is configured for the selected provider and which data
+    sources have keys (booleans only), plus background warm-up progress.
+    """
+    llm_keys = {
+        "anthropic": Config.ANTHROPIC_API_KEY,
+        "openai": Config.OPENAI_API_KEY,
+        "xai": Config.GROK_API_KEY,
+    }
+    provider = Config.LLM_PROVIDER
+    llm_configured = bool(llm_keys.get(provider))
+    config_valid = provider in llm_keys and llm_configured
+
     db_connected = False
     try:
-        db_manager.get_latest_analysis("TEST")
+        await asyncio.to_thread(db_manager.get_latest_analysis, "TEST")
         db_connected = True
     except Exception as e:
         logger.error(f"Database health check failed: {e}")
@@ -243,7 +264,15 @@ async def health_check():
         status="healthy" if (config_valid and db_connected) else "degraded",
         timestamp=datetime.now(timezone.utc).isoformat(),
         database_connected=db_connected,
-        config_valid=config_valid
+        config_valid=config_valid,
+        llm_provider=provider,
+        llm_configured=llm_configured,
+        data_sources={
+            "fmp": bool(Config.FMP_API_KEY),
+            "fred": bool(Config.FRED_API_KEY),
+            "tavily": bool(getattr(Config, "TAVILY_API_KEY", "")),
+        },
+        warmup=getattr(app.state, "warmup", None),
     )
 
 

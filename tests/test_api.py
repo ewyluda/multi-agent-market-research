@@ -27,6 +27,20 @@ class TestHealthCheck:
         assert "config_valid" in data
         assert "timestamp" in data
 
+    def test_health_reports_key_presence_as_booleans_only(self, client):
+        """The UI status pill reads these; values must be booleans, never the keys."""
+        data = client.get("/health").json()
+        assert data["llm_provider"] in ("anthropic", "openai", "xai")
+        assert isinstance(data["llm_configured"], bool)
+        assert set(data["data_sources"]) == {"fmp", "fred", "tavily"}
+        assert all(isinstance(v, bool) for v in data["data_sources"].values())
+        from src.config import Config
+        body = client.get("/health").text
+        for secret in (Config.ANTHROPIC_API_KEY, Config.OPENAI_API_KEY, Config.GROK_API_KEY,
+                       Config.FMP_API_KEY, Config.FRED_API_KEY):
+            if secret:
+                assert secret not in body
+
 
 class TestRootEndpoint:
     """Tests for GET /."""
