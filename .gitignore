@@ -213,3 +213,8 @@ __marimo__/
 
 # Git worktrees
 .worktrees/
+
+# Local SQLite WAL/SHM + macOS metadata
+*.db-shm
+*.db-wal
+.DS_Store

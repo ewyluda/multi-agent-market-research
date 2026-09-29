@@ -1,8 +1,15 @@
 #!/usr/bin/env python3
-"""Simple test script for the multi-agent market research API."""
+"""Manual smoke test: run one full live analysis (spends LLM/data API credits).
+
+Usage: python scripts/smoke_analysis.py [TICKER]
+"""
 
 import asyncio
 import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 from src.orchestrator import Orchestrator
 from src.config import Config
 import json
