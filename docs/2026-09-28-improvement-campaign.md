@@ -25,9 +25,9 @@ Every session below should make one of those more visible or more credible.
 |----|---------|-----------|--------|
 | A0 | Repo triage, skills extraction, branch cleanup, schedule off | — | done |
 | A1 | Frontend visual + data-binding bugs | A0 | done |
-| A2 | Restore synthesis agents (timeout budget, failure visibility) | A0 | in progress (PR open, awaiting merge) |
+| A2 | Restore synthesis agents (timeout budget, failure visibility) | A0 | done |
 | A3 | Error surfacing + backend startup time | A1 | pending |
-| A4 | Verdict hero (render the Solution agent's output) | A1 | pending |
+| A4 | Verdict hero (render the Solution agent's output) | A1 | in progress (PR open, awaiting merge) |
 | B1 | CI, lint, dependency lock, leaky-test fixes | A1, A2 | pending |
 | B2 | Security + deploy hardening | B1 | pending |
 | B3 | Backend trim (dead code, flags, config sync, async DB access) | B1 | pending |
@@ -126,7 +126,7 @@ Status values: `pending` / `in progress` / `done` / `blocked (<reason>)`.
 **Done when:** every item above verified in the browser preview.
 
 ### A2 · Restore synthesis agents (timeout budget + failure visibility)
-**Status:** in progress — PR open. Root causes turned out to be **four**, not one — see the session log.
+**Status:** done (2026-09-29) — PR #10 merged. Root causes turned out to be **four**, not one — see the session log.
 **Goal:** Thesis, Narrative and Tags actually appear again, and when a synthesis agent fails the UI says so.
 
 **Evidence:** 0 of the last 40 analyses contain `thesis` or `narrative` (the last one with a thesis was on 2026-04-04). `src/orchestrator.py:301` wraps every synthesis agent in `ENRICHMENT_AGENT_TIMEOUT` = **15s**, *outside* each agent's own 30s `AGENT_TIMEOUT` (`orchestrator.py:910`), so the effective cap is 15s for two-pass LLM agents. `TimeoutError` has an empty message, so the log reads `Enrichment 'thesis' failed (non-blocking): ` with nothing after it. This was introduced in `9a18b3c` (2026-04-03, orchestrator resilience).
@@ -159,7 +159,7 @@ Status values: `pending` / `in progress` / `done` / `blocked (<reason>)`.
 **Done when:** both verified, and startup is ≤10s or the remaining cost is documented with its cause.
 
 ### A4 · Verdict hero — render the Solution agent's output
-**Status:** pending
+**Status:** in progress — PR open.
 **Goal:** the platform's headline answer is actually visible. Since `2949a39` deleted Summary/Recommendation/ScenarioPanel, **no UI reads** `reasoning`, `risks`, `opportunities`, `price_targets` or `scenarios` (`src/agents/solution_agent.py:357-368`).
 
 **Scope:** a new `frontend/src/components/analysis/VerdictHero.jsx` above the tabs, containing:
@@ -551,6 +551,7 @@ Keep claims honest: frame these as transferable patterns, not as data-center exp
 - 2026-09-29 (A2): Wall time on the verification runs was 114–153s, dominated by the slowest synthesis agent (thesis/narrative on xAI reasoning ≈ 70–100s). C1 model tiers (a faster model for the tag/earnings passes, prompt size) and D1's run view should make this visible and shorter.
 - 2026-09-29 (A2): the 10-K section parser can't find headers split mid-word across HTML elements (MSFT: `ITEM 1A. RIS` / `K FACTORS`); those filings go to the LLM-extraction fallback (pre-existing behaviour, not a regression).
 - 2026-09-29 (A2): news RSS sources return 403/404 on every run (AP Business, Investopedia, Barrons, Reuters). Check in B3/B5 — prune dead feeds or fix headers.
+- 2026-09-29 (A4): KpiRow's Rating/Confidence cards now duplicate the Verdict panel header. D2: consider replacing them with EV score / data quality / regime (fields already in the payload: `ev_score_7d`, `data_quality_score`, `regime_label`).
 - 2026-09-28 (audit): `.claude/launch.json` called a bare `python`, which isn't on PATH; changed to `venv/bin/python` (untracked file).
 
 ## Session log
@@ -560,4 +561,5 @@ Keep claims honest: frame these as transferable patterns, not as data-center exp
 - 2026-09-28 · A0 · in progress · [PR #8](https://github.com/ewyluda/multi-agent-market-research/pull/8) · Playbook repo created: https://github.com/ewyluda/equity-dd-agent-playbook (13 skills commits via subtree split + README/LICENSE/validator; 65/65 files validate). LICENSE added; CLAUDE.MD→CLAUDE.md; schedulers default off; AAPL schedule disabled in local DB; model defaults updated; junk removed. Branches: 6 local + 4 remote deleted (3 remote were already gone); `delete_branch_on_merge` enabled; description fixed. Verified: 697 fast tests pass; backend starts ~19s with no scheduler jobs. Blocked for owner: PR merge, local `main` reset.
 - 2026-09-28 · A0 · done · [PR #8](https://github.com/ewyluda/multi-agent-market-research/pull/8) · Owner approved merge + local `main` reset; both done.
 - 2026-09-28 · A1 · done · [PR #9](https://github.com/ewyluda/multi-agent-market-research/pull/9) · CSS reset moved to `@layer base`; `normalizeAnalysis()` adapter; KPI confidence 45% / sentiment −0.10 / 1-day change verified on AAPL id 221; sentiment factor dict rendered; History loads on mount with server-side rating filter; History/Watchlist/Portfolio clicks navigate (no paid re-run); route-driven AnalysisView + `?tab=`; no-saved-analysis state; bell → /alerts, dead Settings removed; P/E summary formatted. Lint 27→22 (rest are B1). `vite build` OK; 697 fast tests pass.
-- 2026-09-29 · A2 · PR open · (see PR) · Four root causes behind "thesis/narrative/risk diff silently missing": (1) a 15s outer `wait_for` around every synthesis agent — narrative/thesis take 70–100s live; (2) ThesisAgent + EarningsReviewAgent crashed with `TypeError: dict * int` reading MarketAgent's `price_change_1m` dict as a float (new `src/agents/market_fields.py`); (3) RiskDiff called FMP `/stable/sec-filings`, which returns 404 → switched to `sec-filings-search/symbol` + client-side form filter; (4) the Item 1A parser anchored on the table-of-contents entry, so the LLM saw TOC + Business text and extracted zero risks. Also: per-agent budgets in `Config.SYNTHESIS_TIMEOUTS` applied once in `_run_synthesis_agent`; `synthesis_status` (ok/partial/timeout/failed/error + elapsed/budget/reason) persisted and shown in footer + Diagnostics; EarningsReview/RiskDiff partial results say *why*; tags attached to payload. Verified with 4 live NVDA runs (xAI + FMP): final run 6/6 synthesis ok, thesis/narrative/risk diff (score 67, 2 new risks) all populated. 710 fast tests pass.
+- 2026-09-29 · A2 · done · [PR #10](https://github.com/ewyluda/multi-agent-market-research/pull/10) · Four root causes behind "thesis/narrative/risk diff silently missing": (1) a 15s outer `wait_for` around every synthesis agent — narrative/thesis take 70–100s live; (2) ThesisAgent + EarningsReviewAgent crashed with `TypeError: dict * int` reading MarketAgent's `price_change_1m` dict as a float (new `src/agents/market_fields.py`); (3) RiskDiff called FMP `/stable/sec-filings`, which returns 404 → switched to `sec-filings-search/symbol` + client-side form filter; (4) the Item 1A parser anchored on the table-of-contents entry, so the LLM saw TOC + Business text and extracted zero risks. Also: per-agent budgets in `Config.SYNTHESIS_TIMEOUTS` applied once in `_run_synthesis_agent`; `synthesis_status` (ok/partial/timeout/failed/error + elapsed/budget/reason) persisted and shown in footer + Diagnostics; EarningsReview/RiskDiff partial results say *why*; tags attached to payload. Verified with 4 live NVDA runs (xAI + FMP): final run 6/6 synthesis ok, thesis/narrative/risk diff (score 67, 2 new risks) all populated. 710 fast tests pass.
+- 2026-09-29 · A4 · PR open · (see PR) · New `VerdictHero` above the tabs: rating + calibrated confidence + position/horizon, validation badge (status + rules passed), rule-engine override badge with evidence, 3-line rationale with expand, top-3 opportunities/risks, price ladder (stop/entry/current/target, % from current, reward/risk), bull/base/bear probability bars with guardrail-clamped flags + probability-weighted return, and an expandable list of guardrail adjustments. Verified on NVDA #233 (BUY, 5.1× R/R, +19.6% weighted, 2 clamps) and AAPL #221 (HOLD) at 1440 and 1024 wide. Lint unchanged (22), build OK.
