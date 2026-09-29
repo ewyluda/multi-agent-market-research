@@ -86,6 +86,8 @@ class Orchestrator:
         # Shared data provider (OpenBB SDK)
         self._data_provider = data_provider or OpenBBDataProvider(self.config)
         self._shared_session: Optional[aiohttp.ClientSession] = None
+        # Per-run outcome of each synthesis agent (see _run_synthesis_agent).
+        self._synthesis_status: Dict[str, Dict[str, Any]] = {}
 
     def _get_config_dict(self) -> Dict[str, Any]:
         """Convert Config class to dictionary."""
@@ -298,23 +300,17 @@ class Orchestrator:
             # Enrichments consume agent_results (Phase 1), not final_analysis,
             # so they can safely run concurrently with the solution agent.
             await self._notify_progress("synthesizing", ticker, 80)
-            enrichment_timeout = int(self.config.get("ENRICHMENT_AGENT_TIMEOUT", 15))
-
-            async def _safe_enrichment(coro, name):
-                try:
-                    return await asyncio.wait_for(coro, timeout=enrichment_timeout)
-                except Exception as e:
-                    self.logger.warning(f"Enrichment '{name}' failed (non-blocking): {e}")
-                    return None
-
+            # Each synthesis agent runs under its own budget (Config.SYNTHESIS_TIMEOUTS), applied
+            # once inside _run_synthesis_agent. Failures are non-blocking and recorded per agent.
+            self._synthesis_status = {}
             final_analysis, (thesis_result, earnings_review_result, narrative_result, tag_result, risk_diff_result) = await asyncio.gather(
                 self._run_solution_agent(ticker, agent_results),
                 asyncio.gather(
-                    _safe_enrichment(self._run_thesis_agent(ticker, agent_results), "thesis"),
-                    _safe_enrichment(self._run_earnings_review_agent(ticker, agent_results), "earnings_review"),
-                    _safe_enrichment(self._run_narrative_agent(ticker, agent_results, prefetched_data=narrative_predata), "narrative"),
-                    _safe_enrichment(self._run_tag_extractor_agent(ticker, agent_results), "tag_extractor"),
-                    _safe_enrichment(self._run_risk_diff_agent(ticker, agent_results, prefetched_data=risk_diff_predata), "risk_diff"),
+                    self._run_thesis_agent(ticker, agent_results),
+                    self._run_earnings_review_agent(ticker, agent_results),
+                    self._run_narrative_agent(ticker, agent_results, prefetched_data=narrative_predata),
+                    self._run_tag_extractor_agent(ticker, agent_results),
+                    self._run_risk_diff_agent(ticker, agent_results, prefetched_data=risk_diff_predata),
                 ),
             )
             if thesis_result:
@@ -325,6 +321,9 @@ class Orchestrator:
                 final_analysis["narrative"] = narrative_result
             if risk_diff_result:
                 final_analysis["risk_diff"] = risk_diff_result
+            if tag_result:
+                final_analysis["tags"] = tag_result
+            final_analysis["synthesis_status"] = dict(self._synthesis_status)
             previous_analysis = self.db_manager.get_latest_analysis(ticker)
             final_analysis["signal_snapshot"] = self._build_signal_snapshot(final_analysis, agent_results)
             diagnostics = self._build_diagnostics(agent_results)
@@ -873,84 +872,97 @@ class Orchestrator:
         except Exception as e:
             self.logger.debug(f"Could not load calibration context: {e}")
 
-        timeout = self.config.get("AGENT_TIMEOUT", 30)
+        timeout = self._synthesis_timeout("solution")
+        started = time.monotonic()
 
         try:
             result = await asyncio.wait_for(
                 solution_agent.execute(),
                 timeout=timeout
             )
-
-            if result.get("success"):
-                return result.get("data", {})
-            else:
-                raise Exception(f"Solution agent failed: {result.get('error')}")
-
         except asyncio.TimeoutError:
-            raise Exception("Solution agent timed out")
+            self._synthesis_status["solution"] = {
+                "status": "timeout", "timeout_s": timeout,
+                "elapsed_s": round(time.monotonic() - started, 2),
+                "error": f"exceeded {timeout:.0f}s budget",
+            }
+            raise Exception(f"Solution agent timed out after {timeout:.0f}s")
 
-    async def _run_thesis_agent(
+        elapsed = round(time.monotonic() - started, 2)
+        if result.get("success"):
+            self._synthesis_status["solution"] = {"status": "ok", "timeout_s": timeout, "elapsed_s": elapsed}
+            return result.get("data", {})
+        self._synthesis_status["solution"] = {
+            "status": "failed", "timeout_s": timeout, "elapsed_s": elapsed,
+            "error": str(result.get("error") or "unknown error")[:300],
+        }
+        raise Exception(f"Solution agent failed: {result.get('error')}")
+
+    def _synthesis_timeout(self, name: str) -> float:
+        """Time budget for one synthesis agent (see Config.SYNTHESIS_TIMEOUTS)."""
+        budgets = self.config.get("SYNTHESIS_TIMEOUTS") or {}
+        return float(budgets.get(name, self.config.get("AGENT_TIMEOUT", 30)))
+
+    async def _run_synthesis_agent(
         self,
+        name: str,
+        agent_cls: type,
         ticker: str,
         agent_results: Dict[str, Any],
+        prefetched_data: Optional[Dict[str, Any]] = None,
     ) -> Optional[Dict[str, Any]]:
-        """
-        Run thesis agent to generate bull/bear debate (non-blocking).
+        """Run one non-blocking synthesis agent under its own time budget.
 
-        Args:
-            ticker: Stock ticker
-            agent_results: Results from all data agents
+        This is the only place a synthesis timeout is applied. The outcome is recorded in
+        ``self._synthesis_status[name]`` (status, elapsed_s, timeout_s, error) so the analysis
+        payload shows *why* a section is missing instead of silently dropping it.
 
-        Returns:
-            Thesis output dict, or None on failure
+        Returns the agent's ``data`` dict, or None on failure/timeout.
         """
+        timeout = self._synthesis_timeout(name)
+        started = time.monotonic()
+        status: Dict[str, Any] = {"status": "ok", "timeout_s": timeout}
+        data: Optional[Dict[str, Any]] = None
         try:
-            thesis_agent = ThesisAgent(ticker, self.config, agent_results)
-            self._inject_shared_resources(thesis_agent)
-            timeout = self.config.get("AGENT_TIMEOUT", 30)
-            result = await asyncio.wait_for(
-                thesis_agent.execute(),
-                timeout=timeout,
-            )
+            agent = agent_cls(ticker, self.config, agent_results)
+            self._inject_shared_resources(agent)
+            if prefetched_data is not None:
+                prefetched_data["agent_results"] = agent_results
+                agent._prefetched_data = prefetched_data
+            result = await asyncio.wait_for(agent.execute(), timeout=timeout)
             if result.get("success"):
-                return result.get("data")
+                data = result.get("data")
+                # Agents may degrade to a deterministic-only result; surface that too.
+                if isinstance(data, dict) and data.get("partial"):
+                    status.update(
+                        status="partial",
+                        error=str(data.get("partial_error") or data.get("partial_reason") or "partial result")[:300],
+                    )
             else:
-                self.logger.warning(f"Thesis agent failed for {ticker}: {result.get('error')}")
-                return None
+                status.update(status="failed", error=str(result.get("error") or "unknown error")[:300])
         except asyncio.TimeoutError:
-            self.logger.warning(f"Thesis agent timed out for {ticker}")
-            return None
+            # Note: LLM SDK calls run in worker threads, so cancellation doesn't stop an
+            # in-flight request (fixed by the async client in campaign session C1).
+            status.update(status="timeout", error=f"exceeded {timeout:.0f}s budget")
         except Exception as e:
-            self.logger.warning(f"Thesis agent error for {ticker}: {e}")
-            return None
+            status.update(status="error", error=f"{type(e).__name__}: {e}"[:300])
 
-    async def _run_earnings_review_agent(
-        self,
-        ticker: str,
-        agent_results: Dict[str, Any],
-    ) -> Optional[Dict[str, Any]]:
-        """
-        Run earnings review agent for structured earnings digest (non-blocking).
-        """
-        try:
-            review_agent = EarningsReviewAgent(ticker, self.config, agent_results)
-            self._inject_shared_resources(review_agent)
-            timeout = self.config.get("AGENT_TIMEOUT", 30)
-            result = await asyncio.wait_for(
-                review_agent.execute(),
-                timeout=timeout,
+        status["elapsed_s"] = round(time.monotonic() - started, 2)
+        self._synthesis_status[name] = status
+        if status["status"] != "ok":
+            self.logger.warning(
+                f"Synthesis agent '{name}' {status['status']} for {ticker} "
+                f"after {status['elapsed_s']}s: {status.get('error')}"
             )
-            if result.get("success"):
-                return result.get("data")
-            else:
-                self.logger.warning(f"Earnings review agent failed for {ticker}: {result.get('error')}")
-                return None
-        except asyncio.TimeoutError:
-            self.logger.warning(f"Earnings review agent timed out for {ticker}")
-            return None
-        except Exception as e:
-            self.logger.warning(f"Earnings review agent error for {ticker}: {e}")
-            return None
+        return data
+
+    async def _run_thesis_agent(self, ticker: str, agent_results: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Bull/bear thesis debate (two LLM passes)."""
+        return await self._run_synthesis_agent("thesis", ThesisAgent, ticker, agent_results)
+
+    async def _run_earnings_review_agent(self, ticker: str, agent_results: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Structured earnings digest."""
+        return await self._run_synthesis_agent("earnings_review", EarningsReviewAgent, ticker, agent_results)
 
     async def _run_narrative_agent(
         self,
@@ -958,56 +970,14 @@ class Orchestrator:
         agent_results: Dict[str, Any],
         prefetched_data: Optional[Dict[str, Any]] = None,
     ) -> Optional[Dict[str, Any]]:
-        """Run narrative agent for multi-year financial story (non-blocking)."""
-        try:
-            narrative_agent = NarrativeAgent(ticker, self.config, agent_results)
-            self._inject_shared_resources(narrative_agent)
-            if prefetched_data is not None:
-                # Inject agent_results into prefetched data (fetch_data returns these)
-                prefetched_data["agent_results"] = agent_results
-                narrative_agent._prefetched_data = prefetched_data
-            timeout = self.config.get("AGENT_TIMEOUT", 30)
-            result = await asyncio.wait_for(
-                narrative_agent.execute(),
-                timeout=timeout,
-            )
-            if result.get("success"):
-                return result.get("data")
-            else:
-                self.logger.warning(f"Narrative agent failed for {ticker}: {result.get('error')}")
-                return None
-        except asyncio.TimeoutError:
-            self.logger.warning(f"Narrative agent timed out for {ticker}")
-            return None
-        except Exception as e:
-            self.logger.warning(f"Narrative agent error for {ticker}: {e}")
-            return None
+        """Multi-year financial narrative (two LLM passes)."""
+        return await self._run_synthesis_agent(
+            "narrative", NarrativeAgent, ticker, agent_results, prefetched_data=prefetched_data
+        )
 
-    async def _run_tag_extractor_agent(
-        self,
-        ticker: str,
-        agent_results: Dict[str, Any],
-    ) -> Optional[Dict[str, Any]]:
-        """Run tag extractor for qualitative classification (non-blocking)."""
-        try:
-            tag_agent = TagExtractorAgent(ticker, self.config, agent_results)
-            self._inject_shared_resources(tag_agent)
-            timeout = self.config.get("AGENT_TIMEOUT", 30)
-            result = await asyncio.wait_for(
-                tag_agent.execute(),
-                timeout=timeout,
-            )
-            if result.get("success"):
-                return result.get("data")
-            else:
-                self.logger.warning(f"Tag extractor failed for {ticker}: {result.get('error')}")
-                return None
-        except asyncio.TimeoutError:
-            self.logger.warning(f"Tag extractor timed out for {ticker}")
-            return None
-        except Exception as e:
-            self.logger.warning(f"Tag extractor error for {ticker}: {e}")
-            return None
+    async def _run_tag_extractor_agent(self, ticker: str, agent_results: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Qualitative company tags."""
+        return await self._run_synthesis_agent("tag_extractor", TagExtractorAgent, ticker, agent_results)
 
     async def _run_risk_diff_agent(
         self,
@@ -1015,29 +985,10 @@ class Orchestrator:
         agent_results: Dict[str, Any],
         prefetched_data: Optional[Dict[str, Any]] = None,
     ) -> Optional[Dict[str, Any]]:
-        """Run risk diff agent for SEC filing risk factor changes (non-blocking)."""
-        try:
-            risk_diff_agent = RiskDiffAgent(ticker, self.config, agent_results)
-            self._inject_shared_resources(risk_diff_agent)
-            if prefetched_data is not None:
-                prefetched_data["agent_results"] = agent_results
-                risk_diff_agent._prefetched_data = prefetched_data
-            timeout = self.config.get("AGENT_TIMEOUT", 30)
-            result = await asyncio.wait_for(
-                risk_diff_agent.execute(),
-                timeout=timeout,
-            )
-            if result.get("success"):
-                return result.get("data")
-            else:
-                self.logger.warning(f"Risk diff agent failed for {ticker}: {result.get('error')}")
-                return None
-        except asyncio.TimeoutError:
-            self.logger.warning(f"Risk diff agent timed out for {ticker}")
-            return None
-        except Exception as e:
-            self.logger.warning(f"Risk diff agent error for {ticker}: {e}")
-            return None
+        """SEC risk-factor diff."""
+        return await self._run_synthesis_agent(
+            "risk_diff", RiskDiffAgent, ticker, agent_results, prefetched_data=prefetched_data
+        )
 
     def _save_to_database(
         self,
@@ -1319,7 +1270,7 @@ class Orchestrator:
             market_data.get("current_price"),
             market_data.get("price"),
             market_data.get("close"),
-            (market_data.get("price_change_1m") or {}).get("current_price"),
+            (market_data.get("price_change_1m") or {}).get("end_price"),
             (final_analysis.get("decision_card") or {}).get("entry_zone", {}).get("reference"),
             (final_analysis.get("price_targets") or {}).get("entry"),
         ]

@@ -10,6 +10,7 @@ import anthropic
 from openai import OpenAI
 
 from .base_agent import BaseAgent
+from .market_fields import average_volume, format_period_change, week52_high, week52_low
 
 # Weights for data completeness scoring (sum to 1.0)
 _COMPLETENESS_WEIGHTS = {
@@ -269,14 +270,12 @@ Business: {desc}{insider_str}"""
     @staticmethod
     def _format_market_metrics(data: Dict[str, Any]) -> str:
         price = data.get("current_price", "N/A")
-        high = data.get("high_52w", "N/A")
-        low = data.get("low_52w", "N/A")
-        vol = data.get("avg_volume")
+        high = week52_high(data)
+        low = week52_low(data)
+        vol = average_volume(data)
         vol_str = f"{vol / 1e6:.1f}M" if vol else "N/A"
-        chg1m = data.get("price_change_1m")
-        chg1m_str = f"{chg1m * 100:+.1f}%" if chg1m is not None else "N/A"
-        chg3m = data.get("price_change_3m")
-        chg3m_str = f"{chg3m * 100:+.1f}%" if chg3m is not None else "N/A"
+        chg1m_str = format_period_change(data.get("price_change_1m"))
+        chg3m_str = format_period_change(data.get("price_change_3m"))
         return f"MARKET: Price ${price} | 52w High ${high} / Low ${low} | Vol {vol_str} | 1M {chg1m_str} | 3M {chg3m_str}"
 
     # ─── LLM Prompts ────────────────────────────────────────────────────────

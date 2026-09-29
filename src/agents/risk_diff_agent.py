@@ -136,7 +136,18 @@ class RiskDiffAgent(BaseAgent):
                 self.logger.warning(f"RiskDiff Pass 1 failed for filing {i}: {result}")
 
         if not inventories:
-            return self._empty_result(completeness, sources)
+            result = self._empty_result(completeness, sources)
+            # Filings were retrieved but no risk topics came back: say so, and mark it partial
+            # so the orchestrator's synthesis_status surfaces it instead of reporting "ok".
+            result.update(
+                summary=(
+                    f"Risk sections were retrieved from {len(filings)} SEC filing(s) for "
+                    f"{self.ticker}, but no risk topics could be extracted this run."
+                ),
+                partial=True,
+                partial_reason="no_risks_extracted",
+            )
+            return result
 
         # Build filing comparison metadata
         filings_compared = [

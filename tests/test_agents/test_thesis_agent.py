@@ -151,12 +151,14 @@ def _make_agent_results(
         results["market"] = {
             "success": True,
             "data": {
+                # Real MarketAgent output shape (market_agent.py); fixtures once used a bare
+                # float + high_52w keys, which hid a TypeError in every live run.
                 "current_price": 195.0,
-                "high_52w": 220.0,
-                "low_52w": 165.0,
-                "avg_volume": 55000000,
-                "price_change_1m": 0.05,
-                "price_change_3m": -0.02,
+                "fifty_two_week_high": 220.0,
+                "fifty_two_week_low": 165.0,
+                "average_volume": 55000000,
+                "price_change_1m": {"change": 9.3, "change_pct": 5.0, "start_price": 185.7, "end_price": 195.0},
+                "price_change_3m": {"change": -4.0, "change_pct": -2.0, "start_price": 199.0, "end_price": 195.0},
                 "data_source": "fmp",
             },
         }
